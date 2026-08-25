@@ -1,0 +1,182 @@
+name: Build cancro kernel
+
+on:
+  workflow_dispatch:
+    inputs:
+      anykernel_ref:
+        description: AnyKernel3 branch, tag, or commit
+        required: false
+        default: master
+      make_jobs:
+        description: Parallel build jobs (use 1 if this legacy tree races)
+        required: true
+        default: "1"
+      extra_make_args:
+        description: Extra make arguments
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+env:
+  ARCH: arm
+  SUBARCH: arm
+  OUT_DIR: out
+  TOOLCHAIN_REPOSITORY: https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9
+  TOOLCHAIN_REF: android-10.0.0_r47
+  TOOLCHAIN_DIR: /opt/toolchain/arm-linux-androideabi-4.9
+  TOOLCHAIN_PREFIX: /opt/toolchain/arm-linux-androideabi-4.9/bin/arm-linux-androideabi-
+  KERNEL_RELEASE: 3.4.113-perf-0825
+  KERNEL_LOCALVERSION: -perf-0825
+  TZ: Asia/Shanghai
+  KBUILD_BUILD_TIMESTAMP: "Tue Aug 25 12:52:00 CST 2026"
+  KBUILD_BUILD_VERSION: "1"
+  CCACHE_DIR: ${{ github.workspace }}/.ccache
+  ANYKERNEL3_REPOSITORY: https://github.com/osm0sis/AnyKernel3.git
+  EXTRA_MAKE_ARGS: ${{ inputs.extra_make_args }}
+
+jobs:
+  build:
+    name: Build cancro_defconfig
+    runs-on: ubuntu-22.04
+    timeout-minutes: 180
+    steps:
+      - name: Checkout kernel
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+          submodules: recursive
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bc bison build-essential ccache flex git libssl-dev python3 zip
+      - name: Restore ccache
+        uses: actions/cache@v5
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: ccache-${{ runner.os }}-${{ github.ref_name }}-virgo-aosp-gcc-4.9-${{ hashFiles('arch/arm/configs/cancro_defconfig', '.gitmodules', '.github/workflows/build-kernel.yml') }}
+          restore-keys: |
+            ccache-${{ runner.os }}-${{ github.ref_name }}-virgo-aosp-gcc-4.9-
+            ccache-${{ runner.os }}-virgo-aosp-gcc-4.9-
+      - name: Configure ccache
+        run: |
+          mkdir -p "$CCACHE_DIR"
+          ccache --set-config=max_size=5G
+          ccache --set-config=compiler_check=content
+          ccache --zero-stats
+      - name: Checkout AOSP GCC 4.9
+        run: |
+          sudo install -d -o "$USER" -g "$(id -gn)" /opt/toolchain
+          git init "$TOOLCHAIN_DIR"
+          git -C "$TOOLCHAIN_DIR" remote add origin "$TOOLCHAIN_REPOSITORY"
+          git -C "$TOOLCHAIN_DIR" fetch --depth=1 origin "refs/tags/$TOOLCHAIN_REF"
+          git -C "$TOOLCHAIN_DIR" checkout --detach FETCH_HEAD
+          test -x "${TOOLCHAIN_PREFIX}gcc"
+          echo "Toolchain:"
+          "${TOOLCHAIN_PREFIX}gcc" --version
+      - name: Configure kernel
+        run: |
+          mkdir -p "$OUT_DIR"
+          EXTRA_ARGS=()
+          if [ -n "$EXTRA_MAKE_ARGS" ]; then
+            read -r -a EXTRA_ARGS <<< "$EXTRA_MAKE_ARGS"
+          fi
+          MAKE_ARGS=(
+            O="$OUT_DIR"
+            ARCH="$ARCH"
+            SUBARCH="$SUBARCH"
+            CROSS_COMPILE="$TOOLCHAIN_PREFIX"
+            CC="ccache ${TOOLCHAIN_PREFIX}gcc"
+            HOSTCFLAGS="-fcommon"
+            LOCALVERSION=""
+          )
+          make "${MAKE_ARGS[@]}" "${EXTRA_ARGS[@]}" cancro_defconfig
+          scripts/config --file "$OUT_DIR/.config" --set-str LOCALVERSION "$KERNEL_LOCALVERSION" --disable LOCALVERSION_AUTO
+          make "${MAKE_ARGS[@]}" "${EXTRA_ARGS[@]}" silentoldconfig
+          make -s "${MAKE_ARGS[@]}" "${EXTRA_ARGS[@]}" kernelrelease
+      - name: Build kernel
+        env:
+          JOBS: ${{ inputs.make_jobs }}
+        run: |
+          case "$JOBS" in
+            ''|*[!0-9]*)
+              echo "make_jobs must be a positive integer" >&2
+              exit 1
+              ;;
+          esac
+          if [ "$JOBS" -lt 1 ]; then
+            echo "make_jobs must be at least 1" >&2
+            exit 1
+          fi
+          EXTRA_ARGS=()
+          if [ -n "$EXTRA_MAKE_ARGS" ]; then
+            read -r -a EXTRA_ARGS <<< "$EXTRA_MAKE_ARGS"
+          fi
+          MAKE_ARGS=(
+            O="$OUT_DIR"
+            ARCH="$ARCH"
+            SUBARCH="$SUBARCH"
+            CROSS_COMPILE="$TOOLCHAIN_PREFIX"
+            CC="ccache ${TOOLCHAIN_PREFIX}gcc"
+            HOSTCFLAGS="-fcommon"
+            LOCALVERSION=""
+          )
+          make -j"$JOBS" "${MAKE_ARGS[@]}" "${EXTRA_ARGS[@]}"
+      - name: Package AnyKernel3 flashable zip
+        env:
+          ANYKERNEL_REF: ${{ inputs.anykernel_ref }}
+        run: |
+          IMAGE_PATH="$OUT_DIR/arch/arm/boot/zImage"
+          test -s "$IMAGE_PATH"
+          git clone --depth=1 "$ANYKERNEL3_REPOSITORY" AnyKernel3
+          if [ -n "$ANYKERNEL_REF" ]; then
+            git -C AnyKernel3 fetch --depth=1 origin "$ANYKERNEL_REF"
+            git -C AnyKernel3 checkout --detach FETCH_HEAD
+          fi
+          rm -rf AnyKernel3/.git AnyKernel3/.github AnyKernel3/README.md
+          cp "$IMAGE_PATH" AnyKernel3/zImage
+          cat > AnyKernel3/anykernel.sh <<'EOF'
+          ### AnyKernel3 Ramdisk Mod Script
+          ### Xiaomi Mi Note (virgo/cancro) kernel
+          properties() { '
+          kernel.string=Xiaomi Mi Note (virgo/cancro) kernel
+          do.devicecheck=1
+          do.modules=0
+          do.systemless=1
+          do.cleanup=1
+          do.cleanuponabort=0
+          device.name1=cancro
+          device.name2=
+          device.name3=
+          device.name4=
+          device.name5=
+          supported.versions=
+          supported.patchlevels=
+          supported.vendorpatchlevels=
+          '; }
+          BLOCK=boot;
+          IS_SLOT_DEVICE=0;
+          RAMDISK_COMPRESSION=auto;
+          PATCH_VBMETA_FLAG=auto;
+          . tools/ak3-core.sh;
+          dump_boot;
+          write_boot;
+          EOF
+          mkdir -p artifacts
+          ZIP_NAME="AnyKernel3-virgo-${{ github.run_number }}.zip"
+          (
+            cd AnyKernel3
+            zip -r9 "$GITHUB_WORKSPACE/artifacts/$ZIP_NAME" . -x '*.git*' 'README.md'
+          )
+      - name: Show ccache statistics
+        if: always()
+        run: ccache --show-stats
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: virgo-${{ github.run_number }}
+          path: artifacts/AnyKernel3-virgo-${{ github.run_number }}.zip
+          archive: false
+          if-no-files-found: error
+          retention-days: 30
