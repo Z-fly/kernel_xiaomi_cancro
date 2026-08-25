@@ -136,29 +136,37 @@ jobs:
             git -C AnyKernel3 checkout --detach FETCH_HEAD
           fi
           rm -rf AnyKernel3/.git AnyKernel3/.github AnyKernel3/README.md
-          cp "$IMAGE_PATH" AnyKernel3/zImage-dtb
+          cp "$IMAGE_PATH" AnyKernel3/zImage
           mkdir -p AnyKernel3/modules/system/lib/modules
           cp "$OUT_DIR/drivers/staging/prima/wlan.ko" AnyKernel3/modules/system/lib/modules/
           cat > AnyKernel3/anykernel.sh <<'EOF'
           ### AnyKernel3 Ramdisk Mod Script
-          ### Xiaomi Mi Note (virgo/cancro) kernel
+          ### Xiaomi Mi 3/4 (cancro) kernel
           properties() { '
-          kernel.string=Xiaomi Mi Note (virgo/cancro) kernel
+          kernel.string=Xiaomi Mi 3/4 (cancro) kernel
           do.devicecheck=1
           do.modules=1
           do.systemless=0
           do.cleanup=1
           do.cleanuponabort=0
           device.name1=cancro
-          device.name2=
-          device.name3=
-          device.name4=
-          device.name5=
+          device.name2=MI3W
+          device.name3=MI3C
+          device.name4=MI4
+          device.name5=xiaomi3
+          device.name6=virgo
           supported.versions=
           supported.patchlevels=
           supported.vendorpatchlevels=
           '; }
-          BLOCK=boot;
+          ### AnyKernel install
+          ## boot files attributes
+          boot_attributes() {
+          set_perm_recursive 0 0 755 644 $RAMDISK/*;
+          set_perm_recursive 0 0 750 750 $RAMDISK/init* $RAMDISK/sbin;
+          } # end attributes
+          # boot shell variables
+          BLOCK=auto;
           IS_SLOT_DEVICE=0;
           RAMDISK_COMPRESSION=auto;
           PATCH_VBMETA_FLAG=auto;
