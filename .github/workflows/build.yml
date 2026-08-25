@@ -55,7 +55,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: ${{ env.CCACHE_DIR }}
-          key: ccache-${{ runner.os }}-${{ github.ref_name }}-virgo-aosp-gcc-4.9-${{ hashFiles('arch/arm/configs/cancro_defconfig', '.gitmodules', '.github/workflows/build-kernel.yml') }}
+          key: ccache-${{ runner.os }}-${{ github.ref_name }}-virgo-aosp-gcc-4.9-${{ hashFiles('arch/arm/configs/cancro_defconfig', '.gitmodules', '.github/workflows/build.yml') }}
           restore-keys: |
             ccache-${{ runner.os }}-${{ github.ref_name }}-virgo-aosp-gcc-4.9-
             ccache-${{ runner.os }}-virgo-aosp-gcc-4.9-
@@ -123,11 +123,12 @@ jobs:
             LOCALVERSION=""
           )
           make -j"$JOBS" "${MAKE_ARGS[@]}" "${EXTRA_ARGS[@]}"
+          make -j"$JOBS" "${MAKE_ARGS[@]}" "${EXTRA_ARGS[@]}" modules
       - name: Package AnyKernel3 flashable zip
         env:
           ANYKERNEL_REF: ${{ inputs.anykernel_ref }}
         run: |
-          IMAGE_PATH="$OUT_DIR/arch/arm/boot/zImage"
+          IMAGE_PATH="$OUT_DIR/arch/arm/boot/zImage-dtb"
           test -s "$IMAGE_PATH"
           git clone --depth=1 "$ANYKERNEL3_REPOSITORY" AnyKernel3
           if [ -n "$ANYKERNEL_REF" ]; then
@@ -135,14 +136,16 @@ jobs:
             git -C AnyKernel3 checkout --detach FETCH_HEAD
           fi
           rm -rf AnyKernel3/.git AnyKernel3/.github AnyKernel3/README.md
-          cp "$IMAGE_PATH" AnyKernel3/zImage
+          cp "$IMAGE_PATH" AnyKernel3/zImage-dtb
+          mkdir -p AnyKernel3/modules/system/lib/modules
+          cp "$OUT_DIR/drivers/staging/prima/wlan.ko" AnyKernel3/modules/system/lib/modules/
           cat > AnyKernel3/anykernel.sh <<'EOF'
           ### AnyKernel3 Ramdisk Mod Script
           ### Xiaomi Mi Note (virgo/cancro) kernel
           properties() { '
           kernel.string=Xiaomi Mi Note (virgo/cancro) kernel
           do.devicecheck=1
-          do.modules=0
+          do.modules=1
           do.systemless=1
           do.cleanup=1
           do.cleanuponabort=0
