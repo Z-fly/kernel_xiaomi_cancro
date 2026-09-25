@@ -128,7 +128,7 @@ jobs:
         env:
           ANYKERNEL_REF: ${{ inputs.anykernel_ref }}
         run: |
-          IMAGE_PATH="$OUT_DIR/arch/arm/boot/zImage-dtb"
+          IMAGE_PATH="$OUT_DIR/arch/arm/boot/zImage"
           test -s "$IMAGE_PATH"
           git clone --depth=1 "$ANYKERNEL3_REPOSITORY" AnyKernel3
           if [ -n "$ANYKERNEL_REF" ]; then
