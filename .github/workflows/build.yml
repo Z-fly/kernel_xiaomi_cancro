@@ -38,7 +38,7 @@ env:
 
 jobs:
   build:
-    name: Build cancro_defconfig
+    name: Build virgo_defconfig
     runs-on: ubuntu-22.04
     timeout-minutes: 180
     steps:
@@ -55,7 +55,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: ${{ env.CCACHE_DIR }}
-          key: ccache-${{ runner.os }}-${{ github.ref_name }}-virgo-aosp-gcc-4.9-${{ hashFiles('arch/arm/configs/cancro_defconfig', '.gitmodules', '.github/workflows/build.yml') }}
+          key: ccache-${{ runner.os }}-${{ github.ref_name }}-virgo-aosp-gcc-4.9-${{ hashFiles('arch/arm/configs/virgo_defconfig', '.gitmodules', '.github/workflows/build.yml') }}
           restore-keys: |
             ccache-${{ runner.os }}-${{ github.ref_name }}-virgo-aosp-gcc-4.9-
             ccache-${{ runner.os }}-virgo-aosp-gcc-4.9-
@@ -91,7 +91,7 @@ jobs:
             HOSTCFLAGS="-fcommon"
             LOCALVERSION=""
           )
-          make "${MAKE_ARGS[@]}" "${EXTRA_ARGS[@]}" cancro_defconfig
+          make "${MAKE_ARGS[@]}" "${EXTRA_ARGS[@]}" virgo_defconfig
           scripts/config --file "$OUT_DIR/.config" --set-str LOCALVERSION "$KERNEL_LOCALVERSION" --disable LOCALVERSION_AUTO
           make "${MAKE_ARGS[@]}" "${EXTRA_ARGS[@]}" silentoldconfig
           make -s "${MAKE_ARGS[@]}" "${EXTRA_ARGS[@]}" kernelrelease
