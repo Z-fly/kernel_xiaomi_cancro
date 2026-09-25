@@ -27,7 +27,7 @@ env:
   TOOLCHAIN_REF: android-10.0.0_r47
   TOOLCHAIN_DIR: /opt/toolchain/arm-linux-androideabi-4.9
   TOOLCHAIN_PREFIX: /opt/toolchain/arm-linux-androideabi-4.9/bin/arm-linux-androideabi-
-  KERNEL_RELEASE: 3.10.84-perf-0923
+  KERNEL_RELEASE: 3.4.113-perf-0923
   KERNEL_LOCALVERSION: -perf-0923
   TZ: Asia/Shanghai
   KBUILD_BUILD_TIMESTAMP: "Tue Aug 25 12:52:00 CST 2026"
