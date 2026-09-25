@@ -17,6 +17,7 @@
  *  0f30:0111 "Saitek Color Rumble Pad"
  *
  *  Copyright (c) 2007, 2009 Anssi Hannula <anssi.hannula@gmail.com>
+ * Copyright (C) 2017 XiaoMi, Inc.
  */
 
 /*

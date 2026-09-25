@@ -1,4 +1,4 @@
-/* Copyright (c) 2013-2015, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2013, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -27,23 +27,26 @@
 int ipa_rm_prod_index(enum ipa_rm_resource_name resource_name)
 {
 	int result = resource_name;
-
 	switch (resource_name) {
-	case IPA_RM_RESOURCE_Q6_PROD:
+	case IPA_RM_RESOURCE_BRIDGE_PROD:
+	case IPA_RM_RESOURCE_A2_PROD:
 	case IPA_RM_RESOURCE_USB_PROD:
 	case IPA_RM_RESOURCE_HSIC_PROD:
 	case IPA_RM_RESOURCE_STD_ECM_PROD:
-	case IPA_RM_RESOURCE_RNDIS_PROD:
 	case IPA_RM_RESOURCE_WWAN_0_PROD:
+	case IPA_RM_RESOURCE_WWAN_1_PROD:
+	case IPA_RM_RESOURCE_WWAN_2_PROD:
+	case IPA_RM_RESOURCE_WWAN_3_PROD:
+	case IPA_RM_RESOURCE_WWAN_4_PROD:
+	case IPA_RM_RESOURCE_WWAN_5_PROD:
+	case IPA_RM_RESOURCE_WWAN_6_PROD:
+	case IPA_RM_RESOURCE_WWAN_7_PROD:
 	case IPA_RM_RESOURCE_WLAN_PROD:
-	case IPA_RM_RESOURCE_ODU_ADAPT_PROD:
-	case IPA_RM_RESOURCE_MHI_PROD:
 		break;
 	default:
 		result = IPA_RM_INDEX_INVALID;
 		break;
 	}
-
 	return result;
 }
 
@@ -59,184 +62,97 @@ int ipa_rm_prod_index(enum ipa_rm_resource_name resource_name)
 int ipa_rm_cons_index(enum ipa_rm_resource_name resource_name)
 {
 	int result = resource_name;
-
 	switch (resource_name) {
-	case IPA_RM_RESOURCE_Q6_CONS:
+	case IPA_RM_RESOURCE_A2_CONS:
 	case IPA_RM_RESOURCE_USB_CONS:
 	case IPA_RM_RESOURCE_HSIC_CONS:
-	case IPA_RM_RESOURCE_WLAN_CONS:
-	case IPA_RM_RESOURCE_APPS_CONS:
-	case IPA_RM_RESOURCE_ODU_ADAPT_CONS:
-	case IPA_RM_RESOURCE_MHI_CONS:
 		break;
 	default:
 		result = IPA_RM_INDEX_INVALID;
 		break;
 	}
-
 	return result;
 }
 
-int ipa_rm_resource_consumer_release_work(
-		struct ipa_rm_resource_cons *consumer,
-		enum ipa_rm_resource_state prev_state,
-		bool notify_completion)
-{
-	int driver_result;
-
-	IPA_RM_DBG("calling driver CB\n");
-	driver_result = consumer->release_resource();
-	IPA_RM_DBG("driver CB returned with %d\n", driver_result);
-	/*
-	 * Treat IPA_RM_RELEASE_IN_PROGRESS as IPA_RM_RELEASED
-	 * for CONS which remains in RELEASE_IN_PROGRESS.
-	 */
-	if (driver_result == -EINPROGRESS)
-		driver_result = 0;
-	if (driver_result != 0 && driver_result != -EINPROGRESS) {
-		IPA_RM_ERR("driver CB returned error %d\n", driver_result);
-		consumer->resource.state = prev_state;
-		goto bail;
-	}
-	if (driver_result == 0) {
-		if (notify_completion)
-			ipa_rm_resource_consumer_handle_cb(consumer,
-					IPA_RM_RESOURCE_RELEASED);
-		else
-			consumer->resource.state = IPA_RM_RELEASED;
-	}
-	complete_all(&consumer->request_consumer_in_progress);
-
-	ipa_rm_perf_profile_change(consumer->resource.name);
-bail:
-	return driver_result;
-}
-
-int ipa_rm_resource_consumer_request_work(struct ipa_rm_resource_cons *consumer,
-		enum ipa_rm_resource_state prev_state,
-		u32 prod_needed_bw,
-		bool notify_completion)
-{
-	int driver_result;
-
-	IPA_RM_DBG("calling driver CB\n");
-	driver_result = consumer->request_resource();
-	IPA_RM_DBG("driver CB returned with %d\n", driver_result);
-	if (driver_result == 0) {
-		if (notify_completion) {
-			ipa_rm_resource_consumer_handle_cb(consumer,
-					IPA_RM_RESOURCE_GRANTED);
-		} else {
-			consumer->resource.state = IPA_RM_GRANTED;
-			ipa_rm_perf_profile_change(consumer->resource.name);
-			ipa_resume_resource(consumer->resource.name);
-		}
-	} else if (driver_result != -EINPROGRESS) {
-		consumer->resource.state = prev_state;
-		consumer->resource.needed_bw -= prod_needed_bw;
-		consumer->usage_count--;
-	}
-
-	return driver_result;
-}
-
-int ipa_rm_resource_consumer_request(
-		struct ipa_rm_resource_cons *consumer,
-		u32 prod_needed_bw,
-		bool inc_usage_count)
+static int ipa_rm_resource_consumer_request(
+		struct ipa_rm_resource_cons *consumer)
 {
 	int result = 0;
-	enum ipa_rm_resource_state prev_state;
-
-	IPA_RM_DBG("%s state: %d\n",
-			ipa_rm_resource_str(consumer->resource.name),
-			consumer->resource.state);
-
-	prev_state = consumer->resource.state;
-	consumer->resource.needed_bw += prod_needed_bw;
+	int driver_result;
+	unsigned long flags;
+	IPADBG("IPA RM ::%s name %d ENTER\n",
+	       __func__, consumer->resource.name);
+	spin_lock_irqsave(&consumer->resource.state_lock, flags);
 	switch (consumer->resource.state) {
 	case IPA_RM_RELEASED:
 	case IPA_RM_RELEASE_IN_PROGRESS:
-		INIT_COMPLETION(consumer->request_consumer_in_progress);
+	{
+		enum ipa_rm_resource_state prev_state =
+						consumer->resource.state;
 		consumer->resource.state = IPA_RM_REQUEST_IN_PROGRESS;
-		if (prev_state == IPA_RM_RELEASE_IN_PROGRESS ||
-				ipa_inc_client_enable_clks_no_block() != 0) {
-			IPA_RM_DBG("async resume work for %s\n",
-				ipa_rm_resource_str(consumer->resource.name));
-			ipa_rm_wq_send_resume_cmd(consumer->resource.name,
-						prev_state,
-						prod_needed_bw);
-			result = -EINPROGRESS;
-			break;
+		spin_unlock_irqrestore(&consumer->resource.state_lock, flags);
+		driver_result = consumer->request_resource();
+		spin_lock_irqsave(&consumer->resource.state_lock, flags);
+		if (driver_result == 0)
+			consumer->resource.state = IPA_RM_GRANTED;
+		else if (driver_result != -EINPROGRESS) {
+			consumer->resource.state = prev_state;
+			result = driver_result;
+			goto bail;
 		}
-		result = ipa_rm_resource_consumer_request_work(consumer,
-						prev_state,
-						prod_needed_bw,
-						false);
+		result = driver_result;
 		break;
+	}
 	case IPA_RM_GRANTED:
-		ipa_rm_perf_profile_change(consumer->resource.name);
 		break;
 	case IPA_RM_REQUEST_IN_PROGRESS:
 		result = -EINPROGRESS;
 		break;
 	default:
-		consumer->resource.needed_bw -= prod_needed_bw;
 		result = -EPERM;
 		goto bail;
 	}
-	if (inc_usage_count)
-		consumer->usage_count++;
+	consumer->usage_count++;
 bail:
-	IPA_RM_DBG("%s new state: %d\n",
-		ipa_rm_resource_str(consumer->resource.name),
-		consumer->resource.state);
-	IPA_RM_DBG("EXIT with %d\n", result);
-
+	spin_unlock_irqrestore(&consumer->resource.state_lock, flags);
+	IPADBG("IPA RM ::ipa_rm_resource_consumer_request EXIT [%d]\n", result);
 	return result;
 }
 
-int ipa_rm_resource_consumer_release(
-		struct ipa_rm_resource_cons *consumer,
-		u32 prod_needed_bw,
-		bool dec_usage_count)
+static int ipa_rm_resource_consumer_release(
+		struct ipa_rm_resource_cons *consumer)
 {
 	int result = 0;
+	int driver_result;
+	unsigned long flags;
 	enum ipa_rm_resource_state save_state;
-
-	IPA_RM_DBG("%s state: %d\n",
-		ipa_rm_resource_str(consumer->resource.name),
-		consumer->resource.state);
-	save_state = consumer->resource.state;
-	consumer->resource.needed_bw -= prod_needed_bw;
+	IPADBG("IPA RM ::%s name %d ENTER\n",
+	       __func__, consumer->resource.name);
+	spin_lock_irqsave(&consumer->resource.state_lock, flags);
 	switch (consumer->resource.state) {
 	case IPA_RM_RELEASED:
 		break;
 	case IPA_RM_GRANTED:
 	case IPA_RM_REQUEST_IN_PROGRESS:
-		if (dec_usage_count && consumer->usage_count > 0)
+		if (consumer->usage_count > 0)
 			consumer->usage_count--;
 		if (consumer->usage_count == 0) {
+			save_state = consumer->resource.state;
 			consumer->resource.state = IPA_RM_RELEASE_IN_PROGRESS;
-			if (save_state == IPA_RM_REQUEST_IN_PROGRESS ||
-			    ipa_suspend_resource_no_block(
-						consumer->resource.name) != 0) {
-				ipa_rm_wq_send_suspend_cmd(
-						consumer->resource.name,
-						save_state,
-						prod_needed_bw);
-				result = -EINPROGRESS;
-				goto bail;
-			}
-			result = ipa_rm_resource_consumer_release_work(consumer,
-					save_state, false);
-			goto bail;
-		} else if (consumer->resource.state == IPA_RM_GRANTED) {
-			ipa_rm_perf_profile_change(consumer->resource.name);
+			spin_unlock_irqrestore(&consumer->resource.state_lock,
+					flags);
+			driver_result = consumer->release_resource();
+			spin_lock_irqsave(&consumer->resource.state_lock,
+					flags);
+			if (driver_result == 0)
+				consumer->resource.state = IPA_RM_RELEASED;
+			else if (driver_result != -EINPROGRESS)
+				consumer->resource.state = save_state;
+			result = driver_result;
 		}
 		break;
 	case IPA_RM_RELEASE_IN_PROGRESS:
-		if (dec_usage_count && consumer->usage_count > 0)
+		if (consumer->usage_count > 0)
 			consumer->usage_count--;
 		result = -EINPROGRESS;
 		break;
@@ -245,11 +161,8 @@ int ipa_rm_resource_consumer_release(
 		goto bail;
 	}
 bail:
-	IPA_RM_DBG("%s new state: %d\n",
-		ipa_rm_resource_str(consumer->resource.name),
-		consumer->resource.state);
-	IPA_RM_DBG("EXIT with %d\n", result);
-
+	spin_unlock_irqrestore(&consumer->resource.state_lock, flags);
+	IPADBG("IPA RM ::ipa_rm_resource_consumer_release EXIT [%d]\n", result);
 	return result;
 }
 
@@ -266,26 +179,40 @@ void ipa_rm_resource_producer_notify_clients(
 				enum ipa_rm_event event,
 				bool notify_registered_only)
 {
-	struct ipa_rm_notification_info *reg_info;
-
-	IPA_RM_DBG("%s event: %d notify_registered_only: %d\n",
-		ipa_rm_resource_str(producer->resource.name),
-		event,
-		notify_registered_only);
-
-	list_for_each_entry(reg_info, &(producer->event_listeners), link) {
+	struct ipa_rm_notification_info *reg_info, *reg_info_cloned;
+	struct list_head *pos, *q;
+	LIST_HEAD(cloned_list);
+	read_lock(&producer->event_listeners_lock);
+	list_for_each(pos, &(producer->event_listeners)) {
+		reg_info = list_entry(pos,
+					struct ipa_rm_notification_info,
+					link);
 		if (notify_registered_only && !reg_info->explicit)
 			continue;
-
-		IPA_RM_DBG("Notifying %s event: %d\n",
-			   ipa_rm_resource_str(producer->resource.name), event);
-		reg_info->reg_params.notify_cb(reg_info->reg_params.user_data,
-					       event,
-					       0);
-		IPA_RM_DBG("back from client CB\n");
+		reg_info_cloned = kzalloc(sizeof(*reg_info_cloned), GFP_ATOMIC);
+		if (!reg_info_cloned)
+			goto clone_list_failed;
+		reg_info_cloned->reg_params.notify_cb =
+				reg_info->reg_params.notify_cb;
+		reg_info_cloned->reg_params.user_data =
+				reg_info->reg_params.user_data;
+		list_add(&reg_info_cloned->link, &cloned_list);
 	}
-
+	read_unlock(&producer->event_listeners_lock);
+	list_for_each_safe(pos, q, &cloned_list) {
+		reg_info = list_entry(pos,
+					struct ipa_rm_notification_info,
+					link);
+		reg_info->reg_params.notify_cb(
+				reg_info->reg_params.user_data,
+				event,
+				0);
+		list_del(pos);
+		kfree(reg_info);
+	}
 	return;
+clone_list_failed:
+	read_unlock(&producer->event_listeners_lock);
 }
 
 static int ipa_rm_resource_producer_create(struct ipa_rm_resource **resource,
@@ -294,23 +221,18 @@ static int ipa_rm_resource_producer_create(struct ipa_rm_resource **resource,
 		int *max_peers)
 {
 	int result = 0;
-
-	*producer = kzalloc(sizeof(**producer), GFP_ATOMIC);
+	*producer = kzalloc(sizeof(**producer), GFP_KERNEL);
 	if (*producer == NULL) {
-		IPA_RM_ERR("no mem\n");
 		result = -ENOMEM;
 		goto bail;
 	}
-
+	rwlock_init(&(*producer)->event_listeners_lock);
 	INIT_LIST_HEAD(&((*producer)->event_listeners));
 	result = ipa_rm_resource_producer_register(*producer,
 			&(create_params->reg_params),
 			false);
-	if (result) {
-		IPA_RM_ERR("ipa_rm_resource_producer_register() failed\n");
+	if (result)
 		goto register_fail;
-	}
-
 	(*resource) = (struct ipa_rm_resource *) (*producer);
 	(*resource)->type = IPA_RM_PRODUCER;
 	*max_peers = IPA_RM_RESOURCE_CONS_MAX;
@@ -326,8 +248,7 @@ static void ipa_rm_resource_producer_delete(
 {
 	struct ipa_rm_notification_info *reg_info;
 	struct list_head *pos, *q;
-
-	ipa_rm_resource_producer_release(producer);
+	write_lock(&producer->event_listeners_lock);
 	list_for_each_safe(pos, q, &(producer->event_listeners)) {
 		reg_info = list_entry(pos,
 				struct ipa_rm_notification_info,
@@ -335,6 +256,7 @@ static void ipa_rm_resource_producer_delete(
 		list_del(pos);
 		kfree(reg_info);
 	}
+	write_unlock(&producer->event_listeners_lock);
 }
 
 static int ipa_rm_resource_consumer_create(struct ipa_rm_resource **resource,
@@ -343,19 +265,15 @@ static int ipa_rm_resource_consumer_create(struct ipa_rm_resource **resource,
 		int *max_peers)
 {
 	int result = 0;
-
-	*consumer = kzalloc(sizeof(**consumer), GFP_ATOMIC);
+	*consumer = kzalloc(sizeof(**consumer), GFP_KERNEL);
 	if (*consumer == NULL) {
-		IPA_RM_ERR("no mem\n");
 		result = -ENOMEM;
 		goto bail;
 	}
-
 	(*consumer)->request_resource = create_params->request_resource;
 	(*consumer)->release_resource = create_params->release_resource;
 	(*resource) = (struct ipa_rm_resource *) (*consumer);
 	(*resource)->type = IPA_RM_CONSUMER;
-	init_completion(&((*consumer)->request_consumer_in_progress));
 	*max_peers = IPA_RM_RESOURCE_PROD_MAX;
 bail:
 	return result;
@@ -382,42 +300,32 @@ int ipa_rm_resource_create(
 		result = -EINVAL;
 		goto bail;
 	}
-
 	if (IPA_RM_RESORCE_IS_PROD(create_params->name)) {
 		result = ipa_rm_resource_producer_create(resource,
 				&producer,
 				create_params,
 				&max_peers);
-		if (result) {
-			IPA_RM_ERR("ipa_rm_resource_producer_create failed\n");
+		if (result)
 			goto bail;
-		}
 	} else if (IPA_RM_RESORCE_IS_CONS(create_params->name)) {
 		result = ipa_rm_resource_consumer_create(resource,
 				&consumer,
 				create_params,
 				&max_peers);
-		if (result) {
-			IPA_RM_ERR("ipa_rm_resource_producer_create failed\n");
+		if (result)
 			goto bail;
-		}
 	} else {
-		IPA_RM_ERR("invalied resource\n");
 		result = -EPERM;
 		goto bail;
 	}
-
 	result = ipa_rm_peers_list_create(max_peers,
 			&((*resource)->peers_list));
-	if (result) {
-		IPA_RM_ERR("ipa_rm_peers_list_create failed\n");
+	if (result)
 		goto peers_alloc_fail;
-	}
 	(*resource)->name = create_params->name;
-	(*resource)->floor_voltage = create_params->floor_voltage;
 	(*resource)->state = IPA_RM_RELEASED;
+	spin_lock_init(&((*resource)->state_lock));
 	goto bail;
-
 peers_alloc_fail:
 	ipa_rm_resource_delete(*resource);
 bail:
@@ -433,19 +341,15 @@ bail:
  */
 int ipa_rm_resource_delete(struct ipa_rm_resource *resource)
 {
-	struct ipa_rm_resource *consumer;
-	struct ipa_rm_resource *producer;
-	int peers_index;
-	int result = 0;
-	int list_size;
+	struct ipa_rm_resource *consumer, *producer;
+	int peers_index, result = 0, list_size;
 
+	IPADBG("ipa_rm_resource_delete ENTER with resource %d\n",
+					resource->name);
 	if (!resource) {
-		IPA_RM_ERR("invalid params\n");
+		IPADBG("ipa_rm_resource_delete ENTER with invalid param\n");
 		return -EINVAL;
 	}
-
-	IPA_RM_DBG("ipa_rm_resource_delete ENTER with resource %d\n",
-					resource->name);
 	if (resource->type == IPA_RM_PRODUCER) {
 		if (resource->peers_list) {
 			list_size = ipa_rm_peers_list_get_size(
@@ -461,10 +365,11 @@ int ipa_rm_resource_delete(struct ipa_rm_resource *resource)
 						resource,
 						consumer);
 			}
+			ipa_rm_peers_list_delete(resource->peers_list);
 		}
-
 		ipa_rm_resource_producer_delete(
 				(struct ipa_rm_resource_prod *) resource);
+		kfree((struct ipa_rm_resource_prod *) resource);
 	} else if (resource->type == IPA_RM_CONSUMER) {
 		if (resource->peers_list) {
 			list_size = ipa_rm_peers_list_get_size(
@@ -480,10 +385,11 @@ int ipa_rm_resource_delete(struct ipa_rm_resource *resource)
 							producer,
 							resource);
 			}
+			ipa_rm_peers_list_delete(resource->peers_list);
 		}
+		kfree((struct ipa_rm_resource_cons *) resource);
 	}
-	ipa_rm_peers_list_delete(resource->peers_list);
-	kfree(resource);
+	IPADBG("ipa_rm_resource_delete SUCCESS\n");
 	return result;
 }
 
@@ -505,38 +411,38 @@ int ipa_rm_resource_producer_register(struct ipa_rm_resource_prod *producer,
 	int result = 0;
 	struct ipa_rm_notification_info *reg_info;
 	struct list_head *pos;
-
 	if (!producer || !reg_params) {
-		IPA_RM_ERR("invalid params\n");
 		result = -EPERM;
 		goto bail;
 	}
-
+	IPADBG("IPA RM: %s name %d ENTER\n",
+	       __func__, producer->resource.name);
+	read_lock(&producer->event_listeners_lock);
 	list_for_each(pos, &(producer->event_listeners)) {
 		reg_info = list_entry(pos,
 					struct ipa_rm_notification_info,
 					link);
 		if (reg_info->reg_params.notify_cb ==
 						reg_params->notify_cb) {
-			IPA_RM_ERR("already registered\n");
 			result = -EPERM;
+			read_unlock(&producer->event_listeners_lock);
 			goto bail;
 		}
 
 	}
-
-	reg_info = kzalloc(sizeof(*reg_info), GFP_ATOMIC);
+	read_unlock(&producer->event_listeners_lock);
+	reg_info = kzalloc(sizeof(*reg_info), GFP_KERNEL);
 	if (reg_info == NULL) {
-		IPA_RM_ERR("no mem\n");
 		result = -ENOMEM;
 		goto bail;
 	}
-
 	reg_info->reg_params.user_data = reg_params->user_data;
 	reg_info->reg_params.notify_cb = reg_params->notify_cb;
 	reg_info->explicit = explicit;
 	INIT_LIST_HEAD(&reg_info->link);
+	write_lock(&producer->event_listeners_lock);
 	list_add(&reg_info->link, &producer->event_listeners);
+	write_unlock(&producer->event_listeners_lock);
 bail:
 	return result;
 }
@@ -559,12 +465,9 @@ int ipa_rm_resource_producer_deregister(struct ipa_rm_resource_prod *producer,
 	int result = -EINVAL;
 	struct ipa_rm_notification_info *reg_info;
 	struct list_head *pos, *q;
-
-	if (!producer || !reg_params) {
-		IPA_RM_ERR("invalid params\n");
+	if (!producer || !reg_params)
 		return -EINVAL;
-	}
-
+	write_lock(&producer->event_listeners_lock);
 	list_for_each_safe(pos, q, &(producer->event_listeners)) {
 		reg_info = list_entry(pos,
 				struct ipa_rm_notification_info,
@@ -576,8 +479,10 @@ int ipa_rm_resource_producer_deregister(struct ipa_rm_resource_prod *producer,
 			result = 0;
 			goto bail;
 		}
+
 	}
 bail:
+	write_unlock(&producer->event_listeners_lock);
 	return result;
 }
 
@@ -593,27 +498,18 @@ int ipa_rm_resource_add_dependency(struct ipa_rm_resource *resource,
 				   struct ipa_rm_resource *depends_on)
 {
 	int result = 0;
+	unsigned long flags;
 	int consumer_result;
-
-	if (!resource || !depends_on) {
-		IPA_RM_ERR("invalid params\n");
+	if (!resource || !depends_on)
 		return -EINVAL;
-	}
-
 	if (ipa_rm_peers_list_check_dependency(resource->peers_list,
 			resource->name,
 			depends_on->peers_list,
-			depends_on->name)) {
-		IPA_RM_ERR("dependency already exists\n");
+			depends_on->name))
 		return -EEXIST;
-	}
-
 	ipa_rm_peers_list_add_peer(resource->peers_list, depends_on);
 	ipa_rm_peers_list_add_peer(depends_on->peers_list, resource);
-	IPA_RM_DBG("%s state: %d\n", ipa_rm_resource_str(resource->name),
-				resource->state);
-
-	resource->needed_bw += depends_on->max_bw;
+	spin_lock_irqsave(&resource->state_lock, flags);
 	switch (resource->state) {
 	case IPA_RM_RELEASED:
 	case IPA_RM_RELEASE_IN_PROGRESS:
@@ -625,29 +521,28 @@ int ipa_rm_resource_add_dependency(struct ipa_rm_resource *resource,
 		resource->state = IPA_RM_REQUEST_IN_PROGRESS;
 		((struct ipa_rm_resource_prod *)
 					resource)->pending_request++;
+		spin_unlock_irqrestore(&resource->state_lock, flags);
 		consumer_result = ipa_rm_resource_consumer_request(
-				(struct ipa_rm_resource_cons *)depends_on,
-				resource->max_bw,
-				true);
+				(struct ipa_rm_resource_cons *)depends_on);
+		spin_lock_irqsave(&resource->state_lock, flags);
 		if (consumer_result != -EINPROGRESS) {
 			resource->state = prev_state;
 			((struct ipa_rm_resource_prod *)
 					resource)->pending_request--;
-			ipa_rm_perf_profile_change(resource->name);
 		}
 		result = consumer_result;
 		break;
 	}
 	default:
-		IPA_RM_ERR("invalid state\n");
 		result = -EPERM;
 		goto bail;
 	}
 bail:
-	IPA_RM_DBG("%s new state: %d\n", ipa_rm_resource_str(resource->name),
-					resource->state);
-	IPA_RM_DBG("EXIT with %d\n", result);
-
+	spin_unlock_irqrestore(&resource->state_lock, flags);
+	IPADBG("IPA RM ipa_rm_resource_add_dependency name[%d]count[%d]EXIT\n",
+			resource->name, resource->peers_list->peers_count);
+	IPADBG("IPA RM ipa_rm_resource_add_dependency name[%d]count[%d]EXIT\n",
+			depends_on->name, depends_on->peers_list->peers_count);
 	return result;
 }
 
@@ -658,38 +553,33 @@ bail:
  * @depends_on: [in] depends_on resource
  *
  * Returns: 0 on success, negative on failure
- * In case the resource state was changed, a notification
- * will be sent to the RM client
+ * EINPROGRESS is returned in case this is the last dependency
+ * of given resource and IPA RM client should receive the RELEASED cb
  */
 int ipa_rm_resource_delete_dependency(struct ipa_rm_resource *resource,
 				   struct ipa_rm_resource *depends_on)
 {
 	int result = 0;
+	unsigned long flags;
+	unsigned long consumer_flags;
 	bool state_changed = false;
 	bool release_consumer = false;
-	enum ipa_rm_event evt;
-
-	if (!resource || !depends_on) {
-		IPA_RM_ERR("invalid params\n");
+	if (!resource || !depends_on)
 		return -EINVAL;
-	}
-
+	IPADBG("IPA RM: %s from %d to %d ENTER\n",
+			__func__,
+	       resource->name,
+	       depends_on->name);
 	if (!ipa_rm_peers_list_check_dependency(resource->peers_list,
 			resource->name,
 			depends_on->peers_list,
-			depends_on->name)) {
-		IPA_RM_ERR("dependency does not exist\n");
+			depends_on->name))
 		return -EINVAL;
-	}
-	IPA_RM_DBG("%s state: %d\n", ipa_rm_resource_str(resource->name),
-				resource->state);
-
-	resource->needed_bw -= depends_on->max_bw;
+	spin_lock_irqsave(&resource->state_lock, flags);
 	switch (resource->state) {
 	case IPA_RM_RELEASED:
 		break;
 	case IPA_RM_GRANTED:
-		ipa_rm_perf_profile_change(resource->name);
 		release_consumer = true;
 		break;
 	case IPA_RM_RELEASE_IN_PROGRESS:
@@ -697,14 +587,14 @@ int ipa_rm_resource_delete_dependency(struct ipa_rm_resource *resource,
 			resource)->pending_release > 0)
 				((struct ipa_rm_resource_prod *)
 					resource)->pending_release--;
+		spin_lock_irqsave(&depends_on->state_lock, consumer_flags);
 		if (depends_on->state == IPA_RM_RELEASE_IN_PROGRESS &&
 			((struct ipa_rm_resource_prod *)
 			resource)->pending_release == 0) {
 			resource->state = IPA_RM_RELEASED;
 			state_changed = true;
-			evt = IPA_RM_RESOURCE_RELEASED;
-			ipa_rm_perf_profile_change(resource->name);
 		}
+		spin_unlock_irqrestore(&depends_on->state_lock, consumer_flags);
 		break;
 	case IPA_RM_REQUEST_IN_PROGRESS:
 		release_consumer = true;
@@ -712,39 +602,41 @@ int ipa_rm_resource_delete_dependency(struct ipa_rm_resource *resource,
 			resource)->pending_request > 0)
 				((struct ipa_rm_resource_prod *)
 					resource)->pending_request--;
+		spin_lock_irqsave(&depends_on->state_lock, consumer_flags);
 		if (depends_on->state == IPA_RM_REQUEST_IN_PROGRESS &&
 			((struct ipa_rm_resource_prod *)
 				resource)->pending_request == 0) {
 			resource->state = IPA_RM_GRANTED;
 			state_changed = true;
-			evt = IPA_RM_RESOURCE_GRANTED;
-			ipa_rm_perf_profile_change(resource->name);
 		}
+		spin_unlock_irqrestore(&depends_on->state_lock, consumer_flags);
 		break;
 	default:
 		result = -EINVAL;
+		spin_unlock_irqrestore(&resource->state_lock, flags);
 		goto bail;
 	}
-	if (state_changed) {
+	if (state_changed &&
+		ipa_rm_peers_list_has_last_peer(resource->peers_list)) {
 		(void) ipa_rm_wq_send_cmd(IPA_RM_WQ_NOTIFY_PROD,
 				resource->name,
-				evt,
+				resource->state,
 				false);
+		result = -EINPROGRESS;
 	}
-	IPA_RM_DBG("%s new state: %d\n", ipa_rm_resource_str(resource->name),
-					resource->state);
+	spin_unlock_irqrestore(&resource->state_lock, flags);
 	ipa_rm_peers_list_remove_peer(resource->peers_list,
 			depends_on->name);
 	ipa_rm_peers_list_remove_peer(depends_on->peers_list,
 			resource->name);
 	if (release_consumer)
 		(void) ipa_rm_resource_consumer_release(
-				(struct ipa_rm_resource_cons *)depends_on,
-				resource->max_bw,
-				true);
+				(struct ipa_rm_resource_cons *)depends_on);
+	IPADBG("IPA RM: %s from %d to %d SUCCESS\n",
+		__func__,
+		resource->name,
+		depends_on->name);
 bail:
-	IPA_RM_DBG("EXIT with %d\n", result);
-
 	return result;
 }
 
@@ -758,11 +650,24 @@ int ipa_rm_resource_producer_request(struct ipa_rm_resource_prod *producer)
 {
 	int peers_index;
 	int result = 0;
+	unsigned long flags;
 	struct ipa_rm_resource *consumer;
 	int consumer_result;
-	enum ipa_rm_resource_state state;
-
-	state = producer->resource.state;
+	IPADBG("IPA RM ::ipa_rm_resource_producer_request [%d] ENTER\n",
+			producer->resource.name);
+	if (ipa_rm_peers_list_is_empty(producer->resource.peers_list)) {
+		spin_lock_irqsave(&producer->resource.state_lock, flags);
+		producer->resource.state = IPA_RM_GRANTED;
+		(void) ipa_rm_wq_send_cmd(IPA_RM_WQ_NOTIFY_PROD,
+			producer->resource.name,
+			IPA_RM_RESOURCE_GRANTED,
+			true);
+		result = 0;
+		goto unlock_and_bail;
+	}
+	spin_lock_irqsave(&producer->resource.state_lock, flags);
+	IPADBG("IPA RM ::ipa_rm_resource_producer_request state [%d]\n",
+			producer->resource.state);
 	switch (producer->resource.state) {
 	case IPA_RM_RELEASED:
 	case IPA_RM_RELEASE_IN_PROGRESS:
@@ -777,8 +682,8 @@ int ipa_rm_resource_producer_request(struct ipa_rm_resource_prod *producer)
 		result = -EINVAL;
 		goto unlock_and_bail;
 	}
-
 	producer->pending_request = 0;
+	spin_unlock_irqrestore(&producer->resource.state_lock, flags);
 	for (peers_index = 0;
 		peers_index < ipa_rm_peers_list_get_size(
 				producer->resource.peers_list);
@@ -786,15 +691,21 @@ int ipa_rm_resource_producer_request(struct ipa_rm_resource_prod *producer)
 		consumer = ipa_rm_peers_list_get_resource(peers_index,
 				producer->resource.peers_list);
 		if (consumer) {
+			spin_lock_irqsave(
+				&producer->resource.state_lock, flags);
 			producer->pending_request++;
+			spin_unlock_irqrestore(
+				&producer->resource.state_lock, flags);
 			consumer_result = ipa_rm_resource_consumer_request(
-				(struct ipa_rm_resource_cons *)consumer,
-				producer->resource.max_bw,
-				true);
+				(struct ipa_rm_resource_cons *)consumer);
 			if (consumer_result == -EINPROGRESS) {
 				result = -EINPROGRESS;
 			} else {
+				spin_lock_irqsave(
+					&producer->resource.state_lock, flags);
 				producer->pending_request--;
+				spin_unlock_irqrestore(
+					&producer->resource.state_lock, flags);
 				if (consumer_result != 0) {
 					result = consumer_result;
 					goto bail;
@@ -802,10 +713,9 @@ int ipa_rm_resource_producer_request(struct ipa_rm_resource_prod *producer)
 			}
 		}
 	}
-
+	spin_lock_irqsave(&producer->resource.state_lock, flags);
 	if (producer->pending_request == 0) {
 		producer->resource.state = IPA_RM_GRANTED;
-		ipa_rm_perf_profile_change(producer->resource.name);
 		(void) ipa_rm_wq_send_cmd(IPA_RM_WQ_NOTIFY_PROD,
 			producer->resource.name,
 			IPA_RM_RESOURCE_GRANTED,
@@ -813,12 +723,9 @@ int ipa_rm_resource_producer_request(struct ipa_rm_resource_prod *producer)
 		result = 0;
 	}
 unlock_and_bail:
-	if (state != producer->resource.state)
-		IPA_RM_DBG("%s state changed %d->%d\n",
-			ipa_rm_resource_str(producer->resource.name),
-			state,
-			producer->resource.state);
+	spin_unlock_irqrestore(&producer->resource.state_lock, flags);
 bail:
+	IPADBG("IPA RM ::ipa_rm_resource_producer_request EXIT[%d]\n", result);
 	return result;
 }
 
@@ -833,11 +740,23 @@ int ipa_rm_resource_producer_release(struct ipa_rm_resource_prod *producer)
 {
 	int peers_index;
 	int result = 0;
+	unsigned long flags;
 	struct ipa_rm_resource *consumer;
 	int consumer_result;
-	enum ipa_rm_resource_state state;
-
-	state = producer->resource.state;
+	IPADBG("IPA RM: %s name %d ENTER\n",
+			__func__,
+			producer->resource.name);
+	if (ipa_rm_peers_list_is_empty(producer->resource.peers_list)) {
+		spin_lock_irqsave(&producer->resource.state_lock, flags);
+		producer->resource.state = IPA_RM_RELEASED;
+		(void) ipa_rm_wq_send_cmd(IPA_RM_WQ_NOTIFY_PROD,
+			producer->resource.name,
+			IPA_RM_RESOURCE_RELEASED,
+			true);
+		spin_unlock_irqrestore(&producer->resource.state_lock, flags);
+		return 0;
+	}
+	spin_lock_irqsave(&producer->resource.state_lock, flags);
 	switch (producer->resource.state) {
 	case IPA_RM_RELEASED:
 		goto bail;
@@ -852,8 +771,8 @@ int ipa_rm_resource_producer_release(struct ipa_rm_resource_prod *producer)
 		result = -EPERM;
 		goto bail;
 	}
-
 	producer->pending_release = 0;
+	spin_unlock_irqrestore(&producer->resource.state_lock, flags);
 	for (peers_index = 0;
 		peers_index < ipa_rm_peers_list_get_size(
 				producer->resource.peers_list);
@@ -861,30 +780,31 @@ int ipa_rm_resource_producer_release(struct ipa_rm_resource_prod *producer)
 		consumer = ipa_rm_peers_list_get_resource(peers_index,
 				producer->resource.peers_list);
 		if (consumer) {
+			spin_lock_irqsave(
+				&producer->resource.state_lock, flags);
 			producer->pending_release++;
+			spin_unlock_irqrestore(
+				&producer->resource.state_lock, flags);
 			consumer_result = ipa_rm_resource_consumer_release(
-				(struct ipa_rm_resource_cons *)consumer,
-				producer->resource.max_bw,
-				true);
+				(struct ipa_rm_resource_cons *)consumer);
+			spin_lock_irqsave(
+				&producer->resource.state_lock, flags);
 			producer->pending_release--;
+			spin_unlock_irqrestore(
+				&producer->resource.state_lock, flags);
 		}
 	}
-
+	spin_lock_irqsave(&producer->resource.state_lock, flags);
 	if (producer->pending_release == 0) {
 		producer->resource.state = IPA_RM_RELEASED;
-		ipa_rm_perf_profile_change(producer->resource.name);
 		(void) ipa_rm_wq_send_cmd(IPA_RM_WQ_NOTIFY_PROD,
 			producer->resource.name,
 			IPA_RM_RESOURCE_RELEASED,
 			true);
 	}
 bail:
-	if (state != producer->resource.state)
-		IPA_RM_DBG("%s state changed %d->%d\n",
-		ipa_rm_resource_str(producer->resource.name),
-		state,
-		producer->resource.state);
-
+	spin_unlock_irqrestore(&producer->resource.state_lock, flags);
+	IPADBG("IPA RM ::ipa_rm_resource_producer_release EXIT[%d]\n", result);
 	return result;
 }
 
@@ -892,12 +812,8 @@ static void ipa_rm_resource_producer_handle_cb(
 		struct ipa_rm_resource_prod *producer,
 		enum ipa_rm_event event)
 {
-	IPA_RM_DBG("%s state: %d event: %d pending_request: %d\n",
-		ipa_rm_resource_str(producer->resource.name),
-		producer->resource.state,
-		event,
-		producer->pending_request);
-
+	unsigned long flags;
+	spin_lock_irqsave(&producer->resource.state_lock, flags);
 	switch (producer->resource.state) {
 	case IPA_RM_REQUEST_IN_PROGRESS:
 		if (event != IPA_RM_RESOURCE_GRANTED)
@@ -907,8 +823,8 @@ static void ipa_rm_resource_producer_handle_cb(
 			if (producer->pending_request == 0) {
 				producer->resource.state =
 						IPA_RM_GRANTED;
-				ipa_rm_perf_profile_change(
-					producer->resource.name);
+				spin_unlock_irqrestore(
+					&producer->resource.state_lock, flags);
 				ipa_rm_resource_producer_notify_clients(
 						producer,
 						IPA_RM_RESOURCE_GRANTED,
@@ -925,8 +841,8 @@ static void ipa_rm_resource_producer_handle_cb(
 			if (producer->pending_release == 0) {
 				producer->resource.state =
 						IPA_RM_RELEASED;
-				ipa_rm_perf_profile_change(
-					producer->resource.name);
+				spin_unlock_irqrestore(
+					&producer->resource.state_lock, flags);
 				ipa_rm_resource_producer_notify_clients(
 						producer,
 						IPA_RM_RESOURCE_RELEASED,
@@ -941,9 +857,7 @@ static void ipa_rm_resource_producer_handle_cb(
 		goto unlock_and_bail;
 	}
 unlock_and_bail:
-	IPA_RM_DBG("%s new state: %d\n",
-		ipa_rm_resource_str(producer->resource.name),
-		producer->resource.state);
+	spin_unlock_irqrestore(&producer->resource.state_lock, flags);
 bail:
 	return;
 }
@@ -959,24 +873,15 @@ void ipa_rm_resource_consumer_handle_cb(struct ipa_rm_resource_cons *consumer,
 {
 	int peers_index;
 	struct ipa_rm_resource *producer;
-
-	if (!consumer) {
-		IPA_RM_ERR("invalid params\n");
+	unsigned long flags;
+	if (!consumer)
 		return;
-	}
-	IPA_RM_DBG("%s state: %d event: %d\n",
-		ipa_rm_resource_str(consumer->resource.name),
-		consumer->resource.state,
-		event);
-
+	spin_lock_irqsave(&consumer->resource.state_lock, flags);
 	switch (consumer->resource.state) {
 	case IPA_RM_REQUEST_IN_PROGRESS:
 		if (event == IPA_RM_RESOURCE_RELEASED)
 			goto bail;
 		consumer->resource.state = IPA_RM_GRANTED;
-		ipa_rm_perf_profile_change(consumer->resource.name);
-		ipa_resume_resource(consumer->resource.name);
-		complete_all(&consumer->request_consumer_in_progress);
 		break;
 	case IPA_RM_RELEASE_IN_PROGRESS:
 		if (event == IPA_RM_RESOURCE_GRANTED)
@@ -988,7 +893,7 @@ void ipa_rm_resource_consumer_handle_cb(struct ipa_rm_resource_cons *consumer,
 	default:
 		goto bail;
 	}
-
+	spin_unlock_irqrestore(&consumer->resource.state_lock, flags);
 	for (peers_index = 0;
 		peers_index < ipa_rm_peers_list_get_size(
 				consumer->resource.peers_list);
@@ -1001,69 +906,11 @@ void ipa_rm_resource_consumer_handle_cb(struct ipa_rm_resource_cons *consumer,
 						producer,
 						event);
 	}
-
 	return;
 bail:
-	IPA_RM_DBG("%s new state: %d\n",
-		ipa_rm_resource_str(consumer->resource.name),
-		consumer->resource.state);
-
+	spin_unlock_irqrestore(&consumer->resource.state_lock, flags);
 	return;
 }
-
-/*
- * ipa_rm_resource_set_perf_profile() - sets the performance profile to
- *					resource.
- *
- * @resource: [in] resource
- * @profile: [in] profile to be set
- *
- * sets the profile to the given resource, In case the resource is
- * granted, update bandwidth vote of the resource
- */
-int ipa_rm_resource_set_perf_profile(struct ipa_rm_resource *resource,
-				     struct ipa_rm_perf_profile *profile)
-{
-	int peers_index;
-	struct ipa_rm_resource *peer;
-
-	if (!resource || !profile) {
-		IPA_RM_ERR("invalid params\n");
-		return -EINVAL;
-	}
-
-	if (profile->max_supported_bandwidth_mbps == resource->max_bw) {
-		IPA_RM_DBG("same profile\n");
-		return 0;
-	}
-
-	if ((resource->type == IPA_RM_PRODUCER &&
-	    (resource->state == IPA_RM_GRANTED ||
-	    resource->state == IPA_RM_REQUEST_IN_PROGRESS)) ||
-	    resource->type == IPA_RM_CONSUMER) {
-		for (peers_index = 0;
-		     peers_index < ipa_rm_peers_list_get_size(
-		     resource->peers_list);
-		     peers_index++) {
-			peer = ipa_rm_peers_list_get_resource(peers_index,
-				resource->peers_list);
-			if (!peer)
-				continue;
-			peer->needed_bw -= resource->max_bw;
-			peer->needed_bw +=
-				profile->max_supported_bandwidth_mbps;
-			if (peer->state == IPA_RM_GRANTED)
-				ipa_rm_perf_profile_change(peer->name);
-		}
-	}
-
-	resource->max_bw = profile->max_supported_bandwidth_mbps;
-	if (resource->state == IPA_RM_GRANTED)
-		ipa_rm_perf_profile_change(resource->name);
-
-	return 0;
-}
-
 
 /*
  * ipa_rm_resource_producer_print_stat() - print the
@@ -1075,25 +922,93 @@ int ipa_rm_resource_set_perf_profile(struct ipa_rm_resource *resource,
  *
  * Returns: number of bytes used on success, negative on failure
  */
+
 int ipa_rm_resource_producer_print_stat(
 				struct ipa_rm_resource *resource,
 				char *buf,
 				int size){
 
-	int i;
-	int nbytes;
-	int cnt = 0;
+	int i, nbytes, cnt = 0;
+	unsigned long flags;
 	struct ipa_rm_resource *consumer;
 
 	if (!buf || size < 0)
 		return -EINVAL;
-
-	nbytes = scnprintf(buf + cnt, size - cnt,
-		ipa_rm_resource_str(resource->name));
-	cnt += nbytes;
-	nbytes = scnprintf(buf + cnt, size - cnt, "[");
-	cnt += nbytes;
-
+	switch (resource->name) {
+	case IPA_RM_RESOURCE_BRIDGE_PROD:
+		nbytes = scnprintf(buf + cnt, size - cnt,
+			"BRIDGE_PROD[");
+		cnt += nbytes;
+		break;
+	case IPA_RM_RESOURCE_A2_PROD:
+		nbytes = scnprintf(buf + cnt, size - cnt,
+			"A2_PROD[");
+		cnt += nbytes;
+		break;
+	case IPA_RM_RESOURCE_USB_PROD:
+			nbytes = scnprintf(buf + cnt, size - cnt,
+			 "USB_PROD[");
+		cnt += nbytes;
+		break;
+	case IPA_RM_RESOURCE_HSIC_PROD:
+		nbytes = scnprintf(buf + cnt, size - cnt,
+			 "HSIC_PROD[");
+		cnt += nbytes;
+		break;
+	case IPA_RM_RESOURCE_STD_ECM_PROD:
+		nbytes = scnprintf(buf + cnt, size - cnt,
+			 "STD_ECM_PROD[");
+		cnt += nbytes;
+		break;
+	case IPA_RM_RESOURCE_WWAN_0_PROD:
+		nbytes = scnprintf(buf + cnt, size - cnt,
+			 "WWAN_0_PROD[");
+		cnt += nbytes;
+		break;
+	case IPA_RM_RESOURCE_WWAN_1_PROD:
+		nbytes = scnprintf(buf + cnt, size - cnt,
+			"WWAN_1_PROD[");
+		cnt += nbytes;
+		break;
+	case IPA_RM_RESOURCE_WWAN_2_PROD:
+		nbytes = scnprintf(buf + cnt, size - cnt,
+			"WWAN_2_PROD[");
+		cnt += nbytes;
+		break;
+	case IPA_RM_RESOURCE_WWAN_3_PROD:
+		nbytes = scnprintf(buf + cnt, size - cnt,
+				 "WWAN_3_PROD[");
+		cnt += nbytes;
+		break;
+	case IPA_RM_RESOURCE_WWAN_4_PROD:
+		nbytes = scnprintf(buf + cnt, size - cnt,
+			"WWAN_4_PROD[");
+		cnt += nbytes;
+		break;
+	case IPA_RM_RESOURCE_WWAN_5_PROD:
+		nbytes = scnprintf(buf + cnt, size - cnt,
+			 "WWAN_5_PROD[");
+		cnt += nbytes;
+		break;
+	case IPA_RM_RESOURCE_WWAN_6_PROD:
+		nbytes = scnprintf(buf + cnt, size - cnt,
+			"WWAN_6_PROD[");
+		cnt += nbytes;
+		break;
+	case IPA_RM_RESOURCE_WWAN_7_PROD:
+		nbytes = scnprintf(buf + cnt, size - cnt,
+			 "WWAN_7_PROD[");
+		cnt += nbytes;
+		break;
+	case IPA_RM_RESOURCE_WLAN_PROD:
+		nbytes = scnprintf(buf + cnt, size - cnt,
+			 "WLAN_PROD[");
+		cnt += nbytes;
+		break;
+	default:
+		return -EPERM;
+	}
+	spin_lock_irqsave(&resource->state_lock, flags);
 	switch (resource->state) {
 	case IPA_RM_RELEASED:
 		nbytes = scnprintf(buf + cnt, size - cnt,
@@ -1116,21 +1031,43 @@ int ipa_rm_resource_producer_print_stat(
 		cnt += nbytes;
 		break;
 	default:
+		spin_unlock_irqrestore(
+			&resource->state_lock,
+			flags);
 		return -EPERM;
 	}
-
+	spin_unlock_irqrestore(
+			&resource->state_lock,
+			flags);
 	for (i = 0; i < resource->peers_list->max_peers; ++i) {
 		consumer =
 			ipa_rm_peers_list_get_resource(
 			i,
 			resource->peers_list);
 		if (consumer) {
-			nbytes = scnprintf(buf + cnt, size - cnt,
-				ipa_rm_resource_str(consumer->name));
-			cnt += nbytes;
-			nbytes = scnprintf(buf + cnt, size - cnt, "[");
-			cnt += nbytes;
-
+			switch (consumer->name) {
+			case IPA_RM_RESOURCE_A2_CONS:
+				nbytes = scnprintf(buf + cnt,
+						size - cnt,
+						 " A2_CONS[");
+				cnt += nbytes;
+				break;
+			case IPA_RM_RESOURCE_USB_CONS:
+				nbytes = scnprintf(buf + cnt,
+						size - cnt,
+						 " USB_CONS[");
+				cnt += nbytes;
+				break;
+			case IPA_RM_RESOURCE_HSIC_CONS:
+				nbytes = scnprintf(buf + cnt,
+						size - cnt,
+						 " HSIC_CONS[");
+				cnt += nbytes;
+				break;
+			default:
+				return -EPERM;
+			}
+			spin_lock_irqsave(&consumer->state_lock, flags);
 			switch (consumer->state) {
 			case IPA_RM_RELEASED:
 				nbytes = scnprintf(buf + cnt, size - cnt,
@@ -1153,12 +1090,18 @@ int ipa_rm_resource_producer_print_stat(
 				cnt += nbytes;
 				break;
 			default:
+				spin_unlock_irqrestore(
+						&consumer->state_lock,
+						flags);
 				return -EPERM;
 			}
+			spin_unlock_irqrestore(
+					&consumer->state_lock,
+					flags);
 		}
 	}
-	nbytes = scnprintf(buf + cnt, size - cnt, "\n");
+	nbytes = scnprintf(buf + cnt, size - cnt,
+			 "\n");
 	cnt += nbytes;
-
 	return cnt;
 }

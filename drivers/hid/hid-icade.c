@@ -3,6 +3,7 @@
  *
  *  Copyright (c) 2012 Bastien Nocera <hadess@hadess.net>
  *  Copyright (c) 2012 Benjamin Tissoires <benjamin.tissoires@gmail.com>
+ *  Copyright (C) 2017 XiaoMi, Inc.
  */
 
 /*
@@ -198,7 +199,7 @@ static int icade_input_mapping(struct hid_device *hdev, struct hid_input *hi,
 		trans = icade_find_translation(usage->hid & HID_USAGE);
 
 		if (!trans)
-			return -1;
+			return -EPERM;
 
 		hid_map_usage(hi, usage, bit, max, EV_KEY, trans->to);
 		set_bit(trans->to, hi->input->keybit);
@@ -207,7 +208,7 @@ static int icade_input_mapping(struct hid_device *hdev, struct hid_input *hi,
 	}
 
 	/* ignore others */
-	return -1;
+	return -EPERM;
 
 }
 
@@ -218,7 +219,7 @@ static int icade_input_mapped(struct hid_device *hdev, struct hid_input *hi,
 	if (usage->type == EV_KEY)
 		set_bit(usage->type, hi->input->evbit);
 
-	return -1;
+	return -EPERM;
 }
 
 static const struct hid_device_id icade_devices[] = {

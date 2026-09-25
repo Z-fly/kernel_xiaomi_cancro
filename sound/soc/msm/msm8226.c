@@ -18,17 +18,18 @@
 #include <linux/slab.h>
 #include <linux/mfd/pm8xxx/pm8921.h>
 #include <linux/io.h>
-#include <soc/qcom/subsystem_notif.h>
-#include <soc/qcom/socinfo.h>
 #include <sound/core.h>
 #include <sound/soc.h>
 #include <sound/soc-dapm.h>
 #include <sound/pcm.h>
 #include <sound/jack.h>
 #include <sound/q6afe-v2.h>
+#include <asm/mach-types.h>
+#include <mach/socinfo.h>
+#include <mach/subsystem_notif.h>
 #include <sound/q6core.h>
 
-#include "qdsp6v2/msm-pcm-routing-v2.h"
+#include <qdsp6v2/msm-pcm-routing-v2.h>
 #include "../codecs/wcd9xxx-common.h"
 #include "../codecs/wcd9306.h"
 
@@ -58,13 +59,13 @@
 #define LO_1_SPK_AMP   0x1
 #define LO_2_SPK_AMP   0x2
 
-#define ADSP_STATE_READY_TIMEOUT_MS 3000
+#define ADSP_STATE_READY_TIMEOUT_MS 50
 
 static void *adsp_state_notifier;
 
 static int msm8226_auxpcm_rate = 8000;
 static atomic_t auxpcm_rsc_ref;
-static const char *const auxpcm_rate_text[] = {"8000", "16000"};
+static const char *const auxpcm_rate_text[] = {"rate_8000", "rate_16000"};
 static const struct soc_enum msm8226_auxpcm_enum[] = {
 		SOC_ENUM_SINGLE_EXT(2, auxpcm_rate_text),
 };
@@ -120,7 +121,7 @@ struct msm8226_asoc_mach_data {
 	int mclk_gpio;
 	u32 mclk_freq;
 	struct msm_auxpcm_ctrl *auxpcm_ctrl;
-	int us_euro_gpio;
+	u32 us_euro_gpio;
 };
 
 #define GPIO_NAME_INDEX 0
@@ -403,8 +404,7 @@ static const struct soc_enum msm_enum[] = {
 	SOC_ENUM_SINGLE_EXT(4, slim0_tx_ch_text),
 };
 
-static const char *const btsco_rate_text[] = {"BTSCO_RATE_8KHZ",
-	"BTSCO_RATE_16KHZ"};
+static const char *const btsco_rate_text[] = {"BTSCO_RATE_8KHZ", "BTSCO_RATE_16KHZ"};
 static const struct soc_enum msm_btsco_enum[] = {
 	SOC_ENUM_SINGLE_EXT(2, btsco_rate_text),
 };
@@ -536,22 +536,6 @@ static int msm_btsco_be_hw_params_fixup(struct snd_soc_pcm_runtime *rtd,
 
 	rate->min = rate->max = msm_btsco_rate;
 	channels->min = channels->max = msm_btsco_ch;
-
-	return 0;
-}
-
-static int msm_be_fm_hw_params_fixup(struct snd_soc_pcm_runtime *rtd,
-				struct snd_pcm_hw_params *params)
-{
-	struct snd_interval *rate = hw_param_interval(params,
-					SNDRV_PCM_HW_PARAM_RATE);
-
-	struct snd_interval *channels = hw_param_interval(params,
-			SNDRV_PCM_HW_PARAM_CHANNELS);
-
-	pr_debug("%s()\n", __func__);
-	rate->min = rate->max = 48000;
-	channels->min = channels->max = 2;
 
 	return 0;
 }
@@ -819,9 +803,6 @@ static int msm_slim_0_tx_be_hw_params_fixup(struct snd_soc_pcm_runtime *rtd,
 			SNDRV_PCM_HW_PARAM_CHANNELS);
 
 	pr_debug("%s()\n", __func__);
-	param_set_mask(params, SNDRV_PCM_HW_PARAM_FORMAT,
-					slim0_rx_bit_format);
-
 	rate->min = rate->max = 48000;
 	channels->min = channels->max = msm_slim_0_tx_ch;
 
@@ -836,6 +817,22 @@ static int msm_be_hw_params_fixup(struct snd_soc_pcm_runtime *rtd,
 
 	pr_debug("%s()\n", __func__);
 	rate->min = rate->max = 48000;
+
+	return 0;
+}
+
+static int msm_be_fm_hw_params_fixup(struct snd_soc_pcm_runtime *rtd,
+				struct snd_pcm_hw_params *params)
+{
+	struct snd_interval *rate = hw_param_interval(params,
+					SNDRV_PCM_HW_PARAM_RATE);
+
+	struct snd_interval *channels = hw_param_interval(params,
+			SNDRV_PCM_HW_PARAM_CHANNELS);
+
+	pr_debug("%s()\n", __func__);
+	rate->min = rate->max = 48000;
+	channels->min = channels->max = 2;
 
 	return 0;
 }
@@ -1476,7 +1473,7 @@ static struct snd_soc_dai_link msm8226_common_dai[] = {
 		.be_id = MSM_FRONTEND_DAI_QCHAT,
 	},
 	/* LSM FE */
-	{/* hw:x,19 */
+	{
 		.name = "Listen 1 Audio Service",
 		.stream_name = "Listen 1 Audio Service",
 		.cpu_dai_name = "LSM1",
@@ -1491,29 +1488,29 @@ static struct snd_soc_dai_link msm8226_common_dai[] = {
 		.codec_name = "snd-soc-dummy",
 		.be_id = MSM_FRONTEND_DAI_LSM1,
 	},
-	{/* hw:x,20 */
+	{
 		.name = "MSM8226 Compr8",
 		.stream_name = "COMPR8",
-		.cpu_dai_name   = "MultiMedia8",
-		.platform_name  = "msm-compress-dsp",
+		.cpu_dai_name	= "MultiMedia8",
+		.platform_name  = "msm-compr-dsp",
 		.dynamic = 1,
 		.trigger = {SND_SOC_DPCM_TRIGGER_POST,
-			SND_SOC_DPCM_TRIGGER_POST},
+			 SND_SOC_DPCM_TRIGGER_POST},
 		.codec_dai_name = "snd-soc-dummy-dai",
 		.codec_name = "snd-soc-dummy",
 		.ignore_suspend = 1,
 		.ignore_pmdown_time = 1,
-		/* this dainlink has playback support */
+		 /* this dainlink has playback support */
 		.be_id = MSM_FRONTEND_DAI_MULTIMEDIA8,
 	},
-	{/* hw:x,21 */
+	{
 		.name = "Listen 2 Audio Service",
 		.stream_name = "Listen 2 Audio Service",
 		.cpu_dai_name = "LSM2",
 		.platform_name = "msm-lsm-client",
 		.dynamic = 1,
 		.trigger = {SND_SOC_DPCM_TRIGGER_POST,
-				SND_SOC_DPCM_TRIGGER_POST },
+			    SND_SOC_DPCM_TRIGGER_POST },
 		.no_host_mode = SND_SOC_DAI_LINK_NO_HOST,
 		.ignore_suspend = 1,
 		.ignore_pmdown_time = 1,
@@ -1521,14 +1518,14 @@ static struct snd_soc_dai_link msm8226_common_dai[] = {
 		.codec_name = "snd-soc-dummy",
 		.be_id = MSM_FRONTEND_DAI_LSM2,
 	},
-	{/* hw:x,22 */
+	{
 		.name = "Listen 3 Audio Service",
 		.stream_name = "Listen 3 Audio Service",
 		.cpu_dai_name = "LSM3",
 		.platform_name = "msm-lsm-client",
 		.dynamic = 1,
 		.trigger = {SND_SOC_DPCM_TRIGGER_POST,
-				SND_SOC_DPCM_TRIGGER_POST },
+			    SND_SOC_DPCM_TRIGGER_POST },
 		.no_host_mode = SND_SOC_DAI_LINK_NO_HOST,
 		.ignore_suspend = 1,
 		.ignore_pmdown_time = 1,
@@ -1536,14 +1533,14 @@ static struct snd_soc_dai_link msm8226_common_dai[] = {
 		.codec_name = "snd-soc-dummy",
 		.be_id = MSM_FRONTEND_DAI_LSM3,
 	},
-	{/* hw:x,23 */
+	{
 		.name = "Listen 4 Audio Service",
 		.stream_name = "Listen 4 Audio Service",
 		.cpu_dai_name = "LSM4",
 		.platform_name = "msm-lsm-client",
 		.dynamic = 1,
 		.trigger = {SND_SOC_DPCM_TRIGGER_POST,
-				SND_SOC_DPCM_TRIGGER_POST },
+			    SND_SOC_DPCM_TRIGGER_POST },
 		.no_host_mode = SND_SOC_DAI_LINK_NO_HOST,
 		.ignore_suspend = 1,
 		.ignore_pmdown_time = 1,
@@ -1551,14 +1548,14 @@ static struct snd_soc_dai_link msm8226_common_dai[] = {
 		.codec_name = "snd-soc-dummy",
 		.be_id = MSM_FRONTEND_DAI_LSM4,
 	},
-	{/* hw:x,24 */
+	{
 		.name = "Listen 5 Audio Service",
 		.stream_name = "Listen 5 Audio Service",
 		.cpu_dai_name = "LSM5",
 		.platform_name = "msm-lsm-client",
 		.dynamic = 1,
 		.trigger = {SND_SOC_DPCM_TRIGGER_POST,
-				SND_SOC_DPCM_TRIGGER_POST },
+			    SND_SOC_DPCM_TRIGGER_POST },
 		.no_host_mode = SND_SOC_DAI_LINK_NO_HOST,
 		.ignore_suspend = 1,
 		.ignore_pmdown_time = 1,
@@ -1566,14 +1563,14 @@ static struct snd_soc_dai_link msm8226_common_dai[] = {
 		.codec_name = "snd-soc-dummy",
 		.be_id = MSM_FRONTEND_DAI_LSM5,
 	},
-	{/* hw:x,25 */
+	{
 		.name = "Listen 6 Audio Service",
 		.stream_name = "Listen 6 Audio Service",
 		.cpu_dai_name = "LSM6",
 		.platform_name = "msm-lsm-client",
 		.dynamic = 1,
 		.trigger = {SND_SOC_DPCM_TRIGGER_POST,
-				SND_SOC_DPCM_TRIGGER_POST },
+			    SND_SOC_DPCM_TRIGGER_POST },
 		.no_host_mode = SND_SOC_DAI_LINK_NO_HOST,
 		.ignore_suspend = 1,
 		.ignore_pmdown_time = 1,
@@ -1581,14 +1578,14 @@ static struct snd_soc_dai_link msm8226_common_dai[] = {
 		.codec_name = "snd-soc-dummy",
 		.be_id = MSM_FRONTEND_DAI_LSM6,
 	},
-	{/* hw:x,26 */
+	{
 		.name = "Listen 7 Audio Service",
 		.stream_name = "Listen 7 Audio Service",
 		.cpu_dai_name = "LSM7",
 		.platform_name = "msm-lsm-client",
 		.dynamic = 1,
 		.trigger = {SND_SOC_DPCM_TRIGGER_POST,
-				SND_SOC_DPCM_TRIGGER_POST },
+			    SND_SOC_DPCM_TRIGGER_POST },
 		.no_host_mode = SND_SOC_DAI_LINK_NO_HOST,
 		.ignore_suspend = 1,
 		.ignore_pmdown_time = 1,
@@ -1596,14 +1593,14 @@ static struct snd_soc_dai_link msm8226_common_dai[] = {
 		.codec_name = "snd-soc-dummy",
 		.be_id = MSM_FRONTEND_DAI_LSM7,
 	},
-	{/* hw:x,27 */
+	{
 		.name = "Listen 8 Audio Service",
 		.stream_name = "Listen 8 Audio Service",
 		.cpu_dai_name = "LSM8",
 		.platform_name = "msm-lsm-client",
 		.dynamic = 1,
 		.trigger = {SND_SOC_DPCM_TRIGGER_POST,
-				SND_SOC_DPCM_TRIGGER_POST },
+			    SND_SOC_DPCM_TRIGGER_POST },
 		.no_host_mode = SND_SOC_DAI_LINK_NO_HOST,
 		.ignore_suspend = 1,
 		.ignore_pmdown_time = 1,
@@ -1955,7 +1952,7 @@ static struct snd_soc_dai_link msm8226_9306_dai[] = {
 		.cpu_dai_name = "msm-dai-q6-dev.16395",
 		.platform_name = "msm-pcm-routing",
 		.codec_name = "tapan_codec",
-		.codec_dai_name	= "tapan_tx1",
+		.codec_dai_name = "tapan_tx1",
 		.no_pcm = 1,
 		.be_id = MSM_BACKEND_DAI_SLIMBUS_5_TX,
 		.be_hw_params_fixup = msm_slim_0_tx_be_hw_params_fixup,
@@ -2084,7 +2081,7 @@ static struct snd_soc_dai_link msm8226_9302_dai[] = {
 		.cpu_dai_name = "msm-dai-q6-dev.16395",
 		.platform_name = "msm-pcm-routing",
 		.codec_name = "tapan_codec",
-		.codec_dai_name	= "tapan_tx1",
+		.codec_dai_name = "tapan9302_tx1",
 		.no_pcm = 1,
 		.be_id = MSM_BACKEND_DAI_SLIMBUS_5_TX,
 		.be_hw_params_fixup = msm_slim_0_tx_be_hw_params_fixup,
@@ -2258,13 +2255,14 @@ static struct snd_soc_card *populate_snd_card_dailinks(struct device *dev)
 	return card;
 }
 
-static int msm8226_asoc_machine_probe(struct platform_device *pdev)
+static __devinit int msm8226_asoc_machine_probe(struct platform_device *pdev)
 {
 	struct snd_soc_card *card;
 	struct msm8226_asoc_mach_data *pdata;
 	int ret;
 	const char *auxpcm_pri_gpio_set = NULL;
 	const char *mbhc_audio_jack_type = NULL;
+	size_t n = strlen("4-pole-jack");
 
 	if (!pdev->dev.of_node) {
 		dev_err(&pdev->dev, "No platform supplied from device tree\n");
@@ -2275,7 +2273,8 @@ static int msm8226_asoc_machine_probe(struct platform_device *pdev)
 			sizeof(struct msm8226_asoc_mach_data), GFP_KERNEL);
 	if (!pdata) {
 		dev_err(&pdev->dev, "Can't allocate msm8226_asoc_mach_data\n");
-		return -ENOMEM;
+		ret = -ENOMEM;
+		goto err;
 	}
 
 	card = populate_snd_card_dailinks(&pdev->dev);
@@ -2319,6 +2318,7 @@ static int msm8226_asoc_machine_probe(struct platform_device *pdev)
 		ret = -ENODEV;
 		goto err;
 	}
+
 	ret = msm8226_prepare_codec_mclk(card);
 	if (ret)
 		goto err1;
@@ -2338,15 +2338,15 @@ static int msm8226_asoc_machine_probe(struct platform_device *pdev)
 		mbhc_cfg.enable_anc_mic_detect = false;
 		dev_dbg(&pdev->dev, "Jack type properties set to default");
 	} else {
-		if (!strcmp(mbhc_audio_jack_type, "4-pole-jack")) {
+		if (!strncmp(mbhc_audio_jack_type, "4-pole-jack", n)) {
 			mbhc_cfg.hw_jack_type = FOUR_POLE_JACK;
 			mbhc_cfg.enable_anc_mic_detect = false;
 			dev_dbg(&pdev->dev, "This hardware has 4 pole jack");
-		} else if (!strcmp(mbhc_audio_jack_type, "5-pole-jack")) {
+		} else if (!strncmp(mbhc_audio_jack_type, "5-pole-jack", n)) {
 			mbhc_cfg.hw_jack_type = FIVE_POLE_JACK;
 			mbhc_cfg.enable_anc_mic_detect = true;
 			dev_dbg(&pdev->dev, "This hardware has 5 pole jack");
-		} else if (!strcmp(mbhc_audio_jack_type, "6-pole-jack")) {
+		} else if (!strncmp(mbhc_audio_jack_type, "6-pole-jack", n)) {
 			mbhc_cfg.hw_jack_type = SIX_POLE_JACK;
 			mbhc_cfg.enable_anc_mic_detect = true;
 			dev_dbg(&pdev->dev, "This hardware has 6 pole jack");
@@ -2358,7 +2358,9 @@ static int msm8226_asoc_machine_probe(struct platform_device *pdev)
 	}
 
 	ret = snd_soc_register_card(card);
-	if (ret) {
+	if (ret == -EPROBE_DEFER)
+		goto err;
+	else if (ret) {
 		dev_err(&pdev->dev, "snd_soc_register_card failed (%d)\n",
 			ret);
 		goto err;
@@ -2462,7 +2464,7 @@ err1:
 	return ret;
 }
 
-static int msm8226_asoc_machine_remove(struct platform_device *pdev)
+static int __devexit msm8226_asoc_machine_remove(struct platform_device *pdev)
 {
 	struct snd_soc_card *card = platform_get_drvdata(pdev);
 	struct msm8226_asoc_mach_data *pdata = snd_soc_card_get_drvdata(card);
@@ -2495,7 +2497,7 @@ static struct platform_driver msm8226_asoc_machine_driver = {
 		.of_match_table = msm8226_asoc_machine_of_match,
 	},
 	.probe = msm8226_asoc_machine_probe,
-	.remove = msm8226_asoc_machine_remove,
+	.remove = __devexit_p(msm8226_asoc_machine_remove),
 };
 module_platform_driver(msm8226_asoc_machine_driver);
 

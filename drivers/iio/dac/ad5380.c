@@ -3,6 +3,7 @@
  * multi-channel Digital to Analog Converters driver
  *
  * Copyright 2011 Analog Devices Inc.
+ * Copyright (C) 2017 XiaoMi, Inc.
  *
  * Licensed under the GPL-2.
  */
@@ -84,7 +85,7 @@ static ssize_t ad5380_read_dac_powerdown(struct iio_dev *indio_dev,
 {
 	struct ad5380_state *st = iio_priv(indio_dev);
 
-	return sprintf(buf, "%d\n", st->pwr_down);
+	return snprintf(buf, "%d\n", st->pwr_down);
 }
 
 static ssize_t ad5380_write_dac_powerdown(struct iio_dev *indio_dev,

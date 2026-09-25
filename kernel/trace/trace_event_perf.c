@@ -224,6 +224,8 @@ void perf_trace_del(struct perf_event *p_event, int flags)
 	struct ftrace_event_call *tp_event = p_event->tp_event;
 	if (!hlist_unhashed(&p_event->hlist_entry))
 		hlist_del_rcu(&p_event->hlist_entry);
+	else
+		return;
 	tp_event->class->reg(tp_event, TRACE_REG_PERF_DEL, p_event);
 }
 
@@ -259,8 +261,7 @@ EXPORT_SYMBOL_GPL(perf_trace_buf_prepare);
 
 #ifdef CONFIG_FUNCTION_TRACER
 static void
-perf_ftrace_function_call(unsigned long ip, unsigned long parent_ip,
-			  struct ftrace_ops *ops, struct pt_regs *pt_regs)
+perf_ftrace_function_call(unsigned long ip, unsigned long parent_ip)
 {
 	struct ftrace_entry *entry;
 	struct hlist_head *head;
@@ -283,7 +284,7 @@ perf_ftrace_function_call(unsigned long ip, unsigned long parent_ip,
 
 	head = this_cpu_ptr(event_function.perf_events);
 	perf_trace_buf_submit(entry, ENTRY_SIZE, rctx, 0,
-			      1, &regs, head, NULL);
+			      1, &regs, head);
 
 #undef ENTRY_SIZE
 }

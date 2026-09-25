@@ -1,4 +1,4 @@
-/* Copyright (c) 2002,2008-2015, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2002,2008-2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -22,7 +22,79 @@
 #define KGSL_LOG_LEVEL_MAX     7
 
 struct dentry *kgsl_debugfs_dir;
+static struct dentry *pm_d_debugfs;
 struct dentry *proc_d_debugfs;
+
+static int pm_dump_set(void *data, u64 val)
+{
+	struct kgsl_device *device = data;
+
+	if (val) {
+		kgsl_mutex_lock(&device->mutex, &device->mutex_owner);
+		kgsl_postmortem_dump(device, 1);
+		kgsl_mutex_unlock(&device->mutex, &device->mutex_owner);
+	}
+
+	return 0;
+}
+DEFINE_SIMPLE_ATTRIBUTE(pm_dump_fops,
+			NULL,
+			pm_dump_set, "%llu\n");
+
+static int pm_regs_enabled_set(void *data, u64 val)
+{
+	struct kgsl_device *device = data;
+	device->pm_regs_enabled = val ? 1 : 0;
+	return 0;
+}
+
+static int pm_regs_enabled_get(void *data, u64 *val)
+{
+	struct kgsl_device *device = data;
+	*val = device->pm_regs_enabled;
+	return 0;
+}
+
+static int pm_ib_enabled_set(void *data, u64 val)
+{
+	struct kgsl_device *device = data;
+	device->pm_ib_enabled = val ? 1 : 0;
+	return 0;
+}
+
+static int pm_ib_enabled_get(void *data, u64 *val)
+{
+	struct kgsl_device *device = data;
+	*val = device->pm_ib_enabled;
+	return 0;
+}
+
+static int pm_enabled_set(void *data, u64 val)
+{
+	struct kgsl_device *device = data;
+	device->pm_dump_enable = val;
+	return 0;
+}
+
+static int pm_enabled_get(void *data, u64 *val)
+{
+	struct kgsl_device *device = data;
+	*val = device->pm_dump_enable;
+	return 0;
+}
+
+
+DEFINE_SIMPLE_ATTRIBUTE(pm_regs_enabled_fops,
+			pm_regs_enabled_get,
+			pm_regs_enabled_set, "%llu\n");
+
+DEFINE_SIMPLE_ATTRIBUTE(pm_ib_enabled_fops,
+			pm_ib_enabled_get,
+			pm_ib_enabled_set, "%llu\n");
+
+DEFINE_SIMPLE_ATTRIBUTE(pm_enabled_fops,
+			pm_enabled_get,
+			pm_enabled_set, "%llu\n");
 
 static inline int kgsl_log_set(unsigned int *log_val, void *data, u64 val)
 {
@@ -70,21 +142,37 @@ void kgsl_device_debugfs_init(struct kgsl_device *device)
 				&mem_log_fops);
 	debugfs_create_file("log_level_pwr", 0644, device->d_debugfs, device,
 				&pwr_log_fops);
+
+	/* Create postmortem dump control files */
+
+	pm_d_debugfs = debugfs_create_dir("postmortem", device->d_debugfs);
+
+	if (IS_ERR(pm_d_debugfs))
+		return;
+
+	debugfs_create_file("dump",  0600, pm_d_debugfs, device,
+			    &pm_dump_fops);
+	debugfs_create_file("regs_enabled", 0644, pm_d_debugfs, device,
+			    &pm_regs_enabled_fops);
+	debugfs_create_file("ib_enabled", 0644, pm_d_debugfs, device,
+				    &pm_ib_enabled_fops);
+	debugfs_create_file("enable", 0644, pm_d_debugfs, device,
+				    &pm_enabled_fops);
+
 }
 
-struct type_entry {
-	int type;
-	const char *str;
+static const char * const memtype_strings[] = {
+	"gpumem",
+	"pmem",
+	"ashmem",
+	"usermap",
+	"ion",
 };
-
-static const struct type_entry memtypes[] = { KGSL_MEM_TYPES };
 
 static const char *memtype_str(int memtype)
 {
-	int i;
-	for (i = 0; i < ARRAY_SIZE(memtypes); i++)
-		if (memtypes[i].type == memtype)
-			return memtypes[i].str;
+	if (memtype < ARRAY_SIZE(memtype_strings))
+		return memtype_strings[memtype];
 	return "unknown";
 }
 
@@ -111,27 +199,25 @@ static char get_cacheflag(const struct kgsl_memdesc *m)
 
 static void print_mem_entry(struct seq_file *s, struct kgsl_mem_entry *entry)
 {
-	char flags[8];
+	char flags[7];
 	char usage[16];
 	struct kgsl_memdesc *m = &entry->memdesc;
 
 	flags[0] = kgsl_memdesc_is_global(m) ?  'g' : '-';
-	flags[1] = '-';
-	flags[2] = !(m->flags & KGSL_MEMFLAGS_GPUREADONLY) ? 'w' : '-';
-	flags[3] = get_alignflag(m);
-	flags[4] = get_cacheflag(m);
-	flags[5] = kgsl_memdesc_use_cpu_map(m) ? 'p' : '-';
-	flags[6] = (m->useraddr) ? 'Y' : 'N';
-	flags[7] = '\0';
+	flags[1] = m->flags & KGSL_MEMFLAGS_GPUREADONLY ? 'r' : '-';
+	flags[2] = get_alignflag(m);
+	flags[3] = get_cacheflag(m);
+	flags[4] = kgsl_memdesc_use_cpu_map(m) ? 'p' : '-';
+	flags[5] = (m->useraddr) ? 'Y' : 'N';
+	flags[6] = '\0';
 
 	kgsl_get_memory_usage(usage, sizeof(usage), m->flags);
 
-	seq_printf(s, "%pK %pK %16llu %5d %8s %10s %16s %5d\n",
-			(uint64_t *)(uintptr_t) m->gpuaddr,
+	seq_printf(s, "%pK %pK %8zd %5d %6s %10s %16s %5d\n",
+			(unsigned long *) m->gpuaddr,
 			(unsigned long *) m->useraddr,
 			m->size, entry->id, flags,
-			memtype_str(kgsl_memdesc_usermem_type(m)),
-			usage, m->sgt->nents);
+			memtype_str(entry->memtype), usage, m->sglen);
 }
 
 static int process_mem_print(struct seq_file *s, void *unused)
@@ -141,7 +227,7 @@ static int process_mem_print(struct seq_file *s, void *unused)
 	struct kgsl_process_private *private = s->private;
 	int next = 0;
 
-	seq_printf(s, "%8s %8s %8s %5s %8s %10s %16s %5s\n",
+	seq_printf(s, "%8s %8s %8s %5s %6s %10s %16s %5s\n",
 		   "gpuaddr", "useraddr", "size", "id", "flags", "type",
 		   "usage", "sglen");
 
@@ -209,46 +295,53 @@ static const struct file_operations process_mem_fops = {
  * kgsl_process_init_debugfs() - Initialize debugfs for a process
  * @private: Pointer to process private structure created for the process
  *
+ * @returns: 0 on success, error code otherwise
+ *
  * kgsl_process_init_debugfs() is called at the time of creating the
  * process struct when a process opens kgsl device for the first time.
- * This function is not fatal - all we do is print a warning message if
- * the files can't be created
+ * The function creates the debugfs files for the process. If debugfs is
+ * disabled in the kernel, we ignore that error and return as successful.
  */
-void kgsl_process_init_debugfs(struct kgsl_process_private *private)
+int
+kgsl_process_init_debugfs(struct kgsl_process_private *private)
 {
 	unsigned char name[16];
+	int ret = 0;
 	struct dentry *dentry;
 
 	snprintf(name, sizeof(name), "%d", private->pid);
 
 	private->debug_root = debugfs_create_dir(name, proc_d_debugfs);
 
+	if (!private->debug_root)
+		return -EINVAL;
+
 	/*
-	 * Both debugfs_create_dir() and debugfs_create_file() return
-	 * ERR_PTR(-ENODEV) if debugfs is disabled in the kernel but return
-	 * NULL on error when it is enabled. For both usages we need to check
-	 * for ERROR or NULL and only print a warning on an actual failure
-	 * (i.e. - when the return value is NULL)
+	 * debugfs_create_dir() and debugfs_create_file() both
+	 * return -ENODEV if debugfs is disabled in the kernel.
+	 * We make a distinction between these two functions
+	 * failing and debugfs being disabled in the kernel.
+	 * In the first case, we abort process private struct
+	 * creation, in the second we continue without any changes.
+	 * So if debugfs is disabled in kernel, return as
+	 * success.
 	 */
-
-	if (IS_ERR_OR_NULL(private->debug_root)) {
-		WARN((private->debug_root == NULL),
-			"Unable to create debugfs dir for %s\n", name);
-		private->debug_root = NULL;
-		return;
-	}
-
 	dentry = debugfs_create_file("mem", 0444, private->debug_root,
 		(void *) ((unsigned long) private->pid), &process_mem_fops);
 
-	if (IS_ERR_OR_NULL(dentry))
-		WARN((dentry == NULL),
-			"Unable to create 'mem' file for %s\n", name);
+	if (IS_ERR(dentry)) {
+		ret = PTR_ERR(dentry);
+
+		if (ret == -ENODEV)
+			ret = 0;
+	}
+
+	return ret;
 }
 
 void kgsl_core_debugfs_init(void)
 {
-	kgsl_debugfs_dir = debugfs_create_dir("kgsl", NULL);
+	kgsl_debugfs_dir = debugfs_create_dir("kgsl", 0);
 	proc_d_debugfs = debugfs_create_dir("proc", kgsl_debugfs_dir);
 }
 

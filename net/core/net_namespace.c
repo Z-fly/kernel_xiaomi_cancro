@@ -1,5 +1,3 @@
-#define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
-
 #include <linux/workqueue.h>
 #include <linux/rtnetlink.h>
 #include <linux/cache.h>
@@ -10,8 +8,7 @@
 #include <linux/idr.h>
 #include <linux/rculist.h>
 #include <linux/nsproxy.h>
-#include <linux/fs.h>
-#include <linux/proc_ns.h>
+#include <linux/proc_fs.h>
 #include <linux/file.h>
 #include <linux/export.h>
 #include <linux/user_namespace.h>
@@ -219,8 +216,8 @@ static void net_free(struct net *net)
 {
 #ifdef NETNS_REFCNT_DEBUG
 	if (unlikely(atomic_read(&net->use_count) != 0)) {
-		pr_emerg("network namespace not free! Usage: %d\n",
-			 atomic_read(&net->use_count));
+		printk(KERN_EMERG "network namespace not free! Usage: %d\n",
+			atomic_read(&net->use_count));
 		return;
 	}
 #endif
@@ -337,7 +334,7 @@ EXPORT_SYMBOL_GPL(__put_net);
 
 struct net *get_net_ns_by_fd(int fd)
 {
-	struct proc_ns *ei;
+	struct proc_inode *ei;
 	struct file *file;
 	struct net *net;
 
@@ -345,7 +342,7 @@ struct net *get_net_ns_by_fd(int fd)
 	if (IS_ERR(file))
 		return ERR_CAST(file);
 
-	ei = get_proc_ns(file_inode(file));
+	ei = PROC_I(file->f_dentry->d_inode);
 	if (ei->ns_ops == &netns_operations)
 		net = get_net(ei->ns);
 	else
@@ -356,6 +353,13 @@ struct net *get_net_ns_by_fd(int fd)
 }
 
 #else
+struct net *copy_net_ns(unsigned long flags, struct net *old_net)
+{
+	if (flags & CLONE_NEWNET)
+		return ERR_PTR(-EINVAL);
+	return old_net;
+}
+
 struct net *get_net_ns_by_fd(int fd)
 {
 	return ERR_PTR(-EINVAL);
@@ -650,8 +654,7 @@ static int netns_install(struct nsproxy *nsproxy, void *ns)
 {
 	struct net *net = ns;
 
-	if (!ns_capable(net->user_ns, CAP_SYS_ADMIN) ||
-	    !nsown_capable(CAP_SYS_ADMIN))
+	if (!ns_capable(net->user_ns, CAP_SYS_ADMIN))
 		return -EPERM;
 
 	put_net(nsproxy->net_ns);

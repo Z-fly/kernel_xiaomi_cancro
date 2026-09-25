@@ -239,8 +239,6 @@ static const struct net_device_ops xenvif_netdev_ops = {
 	.ndo_stop	= xenvif_close,
 	.ndo_change_mtu	= xenvif_change_mtu,
 	.ndo_fix_features = xenvif_fix_features,
-	.ndo_set_mac_address = eth_mac_addr,
-	.ndo_validate_addr   = eth_validate_addr,
 };
 
 struct xenvif *xenvif_alloc(struct device *parent, domid_t domid,
@@ -303,9 +301,6 @@ struct xenvif *xenvif_alloc(struct device *parent, domid_t domid,
 	}
 
 	netdev_dbg(dev, "Successfully created xenvif\n");
-
-	__module_get(THIS_MODULE);
-
 	return vif;
 }
 
@@ -365,22 +360,15 @@ void xenvif_disconnect(struct xenvif *vif)
 	if (netif_carrier_ok(vif->dev))
 		xenvif_carrier_off(vif);
 
-	if (vif->irq) {
-		unbind_from_irqhandler(vif->irq, vif);
-		vif->irq = 0;
-	}
-
-	xen_netbk_unmap_frontend_rings(vif);
-}
-
-void xenvif_free(struct xenvif *vif)
-{
 	atomic_dec(&vif->refcnt);
 	wait_event(vif->waiting_to_free, atomic_read(&vif->refcnt) == 0);
 
+	if (vif->irq)
+		unbind_from_irqhandler(vif->irq, vif);
+
 	unregister_netdev(vif->dev);
 
-	free_netdev(vif->dev);
+	xen_netbk_unmap_frontend_rings(vif);
 
-	module_put(THIS_MODULE);
+	free_netdev(vif->dev);
 }

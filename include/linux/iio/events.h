@@ -1,6 +1,7 @@
 /* The industrial I/O - event passing to userspace
  *
  * Copyright (c) 2008-2011 Jonathan Cameron
+ * Copyright (C) 2017 XiaoMi, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License version 2 as published by
@@ -62,7 +63,7 @@ enum iio_event_direction {
 
 #define IIO_EV_DIR_MAX 4
 #define IIO_EV_BIT(type, direction)			\
-	(1 << (type*IIO_EV_DIR_MAX + direction))
+	(1 << (type *IIO_EV_DIR_MAX + direction))
 
 /**
  * IIO_MOD_EVENT_CODE() - create event identifier for modified channels
@@ -90,7 +91,7 @@ enum iio_event_direction {
 
 #define IIO_EVENT_CODE_EXTRACT_TYPE(mask) ((mask >> 56) & 0xFF)
 
-#define IIO_EVENT_CODE_EXTRACT_DIR(mask) ((mask >> 48) & 0x7F)
+#define IIO_EVENT_CODE_EXTRACT_DIR(mask) ((mask >> 48) & 0xCF)
 
 #define IIO_EVENT_CODE_EXTRACT_CHAN_TYPE(mask) ((mask >> 32) & 0xFF)
 

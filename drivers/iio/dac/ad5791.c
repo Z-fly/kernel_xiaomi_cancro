@@ -3,6 +3,7 @@
  * Converter
  *
  * Copyright 2011 Analog Devices Inc.
+ * Copyright (C) 2017 XiaoMi, Inc.
  *
  * Licensed under the GPL-2.
  */
@@ -21,7 +22,7 @@
 #include <linux/iio/sysfs.h>
 #include <linux/iio/dac/ad5791.h>
 
-#define AD5791_RES_MASK(x)		((1 << (x)) - 1)
+#define AD5791_RES_MASK(x)		((1 << (x)) -1)
 #define AD5791_DAC_MASK			AD5791_RES_MASK(20)
 #define AD5791_DAC_MSB			(1 << 19)
 
@@ -185,7 +186,7 @@ static ssize_t ad5791_read_dac_powerdown(struct iio_dev *indio_dev,
 {
 	struct ad5791_state *st = iio_priv(indio_dev);
 
-	return sprintf(buf, "%d\n", st->pwr_down);
+	return snprintf(buf, "%d\n", st->pwr_down);
 }
 
 static ssize_t ad5791_write_dac_powerdown(struct iio_dev *indio_dev,
@@ -252,10 +253,10 @@ static const struct ad5791_chip_info ad5791_chip_info_tbl[] = {
 };
 
 static int ad5791_read_raw(struct iio_dev *indio_dev,
-			   struct iio_chan_spec const *chan,
-			   int *val,
-			   int *val2,
-			   long m)
+		struct iio_chan_spec const *chan,
+		int *val,
+		int *val2,
+		long m)
 {
 	struct ad5791_state *st = iio_priv(indio_dev);
 	u64 val64;

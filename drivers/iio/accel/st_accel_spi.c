@@ -2,8 +2,8 @@
  * STMicroelectronics accelerometers driver
  *
  * Copyright 2012-2013 STMicroelectronics Inc.
- *
  * Denis Ciocca <denis.ciocca@st.com>
+ * Copyright (C) 2017 XiaoMi, Inc.
  *
  * Licensed under the GPL-2.
  */

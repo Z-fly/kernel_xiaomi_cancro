@@ -2,6 +2,7 @@
 *  HID driver for zydacron remote control
 *
 *  Copyright (c) 2010 Don Prince <dhprince.devel@yahoo.co.uk>
+*  Copyright (C) 2017 XiaoMi, Inc.
 */
 
 /*

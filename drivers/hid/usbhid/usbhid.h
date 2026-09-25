@@ -5,6 +5,7 @@
  *  Copyright (c) 1999 Andreas Gal
  *  Copyright (c) 2000-2001 Vojtech Pavlik
  *  Copyright (c) 2006 Jiri Kosina
+ *  Copyright (C) 2017 XiaoMi, Inc.
  */
 
 /*

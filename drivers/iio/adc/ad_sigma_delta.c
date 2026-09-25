@@ -2,7 +2,8 @@
  * Support code for Analog Devices Sigma-Delta ADCs
  *
  * Copyright 2012 Analog Devices Inc.
- *  Author: Lars-Peter Clausen <lars@metafoo.de>
+ * Author: Lars-Peter Clausen <lars@metafoo.de>
+ * Copyright (C) 2017 XiaoMi, Inc.
  *
  * Licensed under the GPL-2.
  */
@@ -449,7 +450,7 @@ static int ad_sd_probe_trigger(struct iio_dev *indio_dev)
 	int ret;
 
 	sigma_delta->trig = iio_trigger_alloc("%s-dev%d", indio_dev->name,
-						indio_dev->id);
+			indio_dev->id);
 	if (sigma_delta->trig == NULL) {
 		ret = -ENOMEM;
 		goto error_ret;
@@ -477,7 +478,7 @@ static int ad_sd_probe_trigger(struct iio_dev *indio_dev)
 		goto error_free_irq;
 
 	/* select default trigger */
-	indio_dev->trig = iio_trigger_get(sigma_delta->trig);
+	indio_dev->trig = sigma_delta->trig;
 
 	return 0;
 

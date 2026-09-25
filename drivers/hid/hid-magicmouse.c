@@ -3,6 +3,7 @@
  *
  *   Copyright (c) 2010 Michael Poole <mdpoole@troilus.org>
  *   Copyright (c) 2010 Chase Douglas <chase.douglas@canonical.com>
+ *   Copyright (C) 2017 XiaoMi, Inc.
  */
 
 /*
@@ -401,7 +402,7 @@ static int magicmouse_setup_input(struct input_dev *input, struct hid_device *hd
 
 	__set_bit(EV_ABS, input->evbit);
 
-	error = input_mt_init_slots(input, 16, 0);
+	error = input_mt_init_slots(input, 16);
 	if (error)
 		return error;
 	input_set_abs_params(input, ABS_MT_TOUCH_MAJOR, 0, 255 << 2,
@@ -471,7 +472,7 @@ static int magicmouse_input_mapping(struct hid_device *hdev,
 	return 0;
 }
 
-static int magicmouse_input_configured(struct hid_device *hdev,
+static void magicmouse_input_configured(struct hid_device *hdev,
 		struct hid_input *hi)
 
 {
@@ -483,7 +484,6 @@ static int magicmouse_input_configured(struct hid_device *hdev,
 		/* clean msc->input to notify probe() of the failure */
 		msc->input = NULL;
 	}
-	return ret;
 }
 
 

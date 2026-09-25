@@ -419,6 +419,8 @@ static inline
 
 static int alloc_ringmemory(struct b43_dmaring *ring)
 {
+	gfp_t flags = GFP_KERNEL;
+
 	/* The specs call for 4K buffers for 30- and 32-bit DMA with 4K
 	 * alignment and 8K buffers for 64-bit DMA with 8K alignment.
 	 * In practice we could use smaller buffers for the latter, but the
@@ -433,9 +435,12 @@ static int alloc_ringmemory(struct b43_dmaring *ring)
 
 	ring->descbase = dma_alloc_coherent(ring->dev->dev->dma_dev,
 					    ring_mem_size, &(ring->dmabase),
-					    GFP_KERNEL | __GFP_ZERO);
-	if (!ring->descbase)
+					    flags);
+	if (!ring->descbase) {
+		b43err(ring->dev->wl, "DMA ringmemory allocation failed\n");
 		return -ENOMEM;
+	}
+	memset(ring->descbase, 0, ring_mem_size);
 
 	return 0;
 }
@@ -1107,7 +1112,7 @@ static bool b43_dma_translation_in_low_word(struct b43_wldev *dev,
 #ifdef CONFIG_B43_SSB
 	if (dev->dev->bus_type == B43_BUS_SSB &&
 	    dev->dev->sdev->bus->bustype == SSB_BUSTYPE_PCI &&
-	    !(pci_is_pcie(dev->dev->sdev->bus->host_pci) &&
+	    !(dev->dev->sdev->bus->host_pci->is_pcie &&
 	      ssb_read32(dev->dev->sdev, SSB_TMSHIGH) & SSB_TMSHIGH_DMA64))
 			return 1;
 #endif

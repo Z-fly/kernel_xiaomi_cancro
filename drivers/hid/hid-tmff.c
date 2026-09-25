@@ -9,6 +9,7 @@
  *
  *  Copyright (c) 2003 Zinx Verituse <zinx@epicsol.org>
  *  Copyright (c) 2002 Johann Deneux
+ *  Copyright (C) 2017 XiaoMi, Inc.
  */
 
 /*

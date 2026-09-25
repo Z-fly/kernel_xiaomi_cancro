@@ -62,9 +62,8 @@ static const struct nla_policy mirred_policy[TCA_MIRRED_MAX + 1] = {
 	[TCA_MIRRED_PARMS]	= { .len = sizeof(struct tc_mirred) },
 };
 
-static int tcf_mirred_init(struct net *net, struct nlattr *nla,
-			   struct nlattr *est, struct tc_action *a, int ovr,
-			   int bind)
+static int tcf_mirred_init(struct nlattr *nla, struct nlattr *est,
+			   struct tc_action *a, int ovr, int bind)
 {
 	struct nlattr *tb[TCA_MIRRED_MAX + 1];
 	struct tc_mirred *parm;
@@ -89,7 +88,7 @@ static int tcf_mirred_init(struct net *net, struct nlattr *nla,
 		return -EINVAL;
 	}
 	if (parm->ifindex) {
-		dev = __dev_get_by_index(net, parm->ifindex);
+		dev = __dev_get_by_index(&init_net, parm->ifindex);
 		if (dev == NULL)
 			return -ENODEV;
 		switch (dev->type) {
@@ -175,8 +174,9 @@ static int tcf_mirred(struct sk_buff *skb, const struct tc_action *a,
 	}
 
 	if (!(dev->flags & IFF_UP)) {
-		net_notice_ratelimited("tc mirred to Houston: device %s is down\n",
-				       dev->name);
+		if (net_ratelimit())
+			pr_notice("tc mirred to Houston: device %s is down\n",
+				  dev->name);
 		goto out;
 	}
 
@@ -226,13 +226,11 @@ static int tcf_mirred_dump(struct sk_buff *skb, struct tc_action *a, int bind, i
 	};
 	struct tcf_t t;
 
-	if (nla_put(skb, TCA_MIRRED_PARMS, sizeof(opt), &opt))
-		goto nla_put_failure;
+	NLA_PUT(skb, TCA_MIRRED_PARMS, sizeof(opt), &opt);
 	t.install = jiffies_to_clock_t(jiffies - m->tcf_tm.install);
 	t.lastuse = jiffies_to_clock_t(jiffies - m->tcf_tm.lastuse);
 	t.expires = jiffies_to_clock_t(m->tcf_tm.expires);
-	if (nla_put(skb, TCA_MIRRED_TM, sizeof(t), &t))
-		goto nla_put_failure;
+	NLA_PUT(skb, TCA_MIRRED_TM, sizeof(t), &t);
 	return skb->len;
 
 nla_put_failure:

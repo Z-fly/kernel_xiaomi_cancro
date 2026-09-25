@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2014-2017, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -62,10 +62,9 @@
 #include <linux/bitops.h>
 #include <linux/fdtable.h>
 #include <linux/selinux.h>
-#include <linux/security.h>
 
 #include <linux/pft.h>
-#include <uapi/linux/msm_pft.h>
+#include <linux/msm_pft.h>
 
 #include "objsec.h"
 
@@ -158,77 +157,12 @@ struct pft_device {
 	u32 uid_count;
 	struct list_head open_file_list;
 	struct mutex lock;
-	bool is_chosen_lsm;
 };
 
 /* Device Driver State */
 static struct pft_device *pft_dev;
 
 static struct inode *pft_bio_get_inode(struct bio *bio);
-
-static int pft_inode_alloc_security(struct inode *inode)
-{
-	struct inode_security_struct *i_sec = NULL;
-
-	i_sec = kzalloc(sizeof(*i_sec), GFP_KERNEL);
-
-	if (i_sec == NULL) {
-		pr_err("i_security malloc failure\n");
-		return -ENOMEM;
-	}
-	inode->i_security = i_sec;
-
-	return 0;
-}
-
-static void pft_inode_free_security(struct inode *inode)
-{
-	kzfree(inode->i_security);
-}
-
-static struct security_operations pft_security_ops = {
-	.name			= "pft",
-
-	.inode_create		= pft_inode_create,
-	.inode_post_create	= pft_inode_post_create,
-	.inode_unlink		= pft_inode_unlink,
-	.inode_mknod		= pft_inode_mknod,
-	.inode_rename		= pft_inode_rename,
-	.inode_setxattr		= pft_inode_set_xattr,
-	.inode_alloc_security	= pft_inode_alloc_security,
-	.inode_free_security	= pft_inode_free_security,
-
-	.file_open		= pft_file_open,
-	.file_permission	= pft_file_permission,
-	.file_close		= pft_file_close,
-
-	.allow_merge_bio	= pft_allow_merge_bio,
-};
-
-static int __init pft_lsm_init(struct pft_device *dev)
-{
-	int ret;
-
-	/* Check if PFT is the chosen lsm via security_module_enable() */
-	if (security_module_enable(&pft_security_ops)) {
-		/* replace null callbacks with empty callbacks */
-		security_fixup_ops(&pft_security_ops);
-
-		ret = register_security(&pft_security_ops);
-		if (ret) {
-			pr_err("pft lsm registeration failed, ret=%d.\n", ret);
-			return ret;
-		}
-
-		dev->is_chosen_lsm = true;
-		pr_debug("pft is the chosen lsm, registered sucessfully !\n");
-	} else {
-		pr_err("pft is not the chosen lsm.\n");
-		return -ENODEV;
-	}
-
-	return 0;
-}
 
 /**
  * pft_is_ready() - driver is initialized and ready.
@@ -275,10 +209,11 @@ static char *inode_to_filename(struct inode *inode)
 	struct dentry *dentry = NULL;
 	char *filename = NULL;
 
-	if (hlist_empty(&inode->i_dentry))
+	if (list_empty(&inode->i_dentry))
 		return "unknown";
 
-	dentry = hlist_entry(inode->i_dentry.first, struct dentry, d_alias);
+	dentry = list_first_entry(&inode->i_dentry, struct dentry, d_u.d_alias);
+
 	filename = dentry->d_iname;
 
 	return filename;
@@ -553,7 +488,7 @@ static int pft_get_file_tag(struct dentry *dentry, u32 *tag_ptr)
 		pft_tag_inode_encrypted(inode, key);
 		*tag_ptr = pft_get_inode_tag(inode);
 	} else {
-		pr_err("getxattr() failure, ret=%zu\n", size);
+		pr_err("getxattr() failure, ret=%d.\n", size);
 		return -EINVAL;
 	}
 
@@ -700,7 +635,7 @@ int pft_get_key_index(struct bio *bio, u32 *key_index,
 	if (!pft_is_ready())
 		return -ENODEV;
 
-	if (!selinux_is_enabled() && !pft_dev->is_chosen_lsm)
+	if (!selinux_is_enabled())
 		return -ENODEV;
 
 	if (!bio)
@@ -760,9 +695,6 @@ static struct inode *pft_bio_get_inode(struct bio *bio)
 {
 	if (!bio)
 		return NULL;
-	/* check bio vec count > 0 before using the bio->bi_io_vec[] array */
-	if (!bio->bi_vcnt)
-		return NULL;
 	if (!bio->bi_io_vec)
 		return NULL;
 	if (!bio->bi_io_vec->bv_page)
@@ -773,7 +705,7 @@ static struct inode *pft_bio_get_inode(struct bio *bio)
 
 		/* Using direct-io (O_DIRECT) without page cache */
 		inode = dio_bio_get_inode(bio);
-		pr_debug("inode on direct-io, inode = 0x%p.\n", inode);
+		pr_debug("inode on direct-io, inode = 0x%x.\n", (int) inode);
 
 		return inode;
 	}
@@ -808,13 +740,6 @@ bool pft_allow_merge_bio(struct bio *bio1, struct bio *bio2)
 	int ret;
 
 	if (!pft_is_ready())
-		return true;
-
-	/*
-	 * Encrypted BIOs are created only when file encryption is enabled,
-	 * which happens only when key is loaded.
-	 */
-	if (pft_dev->state != PFT_STATE_KEY_LOADED)
 		return true;
 
 	ret = pft_get_key_index(bio1, &key_index1,
@@ -1203,28 +1128,6 @@ int pft_file_close(struct file *filp)
 		pft_dev->inplace_file = NULL;
 	}
 
-	switch (pft_dev->state) {
-	case PFT_STATE_DEACTIVATING:
-	case PFT_STATE_REMOVING_KEY:
-		/*
-		 * Do not allow apps to close file when
-		 * pft_close_opened_enc_files() is closing files.
-		 * Normally, all enterprise apps are closed by PFM
-		 * before getting to this state, so the apps files are
-		 * norammly closed by now.
-		 * pft_close_opened_enc_files() is running in PFM context.
-		 */
-		if (current_pid() != pft_dev->pfm_pid)
-			return -EACCES;
-	case PFT_STATE_DEACTIVATED:
-	case PFT_STATE_KEY_LOADED:
-	case PFT_STATE_KEY_REMOVED:
-		break;
-	default:
-		BUG(); /* State is set by "set state" command */
-		break;
-	}
-
 	pft_sync_file(filp);
 	pft_remove_file(filp);
 
@@ -1286,9 +1189,7 @@ EXPORT_SYMBOL(pft_inode_unlink);
  *
  * Return: 0 on successful operation, negative value otherwise.
  */
-
-int pft_inode_set_xattr(struct dentry *dentry, const char *name,
-			const void *value, size_t size, int flags)
+int pft_inode_set_xattr(struct dentry *dentry, const char *name)
 {
 	struct inode *inode = NULL;
 
@@ -1852,8 +1753,6 @@ static int __init pft_init(void)
 		pr_err("create character device failed.\n");
 		goto fail;
 	}
-
-	pft_lsm_init(dev);
 
 	pr_info("Drivr initialized successfully %s %s.n", __DATE__, __TIME__);
 

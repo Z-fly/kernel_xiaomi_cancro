@@ -9,7 +9,6 @@
 
 #ifdef __KERNEL__
 #include <linux/types.h>
-#include <linux/uuid.h>
 typedef unsigned long kernel_ulong_t;
 #endif
 
@@ -122,8 +121,7 @@ struct usb_device_id {
 	__u8		bInterfaceNumber;
 
 	/* not matched against */
-	kernel_ulong_t	driver_info
-		__attribute__((aligned(sizeof(kernel_ulong_t))));
+	kernel_ulong_t	driver_info;
 };
 
 /* Some useful macros to use to create struct usb_device_id */
@@ -225,7 +223,7 @@ struct of_device_id
 	char	name[32];
 	char	type[32];
 	char	compatible[128];
-	const void *data;
+	void	*data;
 };
 
 /* VIO */
@@ -449,16 +447,6 @@ struct spmi_device_id {
 			__attribute__((aligned(sizeof(kernel_ulong_t))));
 };
 
-/* soundwire */
-
-#define SOUNDWIRE_NAME_SIZE	32
-#define SOUNDWIRE_MODULE_PREFIX "swr:"
-
-struct swr_device_id {
-	char name[SOUNDWIRE_NAME_SIZE];
-	kernel_ulong_t driver_data;	/* Data private to the driver */
-};
-
 /* dmi */
 enum dmi_field {
 	DMI_NONE,
@@ -484,8 +472,7 @@ enum dmi_field {
 };
 
 struct dmi_strmatch {
-	unsigned char slot:7;
-	unsigned char exact_match:1;
+	unsigned char slot;
 	char substr[79];
 };
 
@@ -503,8 +490,7 @@ struct dmi_system_id {
  */
 #define dmi_device_id dmi_system_id
 
-#define DMI_MATCH(a, b)	{ .slot = a, .substr = b }
-#define DMI_EXACT_MATCH(a, b)	{ .slot = a, .substr = b, .exact_match = 1 }
+#define DMI_MATCH(a, b)	{ a, b }
 
 #define PLATFORM_NAME_SIZE	20
 #define PLATFORM_MODULE_PREFIX	"platform:"
@@ -590,30 +576,5 @@ struct x86_cpu_id {
 #define X86_FAMILY_ANY 0
 #define X86_MODEL_ANY  0
 #define X86_FEATURE_ANY 0	/* Same as FPU, you can't test for that */
-
-/*
- * Generic table type for matching CPU features.
- * @feature:	the bit number of the feature (0 - 65535)
- */
-
-struct cpu_feature {
-	__u16	feature;
-};
-
-#define IPACK_ANY_FORMAT 0xff
-#define IPACK_ANY_ID (~0)
-struct ipack_device_id {
-	__u8  format;			/* Format version or IPACK_ANY_ID */
-	__u32 vendor;			/* Vendor ID or IPACK_ANY_ID */
-	__u32 device;			/* Device ID or IPACK_ANY_ID */
-};
-
-#define MEI_CL_MODULE_PREFIX "mei:"
-#define MEI_CL_NAME_SIZE 32
-
-struct mei_cl_device_id {
-	char name[MEI_CL_NAME_SIZE];
-	kernel_ulong_t driver_info;
-};
 
 #endif /* LINUX_MOD_DEVICETABLE_H */

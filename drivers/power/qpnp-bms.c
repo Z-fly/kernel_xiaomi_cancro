@@ -1,4 +1,5 @@
-/* Copyright (c) 2011-2015, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2011-2014, The Linux Foundation. All rights reserved.
+ * Copyright (C) 2017 XiaoMi, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -27,7 +28,7 @@
 #include <linux/qpnp/qpnp-adc.h>
 #include <linux/qpnp/power-on.h>
 #include <linux/of_batterydata.h>
-#include <linux/wakelock.h>
+#include <asm/bootinfo.h>
 
 /* BMS Register Offsets */
 #define REVISION1			0x0
@@ -67,8 +68,8 @@
 /* Extra bms registers */
 #define SOC_STORAGE_REG			0xB0
 #define IAVG_STORAGE_REG		0xB1
-//#define BMS_FCC_COUNT			0xB2
-#define OCV_STORAGE_REG		0xB2 /* SHUTDOWN OCV, last_ocv + cc */
+
+#define INST_OCV_STORAGE_REG		0xB2 /* INSTANT OCV, last_ocv + cc */
 #define BMS_FCC_BASE_REG		0xB3 /* FCC updates - 0xB3 to 0xB7 */
 #define BMS_CHGCYL_BASE_REG		0xB8 /* FCC chgcyl - 0xB8 to 0xBC */
 #define CHARGE_INCREASE_STORAGE		0xBD
@@ -85,7 +86,7 @@
 #define IAVG_STEP_SIZE_MA		10
 #define IAVG_INVALID			0xFF
 #define SOC_INVALID			0x7E
-#define OCV_INVALID		0xFF
+#define INST_OCV_INVALID		0xFF
 
 #define IAVG_SAMPLES 16
 
@@ -131,7 +132,7 @@ struct fcc_sample {
 };
 
 struct bms_irq {
-	int		irq;
+	unsigned int	irq;
 	unsigned long	disabled;
 	unsigned long	wake_enabled;
 	bool		ready;
@@ -976,8 +977,10 @@ static int get_rbatt(struct qpnp_bms_chip *chip,
 #define DEFAULT_RBATT_SOC	50
 static int estimate_ocv(struct qpnp_bms_chip *chip, int batt_temp)
 {
-	int ibat_ua, vbat_uv, ocv_est_uv, rbatt_mohm, rc;
-	int dropped_uv = 0;
+	int ibat_ua, vbat_uv, ocv_est_uv, dropped_uv = 0;
+	int rc;
+	int rbatt_mohm = chip->default_rbatt_mohm + chip->r_conn_mohm
+					+ chip->rbatt_capacitive_mohm;
 
 	rbatt_mohm = get_rbatt(chip, DEFAULT_RBATT_SOC, batt_temp);
 	rc = get_simultaneous_batt_v_and_i(chip, &ibat_ua, &vbat_uv);
@@ -989,40 +992,39 @@ static int estimate_ocv(struct qpnp_bms_chip *chip, int batt_temp)
 	/* Drop some voltage level for compensation if the current is large */
 	if (ibat_ua > 500 * 1000)
 		dropped_uv = linear_interpolate(0, 500,
-			80, 2000, ibat_ua / 1000) * 1000;
+				80, 2000, ibat_ua / 1000) * 1000;
 
 	ocv_est_uv = vbat_uv + (ibat_ua * rbatt_mohm) / 1000;
 	ocv_est_uv -= dropped_uv;
 	pr_info("estimated pon ocv = %d i%d v%d r%d d%d\n",
 		ocv_est_uv, ibat_ua, vbat_uv, rbatt_mohm, dropped_uv);
-	pr_debug("estimated pon ocv = %d, vbat_uv = %d ibat_ua = %d rbatt_mohm = %d\n",
-			ocv_est_uv, vbat_uv, ibat_ua, rbatt_mohm);
 	return ocv_est_uv;
 }
 
-static int read_shutdown_ocv(struct qpnp_bms_chip *chip)
+#define MIN_IAVG_MA 250
+static int read_saved_instant_ocv(struct qpnp_bms_chip *chip)
 {
 	u8 reg;
-	int rc, shutdown_ocv_mv;
+	int rc, instant_ocv_mv;
 
 	rc = qpnp_read_wrapper(chip, &reg,
-		chip->base + OCV_STORAGE_REG, 1);
-	if (rc || reg == OCV_INVALID) {
+		chip->base + INST_OCV_STORAGE_REG, 1);
+	if (rc || reg == INST_OCV_INVALID) {
 		pr_err("failed to read addr = %d %d\n",
-			chip->base + OCV_STORAGE_REG, rc);
-		return OCV_INVALID;
+				chip->base + INST_OCV_STORAGE_REG, rc);
+		return INST_OCV_INVALID;
 	} else {
-		shutdown_ocv_mv = 3400 + reg * 4;
-		if (shutdown_ocv_mv > chip->max_voltage_uv / 1000)
-			shutdown_ocv_mv = chip->max_voltage_uv / 1000;
+		instant_ocv_mv = 3400 + reg * 4;
+		if (instant_ocv_mv > chip->max_voltage_uv / 1000)
+			instant_ocv_mv = chip->max_voltage_uv / 1000;
 
-		pr_info("read shutdown ocv %d reg %x\n", shutdown_ocv_mv, reg);
+		pr_info("read instant ocv %d reg %x\n", instant_ocv_mv, reg);
 
-		return shutdown_ocv_mv;
+		return instant_ocv_mv;
 	}
 }
 
-static void store_shutdown_ocv(struct qpnp_bms_chip *chip, int instant_ocv_mv)
+static void backup_instant_ocv(struct qpnp_bms_chip *chip, int instant_ocv_mv)
 {
 	u8 reg;
 
@@ -1036,10 +1038,9 @@ static void store_shutdown_ocv(struct qpnp_bms_chip *chip, int instant_ocv_mv)
 
 	pr_debug("backup instant ocv %d reg %x\n", instant_ocv_mv, reg);
 
-	qpnp_write_wrapper(chip, &reg, chip->base + OCV_STORAGE_REG, 1);
+	qpnp_write_wrapper(chip, &reg, chip->base + INST_OCV_STORAGE_REG, 1);
 }
 
-#define MIN_IAVG_MA 250
 static void reset_for_new_battery(struct qpnp_bms_chip *chip, int batt_temp)
 {
 	chip->last_ocv_uv = chip->insertion_ocv_uv;
@@ -1133,7 +1134,6 @@ static int read_soc_params_raw(struct qpnp_bms_chip *chip,
 				int batt_temp)
 {
 	int warm_reset, rc;
-    int shutdown_ocv_mv;
 
 	mutex_lock(&chip->bms_output_lock);
 
@@ -1160,20 +1160,18 @@ static int read_soc_params_raw(struct qpnp_bms_chip *chip,
 		convert_and_store_ocv(chip, raw, batt_temp, true);
 		pr_info("PON_OCV_UV = %d, cc = %llx\n",
 				chip->last_ocv_uv, raw->cc);
-        shutdown_ocv_mv = read_shutdown_ocv(chip);
-        pr_info("shutdown ocv %d\n", shutdown_ocv_mv * 1000);
-        if (shutdown_ocv_mv != OCV_INVALID) {
-            chip->last_ocv_uv = shutdown_ocv_mv * 1000;
-            raw->last_good_ocv_uv = chip->last_ocv_uv;
-        }
-        warm_reset = qpnp_pon_is_warm_reset();
+		warm_reset = qpnp_pon_is_warm_reset();
 		if (raw->last_good_ocv_uv < MIN_OCV_UV
 				|| warm_reset > 0) {
+			int instant_ocv_mv;
 
 			pr_info("OCV is stale or bad, estimating new OCV.\n");
 
-			if (shutdown_ocv_mv != OCV_INVALID)
-				chip->last_ocv_uv = shutdown_ocv_mv * 1000;
+			instant_ocv_mv = read_saved_instant_ocv(chip);
+			pr_info("instant ocv %d\n", instant_ocv_mv);
+
+			if (instant_ocv_mv != INST_OCV_INVALID)
+				chip->last_ocv_uv = instant_ocv_mv * 1000;
 			else
 				chip->last_ocv_uv = estimate_ocv(chip, batt_temp);
 
@@ -1888,6 +1886,7 @@ static int report_cc_based_soc(struct qpnp_bms_chip *chip)
 	int soc, soc_change;
 	int time_since_last_change_sec, charge_time_sec = 0;
 	unsigned long last_change_sec;
+	struct timespec now;
 	struct qpnp_vadc_result result;
 	int batt_temp;
 	int rc;
@@ -2002,6 +2001,7 @@ static int report_cc_based_soc(struct qpnp_bms_chip *chip)
 	chip->last_soc = bound_soc(soc);
 	backup_soc_and_iavg(chip, batt_temp, chip->last_soc);
 	pr_debug("Reported SOC = %d\n", chip->last_soc);
+	chip->t_soc_queried = now;
 	mutex_unlock(&chip->last_soc_mutex);
 
 	return soc;
@@ -2557,7 +2557,7 @@ static int calculate_state_of_charge(struct qpnp_bms_chip *chip,
 	instant_soc = DIV_ROUND_CLOSEST(instant_uah * 100, params.fcc_uah);
 	instant_ocv_uv = find_ocv_for_pc(chip, batt_temp,
 		find_pc_for_soc(chip, &tmp_params, instant_soc));
-	store_shutdown_ocv(chip, instant_ocv_uv / 1000);
+	backup_instant_ocv(chip, instant_ocv_uv / 1000);
 
 	/* always clamp soc due to BMS hw/sw immaturities */
 	new_calculated_soc = clamp_soc_based_on_voltage(chip,
@@ -3921,7 +3921,10 @@ static inline int bms_read_properties(struct qpnp_bms_chip *chip)
 	SPMI_PROP_READ(r_sense_uohm, "r-sense-uohm", rc);
 	SPMI_PROP_READ(v_cutoff_uv, "v-cutoff-uv", rc);
 
-    SPMI_PROP_READ(max_voltage_uv, "max-voltage-uv", rc);
+	if (get_hw_version_major() == 5 && get_hw_version_minor() > 3)
+		SPMI_PROP_READ(max_voltage_uv, "max-voltage-uv-x5", rc);
+	else
+		SPMI_PROP_READ(max_voltage_uv, "max-voltage-uv", rc);
 
 	SPMI_PROP_READ(r_conn_mohm, "r-conn-mohm", rc);
 	SPMI_PROP_READ(chg_term_ua, "chg-term-ua", rc);
@@ -3950,9 +3953,19 @@ static inline int bms_read_properties(struct qpnp_bms_chip *chip)
 	SPMI_PROP_READ(low_voltage_threshold, "low-voltage-threshold", rc);
 	SPMI_PROP_READ(temperature_margin, "tm-temp-margin", rc);
 
-    chip->use_external_rsense = of_property_read_bool(
-            chip->spmi->dev.of_node,
-            "qcom,use-external-rsense");
+	if (get_hw_version_major() == 3) {
+		chip->use_external_rsense = of_property_read_bool(
+				chip->spmi->dev.of_node,
+				"qcom,use-external-rsense-x3");
+	} else if (get_hw_version_major() == 4) {
+		chip->use_external_rsense = of_property_read_bool(
+				chip->spmi->dev.of_node,
+				"qcom,use-external-rsense-x4");
+	} else if (get_hw_version_major() == 5) {
+		chip->use_external_rsense = of_property_read_bool(
+				chip->spmi->dev.of_node,
+				"qcom,use-external-rsense-x5");
+	}
 
 	chip->ignore_shutdown_soc = of_property_read_bool(
 			chip->spmi->dev.of_node,
@@ -4258,15 +4271,6 @@ static int read_iadc_channel_select(struct qpnp_bms_chip *chip)
 				return rc;
 			}
 		}
-	} else {
-		rc = qpnp_masked_write_iadc(chip,
-				IADC1_BMS_ADC_INT_RSNSN_CTL,
-				ADC_INT_RSNSN_CTL_MASK, 0x0);
-		if (rc) {
-			pr_err("Unable to set batfet config %x to %x: %d\n",
-				IADC1_BMS_ADC_INT_RSNSN_CTL, 0x0, rc);
-			return rc;
-		}
 	}
 
 	return 0;
@@ -4328,7 +4332,7 @@ static int setup_die_temp_monitoring(struct qpnp_bms_chip *chip)
 	return 0;
 }
 
-static int qpnp_bms_probe(struct spmi_device *spmi)
+static int __devinit qpnp_bms_probe(struct spmi_device *spmi)
 {
 	struct qpnp_bms_chip *chip;
 	bool warm_reset;
@@ -4580,7 +4584,7 @@ static const struct dev_pm_ops qpnp_bms_pm_ops = {
 
 static struct spmi_driver qpnp_bms_driver = {
 	.probe		= qpnp_bms_probe,
-	.remove		= qpnp_bms_remove,
+	.remove		= __devexit_p(qpnp_bms_remove),
 	.driver		= {
 		.name		= QPNP_BMS_DEV_NAME,
 		.owner		= THIS_MODULE,

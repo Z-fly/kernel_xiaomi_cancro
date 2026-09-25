@@ -17,7 +17,6 @@
 #include <linux/bitops.h>
 #include <linux/compiler.h>
 #include <linux/atomic.h>
-#include <linux/list.h>
 
 #include <linux/netfilter/nf_conntrack_tcp.h>
 #include <linux/netfilter/nf_conntrack_dccp.h>
@@ -26,14 +25,6 @@
 #include <net/netfilter/ipv6/nf_conntrack_icmpv6.h>
 
 #include <net/netfilter/nf_conntrack_tuple.h>
-
-#define SIP_LIST_ELEMENTS	2
-
-struct sip_length {
-	int msg_length[SIP_LIST_ELEMENTS];
-	int skb_len[SIP_LIST_ELEMENTS];
-	int data_len[SIP_LIST_ELEMENTS];
-};
 
 /* per conntrack: protocol private data */
 union nf_conntrack_proto {
@@ -123,12 +114,6 @@ struct nf_conn {
 	unsigned long nattype_entry;
 #endif
 
-	struct list_head sip_segment_list;
-	const char *dptr_prev;
-	struct sip_length segment;
-	bool sip_original_dir;
-	bool sip_reply_dir;
-
 	/* Storage reserved for other modules, must be the last member */
 	union nf_conntrack_proto proto;
 };
@@ -206,9 +191,9 @@ __nf_conntrack_find(struct net *net, u16 zone,
 
 extern int nf_conntrack_hash_check_insert(struct nf_conn *ct);
 extern void nf_ct_delete_from_lists(struct nf_conn *ct);
-extern void nf_ct_dying_timeout(struct nf_conn *ct);
+extern void nf_ct_insert_dying_list(struct nf_conn *ct);
 
-extern void nf_conntrack_flush_report(struct net *net, u32 portid, int report);
+extern void nf_conntrack_flush_report(struct net *net, u32 pid, int report);
 
 extern bool nf_ct_get_tuplepr(const struct sk_buff *skb,
 			      unsigned int nhoff, u_int16_t l3num,
@@ -316,8 +301,14 @@ extern unsigned int nf_conntrack_max;
 extern unsigned int nf_conntrack_hash_rnd;
 void init_nf_conntrack_hash_rnd(void);
 
-#define NF_CT_STAT_INC(net, count)	  __this_cpu_inc((net)->ct.stat->count)
-#define NF_CT_STAT_INC_ATOMIC(net, count) this_cpu_inc((net)->ct.stat->count)
+#define NF_CT_STAT_INC(net, count)	\
+	__this_cpu_inc((net)->ct.stat->count)
+#define NF_CT_STAT_INC_ATOMIC(net, count)		\
+do {							\
+	local_bh_disable();				\
+	__this_cpu_inc((net)->ct.stat->count);		\
+	local_bh_enable();				\
+} while (0)
 
 #define MODULE_ALIAS_NFCT_HELPER(helper) \
         MODULE_ALIAS("nfct-helper-" helper)

@@ -19,8 +19,8 @@
 /* device can't handle its Configuration or Interface strings */
 #define USB_QUIRK_CONFIG_INTF_STRINGS	0x00000008
 
-/* device can't be reset(e.g morph devices), don't use reset */
-#define USB_QUIRK_RESET			0x00000010
+/*device will morph if reset, don't use reset for handling errors */
+#define USB_QUIRK_RESET_MORPHS		0x00000010
 
 /* device has more interface descriptions than the bNumInterfaces count,
    and can't handle talking to these interfaces */
@@ -32,7 +32,18 @@
 
 #define USB_QUIRK_OTG_PET		0x00000080
 
-/* device generates spurious wakeup, ignore remote wakeup capability */
-#define USB_QUIRK_IGNORE_REMOTE_WAKEUP	0x00000200
+/* device can't handle device_qualifier descriptor requests */
+#define USB_QUIRK_DEVICE_QUALIFIER	0x00000100
+
+/*
+ * For high speed and super speed interupt endpoints, the USB 2.0 and
+ * USB 3.0 spec require the interval in microframes
+ * (1 microframe = 125 microseconds) to be calculated as
+ * interval = 2 ^ (bInterval-1).
+ *
+ * Devices with this quirk report their bInterval as the result of this
+ * calculation instead of the exponent variable used in the calculation.
+ */
+#define USB_QUIRK_LINEAR_UFRAME_INTR_BINTERVAL	0x00000200
 
 #endif /* __LINUX_USB_QUIRKS_H */

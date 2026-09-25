@@ -280,12 +280,12 @@ static int ablkcipher_walk_first(struct ablkcipher_request *req,
 	if (WARN_ON_ONCE(in_irq()))
 		return -EDEADLK;
 
+	walk->iv = req->info;
 	walk->nbytes = walk->total;
 	if (unlikely(!walk->total))
 		return 0;
 
 	walk->iv_buffer = NULL;
-	walk->iv = req->info;
 	if (unlikely(((unsigned long)walk->iv & alignmask))) {
 		int err = ablkcipher_copy_iv(walk, tfm, alignmask);
 		if (err)
@@ -397,9 +397,9 @@ static int crypto_ablkcipher_report(struct sk_buff *skb, struct crypto_alg *alg)
 	rblkcipher.max_keysize = alg->cra_ablkcipher.max_keysize;
 	rblkcipher.ivsize = alg->cra_ablkcipher.ivsize;
 
-	if (nla_put(skb, CRYPTOCFGA_REPORT_BLKCIPHER,
-		    sizeof(struct crypto_report_blkcipher), &rblkcipher))
-		goto nla_put_failure;
+	NLA_PUT(skb, CRYPTOCFGA_REPORT_BLKCIPHER,
+		sizeof(struct crypto_report_blkcipher), &rblkcipher);
+
 	return 0;
 
 nla_put_failure:
@@ -478,9 +478,9 @@ static int crypto_givcipher_report(struct sk_buff *skb, struct crypto_alg *alg)
 	rblkcipher.max_keysize = alg->cra_ablkcipher.max_keysize;
 	rblkcipher.ivsize = alg->cra_ablkcipher.ivsize;
 
-	if (nla_put(skb, CRYPTOCFGA_REPORT_BLKCIPHER,
-		    sizeof(struct crypto_report_blkcipher), &rblkcipher))
-		goto nla_put_failure;
+	NLA_PUT(skb, CRYPTOCFGA_REPORT_BLKCIPHER,
+		sizeof(struct crypto_report_blkcipher), &rblkcipher);
+
 	return 0;
 
 nla_put_failure:
@@ -700,7 +700,7 @@ struct crypto_ablkcipher *crypto_alloc_ablkcipher(const char *alg_name,
 err:
 		if (err != -EAGAIN)
 			break;
-		if (signal_pending(current)) {
+		if (fatal_signal_pending(current)) {
 			err = -EINTR;
 			break;
 		}

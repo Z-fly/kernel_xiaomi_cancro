@@ -1,4 +1,5 @@
-/* Copyright (c) 2013-2015, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2013, The Linux Foundation. All rights reserved.
+ * Copyright (C) 2017 XiaoMi, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -12,13 +13,12 @@
 
 #define pr_fmt(fmt)	"%s: " fmt, __func__
 
-#include <linux/err.h>
 #include <linux/of.h>
 #include <linux/slab.h>
 #include <linux/module.h>
 #include <linux/types.h>
 #include <linux/batterydata-lib.h>
-#include <linux/power_supply.h>
+#include <asm/bootinfo.h>
 
 static int of_batterydata_read_lut(const struct device_node *np,
 			int max_cols, int max_rows, int *ncols, int *nrows,
@@ -66,13 +66,9 @@ static int of_batterydata_read_lut(const struct device_node *np,
 	}
 
 	prop = of_find_property(np, "qcom,lut-data", NULL);
-	if (!prop) {
-		pr_err("prop 'qcom,lut-data' not found\n");
-		return -EINVAL;
-	}
 	data = prop->value;
 	size = prop->length/sizeof(int);
-	if (size != cols * rows) {
+	if (!prop || size != cols * rows) {
 		pr_err("%s: data size mismatch, %dx%d != %d\n",
 				np->name, cols, rows, size);
 		return -EINVAL;
@@ -129,30 +125,6 @@ static int of_batterydata_read_pc_temp_ocv_lut(struct device_node *data_node,
 	rc = of_batterydata_read_lut(node, PC_TEMP_COLS, PC_TEMP_ROWS,
 			&lut->cols, &lut->rows, lut->temp, lut->percent,
 			*lut->ocv);
-	if (rc) {
-		pr_err("Failed to read %s node.\n", name);
-		return rc;
-	}
-
-	return 0;
-}
-
-static int of_batterydata_read_ibat_temp_acc_lut(struct device_node *data_node,
-			const char *name, struct ibat_temp_acc_lut *lut)
-{
-	struct device_node *node = of_find_node_by_name(data_node, name);
-	int rc;
-
-	if (!lut) {
-		pr_debug("No lut provided, skipping\n");
-		return 0;
-	} else if (!node) {
-		pr_debug("Couldn't find %s node.\n", name);
-		return 0;
-	}
-	rc = of_batterydata_read_lut(node, ACC_TEMP_COLS, ACC_IBAT_ROWS,
-			&lut->cols, &lut->rows, lut->temp, lut->ibat,
-			*lut->acc);
 	if (rc) {
 		pr_err("Failed to read %s node.\n", name);
 		return rc;
@@ -230,6 +202,22 @@ do {									\
 	}								\
 } while (0)
 
+#define OF_XIAOMI_PROP_READ(property, qpnp_dt_property, node, rc, optional)	\
+do {									\
+	if (rc)								\
+		break;							\
+	rc = of_property_read_u32(node, "xiaomi," qpnp_dt_property,	\
+					&property);			\
+									\
+	if ((rc == -EINVAL) && optional) {				\
+		property = -EINVAL;					\
+		rc = 0;							\
+	} else if (rc) {						\
+		pr_err("Error reading " #qpnp_dt_property		\
+				" property rc = %d\n", rc);		\
+	}								\
+} while (0)
+
 static int of_batterydata_load_battery_data(struct device_node *node,
 				int best_id_kohm,
 				struct bms_battery_data *batt_data)
@@ -252,19 +240,6 @@ static int of_batterydata_load_battery_data(struct device_node *node,
 	if (rc)
 		return rc;
 
-	rc = of_batterydata_read_ibat_temp_acc_lut(node, "qcom,ibat-acc-lut",
-						batt_data->ibat_acc_lut);
-	if (rc)
-		return rc;
-
-	rc = of_property_read_string(node, "qcom,battery-type",
-					&batt_data->battery_type);
-	if (rc) {
-		pr_err("Error reading qcom,battery-type property rc=%d\n", rc);
-		batt_data->battery_type = NULL;
-		return rc;
-	}
-
 	OF_PROP_READ(batt_data->fcc, "fcc-mah", node, rc, false);
 	OF_PROP_READ(batt_data->default_rbatt_mohm,
 			"default-rbatt-mohm", node, rc, false);
@@ -276,10 +251,6 @@ static int of_batterydata_load_battery_data(struct device_node *node,
 			"max-voltage-uv", node, rc, true);
 	OF_PROP_READ(batt_data->cutoff_uv, "v-cutoff-uv", node, rc, true);
 	OF_PROP_READ(batt_data->iterm_ua, "chg-term-ua", node, rc, true);
-	OF_PROP_READ(batt_data->fastchg_current_ma,
-			"fastchg-current-ma", node, rc, true);
-	OF_PROP_READ(batt_data->fg_cc_cv_threshold_mv,
-			"fg-cc-cv-threshold-mv", node, rc, true);
 
 	batt_data->batt_id_kohm = best_id_kohm;
 
@@ -310,115 +281,15 @@ static int64_t of_batterydata_convert_battery_id_kohm(int batt_id_uv,
 	return resistor_value_kohm;
 }
 
-struct device_node *of_batterydata_get_best_profile(
-		const struct device_node *batterydata_container_node,
-		const char *psy_name,  const char  *batt_type)
-{
-	struct batt_ids batt_ids;
-	struct device_node *node, *best_node = NULL;
-	struct power_supply *psy;
-	const char *battery_type = NULL;
-	union power_supply_propval ret = {0, };
-	int delta = 0, best_delta = 0, best_id_kohm = 0, id_range_pct,
-		batt_id_kohm = 0, i = 0, rc = 0, limit = 0;
-	bool in_range = false;
-
-	psy = power_supply_get_by_name(psy_name);
-	if (!psy) {
-		pr_err("%s supply not found. defer\n", psy_name);
-		return ERR_PTR(-EPROBE_DEFER);
-	}
-
-	rc = psy->get_property(psy, POWER_SUPPLY_PROP_RESISTANCE_ID, &ret);
-	if (rc) {
-		pr_err("failed to retrieve resistance value rc=%d\n", rc);
-		return ERR_PTR(-ENOSYS);
-	}
-
-	batt_id_kohm = ret.intval / 1000;
-
-	/* read battery id range percentage for best profile */
-	rc = of_property_read_u32(batterydata_container_node,
-			"qcom,batt-id-range-pct", &id_range_pct);
-
-	if (rc) {
-		if (rc == -EINVAL) {
-			id_range_pct = 0;
-		} else {
-			pr_err("failed to read battery id range\n");
-			return ERR_PTR(-ENXIO);
-		}
-	}
-
-	/*
-	 * Find the battery data with a battery id resistor closest to this one
-	 */
-	for_each_child_of_node(batterydata_container_node, node) {
-		if (batt_type != NULL) {
-			rc = of_property_read_string(node, "qcom,battery-type",
-							&battery_type);
-			if (!rc && strcmp(battery_type, batt_type) == 0) {
-				best_node = node;
-				best_id_kohm = batt_id_kohm;
-				break;
-			}
-		} else {
-			rc = of_batterydata_read_batt_id_kohm(node,
-							"qcom,batt-id-kohm",
-							&batt_ids);
-			if (rc)
-				continue;
-			for (i = 0; i < batt_ids.num; i++) {
-				delta = abs(batt_ids.kohm[i] - batt_id_kohm);
-				limit = (batt_ids.kohm[i] * id_range_pct) / 100;
-				in_range = (delta <= limit);
-				/*
-				 * Check if the delta is the lowest one
-				 * and also if the limits are in range
-				 * before selecting the best node.
-				 */
-				if ((delta < best_delta || !best_node)
-					&& in_range) {
-					best_node = node;
-					best_delta = delta;
-					best_id_kohm = batt_ids.kohm[i];
-				}
-			}
-		}
-	}
-
-	if (best_node == NULL) {
-		pr_err("No battery data found\n");
-		return best_node;
-	}
-
-	/* check that profile id is in range of the measured batt_id */
-	if (abs(best_id_kohm - batt_id_kohm) >
-			((best_id_kohm * id_range_pct) / 100)) {
-		pr_err("out of range: profile id %d batt id %d pct %d",
-			best_id_kohm, batt_id_kohm, id_range_pct);
-		return NULL;
-	}
-
-	rc = of_property_read_string(best_node, "qcom,battery-type",
-							&battery_type);
-	if (!rc)
-		pr_info("%s found\n", battery_type);
-	else
-		pr_info("%s found\n", best_node->name);
-
-	return best_node;
-}
-
 int of_batterydata_read_data(struct device_node *batterydata_container_node,
 				struct bms_battery_data *batt_data,
 				int batt_id_uv)
 {
 	struct device_node *node, *best_node;
 	struct batt_ids batt_ids;
-	const char *battery_type = NULL;
 	int delta, best_delta, batt_id_kohm, rpull_up_kohm,
-		vadc_vdd_uv, best_id_kohm, i, rc = 0;
+		vadc_vdd_uv, best_id_kohm, best_batt_ver,
+		batt_ver, i, max_voltage_uv, rc = 0;
 
 	node = batterydata_container_node;
 	OF_PROP_READ(rpull_up_kohm, "rpull-up-kohm", node, rc, false);
@@ -441,12 +312,28 @@ int of_batterydata_read_data(struct device_node *batterydata_container_node,
 						&batt_ids);
 		if (rc)
 			continue;
+
+		OF_XIAOMI_PROP_READ(batt_ver, "batt-version", node, rc, true);
+		if (get_hw_version_major() != batt_ver)
+			continue;
+
+		OF_PROP_READ(max_voltage_uv, "max-voltage-uv", node, rc, true);
+		if (get_hw_version_major() == 5) {
+			if (get_hw_version_minor() < 4) {
+				if (max_voltage_uv != 4350000)
+					continue;
+			} else {
+				if (max_voltage_uv != 4400000)
+					continue;
+			}
+		}
 		for (i = 0; i < batt_ids.num; i++) {
 			delta = abs(batt_ids.kohm[i] - batt_id_kohm);
 			if (delta < best_delta || !best_node) {
 				best_node = node;
 				best_delta = delta;
 				best_id_kohm = batt_ids.kohm[i];
+				best_batt_ver = batt_ver;
 			}
 		}
 	}
@@ -455,12 +342,9 @@ int of_batterydata_read_data(struct device_node *batterydata_container_node,
 		pr_err("No battery data found\n");
 		return -ENODATA;
 	}
-	rc = of_property_read_string(best_node, "qcom,battery-type",
-							&battery_type);
-	if (!rc)
-		pr_info("%s loaded\n", battery_type);
-	else
-		pr_info("%s loaded\n", best_node->name);
+
+	printk(KERN_INFO "X%d battery:batt_id_kohm is %d,best_id_kohm is %d\n",
+		       best_batt_ver, batt_id_kohm, best_id_kohm);
 
 	return of_batterydata_load_battery_data(best_node,
 					best_id_kohm, batt_data);

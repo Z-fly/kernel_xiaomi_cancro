@@ -2,6 +2,7 @@
  * AD5446 SPI DAC driver
  *
  * Copyright 2010 Analog Devices Inc.
+ * Copyright (C) 2017 XiaoMi, Inc.
  *
  * Licensed under the GPL-2 or later.
  */
@@ -87,19 +88,19 @@ static const struct iio_enum ad5446_powerdown_mode_enum = {
 };
 
 static ssize_t ad5446_read_dac_powerdown(struct iio_dev *indio_dev,
-					   uintptr_t private,
-					   const struct iio_chan_spec *chan,
-					   char *buf)
+		uintptr_t private,
+		const struct iio_chan_spec *chan,
+		char *buf)
 {
 	struct ad5446_state *st = iio_priv(indio_dev);
 
-	return sprintf(buf, "%d\n", st->pwr_down);
+	return snprintf(buf, "%d\n", st->pwr_down);
 }
 
 static ssize_t ad5446_write_dac_powerdown(struct iio_dev *indio_dev,
-					    uintptr_t private,
-					    const struct iio_chan_spec *chan,
-					    const char *buf, size_t len)
+		uintptr_t private,
+		const struct iio_chan_spec *chan,
+		const char *buf, size_t len)
 {
 	struct ad5446_state *st = iio_priv(indio_dev);
 	unsigned int shift;
@@ -156,10 +157,10 @@ static const struct iio_chan_spec_ext_info ad5446_ext_info_powerdown[] = {
 	_AD5446_CHANNEL(bits, storage, shift, ad5446_ext_info_powerdown)
 
 static int ad5446_read_raw(struct iio_dev *indio_dev,
-			   struct iio_chan_spec const *chan,
-			   int *val,
-			   int *val2,
-			   long m)
+		struct iio_chan_spec const *chan,
+		int *val,
+		int *val2,
+		long m)
 {
 	struct ad5446_state *st = iio_priv(indio_dev);
 	unsigned long scale_uv;
@@ -179,10 +180,10 @@ static int ad5446_read_raw(struct iio_dev *indio_dev,
 }
 
 static int ad5446_write_raw(struct iio_dev *indio_dev,
-			       struct iio_chan_spec const *chan,
-			       int val,
-			       int val2,
-			       long mask)
+		struct iio_chan_spec const *chan,
+		int val,
+		int val2,
+		long mask)
 {
 	struct ad5446_state *st = iio_priv(indio_dev);
 	int ret = 0;
@@ -544,7 +545,7 @@ static const struct ad5446_chip_info ad5446_i2c_chip_info[] = {
 };
 
 static int ad5446_i2c_probe(struct i2c_client *i2c,
-			    const struct i2c_device_id *id)
+		const struct i2c_device_id *id)
 {
 	return ad5446_probe(&i2c->dev, id->name,
 		&ad5446_i2c_chip_info[id->driver_data]);

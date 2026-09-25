@@ -70,27 +70,22 @@ scsi_bus_resume_common(struct device *dev, int (*cb)(struct device *))
 {
 	int err = 0;
 
-	if (scsi_is_sdev_device(dev))
+	if (scsi_is_sdev_device(dev)) {
+		/*
+		 * Parent device may have runtime suspended as soon as
+		 * it is woken up during the system resume.
+		 *
+		 * Resume it on behalf of child.
+		 */
+		pm_runtime_get_sync(dev->parent);
 		err = scsi_dev_type_resume(dev, cb);
+		pm_runtime_put_sync(dev->parent);
+	}
 
 	if (err == 0) {
-		int ret;
-
 		pm_runtime_disable(dev);
-		ret = pm_runtime_set_active(dev);
+		pm_runtime_set_active(dev);
 		pm_runtime_enable(dev);
-
-		if (!ret && scsi_is_sdev_device(dev)) {
-			struct scsi_device *sdev = to_scsi_device(dev);
-
-			/*
-			 * If scsi device runtime PM is managed by block layer
-			 * then we should update request queue's runtime status
-			 * as well.
-			 */
-			if (sdev->request_queue->dev)
-				blk_post_runtime_resume(sdev->request_queue, 0);
-		}
 	}
 	return err;
 }
@@ -99,7 +94,7 @@ static int scsi_bus_prepare(struct device *dev)
 {
 	if (scsi_is_sdev_device(dev)) {
 		/* sd probing uses async_schedule.  Wait until it finishes. */
-		async_synchronize_full_domain(&scsi_sd_probe_domain);
+		async_synchronize_full();
 
 	} else if (scsi_is_host_device(dev)) {
 		/* Wait until async scanning is finished */

@@ -2,6 +2,7 @@
  *  HID driver for Lenovo ThinkPad USB Keyboard with TrackPoint
  *
  *  Copyright (c) 2012 Bernhard Seibold
+ *  Copyright (C) 2017 XiaoMi, Inc.
  */
 
 /*
@@ -64,7 +65,7 @@ static int tpkbd_features_set(struct hid_device *hdev)
 	report->field[0]->value[0] |= data_pointer->dragging          ? 0x04 : 0x08;
 	report->field[0]->value[0] |= data_pointer->release_to_select ? 0x10 : 0x20;
 	report->field[0]->value[0] |= data_pointer->select_right      ? 0x80 : 0x40;
-	report->field[1]->value[0] = 0x03; // unknown setting, imitate windows driver
+	report->field[1]->value[0] = 0x03;
 	report->field[2]->value[0] = data_pointer->sensitivity;
 	report->field[3]->value[0] = data_pointer->press_speed;
 
@@ -360,7 +361,7 @@ static int tpkbd_probe_tp(struct hid_device *hdev)
 		return -ENOMEM;
 	}
 
-	// set same default values as windows driver
+
 	data_pointer->sensitivity = 0xa0;
 	data_pointer->press_speed = 0x38;
 

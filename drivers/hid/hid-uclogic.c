@@ -2,6 +2,7 @@
  *  HID driver for UC-Logic devices not fully compliant with HID standard
  *
  *  Copyright (c) 2010 Nikolai Kondrashov
+ *  Copyright (C) 2017 XiaoMi, Inc.
  */
 
 /*
@@ -507,7 +508,7 @@ static __u8 twha60_rdesc_fixed0[] = {
 	0x09, 0x30,         /*          Usage (X),                  */
 	0x46, 0x10, 0x27,   /*          Physical Maximum (10000),   */
 	0x27, 0x3F, 0x9C,
-		0x00, 0x00, /*          Logical Maximum (39999),    */
+	0x00, 0x00,         /*          Logical Maximum (39999),    */
 	0x81, 0x02,         /*          Input (Variable),           */
 	0x09, 0x31,         /*          Usage (Y),                  */
 	0x46, 0x6A, 0x18,   /*          Physical Maximum (6250),    */

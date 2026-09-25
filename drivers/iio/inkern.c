@@ -1,6 +1,7 @@
 /* The industrial I/O core in kernel channel mapping
  *
  * Copyright (c) 2011 Jonathan Cameron
+ * Copyright (C) 2017 XiaoMi, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License version 2 as published by
@@ -101,7 +102,7 @@ static int iio_dev_node_match(struct device *dev, void *data)
 }
 
 static int __of_iio_channel_get(struct iio_channel *channel,
-				struct device_node *np, int index)
+		struct device_node *np, int index)
 {
 	struct device *idev;
 	struct iio_dev *indio_dev;
@@ -109,8 +110,8 @@ static int __of_iio_channel_get(struct iio_channel *channel,
 	struct of_phandle_args iiospec;
 
 	err = of_parse_phandle_with_args(np, "io-channels",
-					 "#io-channel-cells",
-					 index, &iiospec);
+			"#io-channel-cells",
+			index, &iiospec);
 	if (err)
 		return err;
 
@@ -160,7 +161,7 @@ err_free_channel:
 }
 
 static struct iio_channel *of_iio_channel_get_by_name(struct device_node *np,
-						      const char *name)
+		const char *name)
 {
 	struct iio_channel *chan = NULL;
 
@@ -176,14 +177,14 @@ static struct iio_channel *of_iio_channel_get_by_name(struct device_node *np,
 		 */
 		if (name)
 			index = of_property_match_string(np, "io-channel-names",
-							 name);
+					name);
 		chan = of_iio_channel_get(np, index);
-		if (!IS_ERR(chan) || PTR_ERR(chan) == -EPROBE_DEFER)
+		if (!IS_ERR(chan))
 			break;
 		else if (name && index >= 0) {
 			pr_err("ERROR: could not get IIO channel %s:%s(%i)\n",
-				np->full_name, name ? name : "", index);
-			return NULL;
+					np->full_name, name ? name : "", index);
+			return chan;
 		}
 
 		/*
@@ -193,9 +194,8 @@ static struct iio_channel *of_iio_channel_get_by_name(struct device_node *np,
 		 */
 		np = np->parent;
 		if (np && !of_get_property(np, "io-channel-ranges", NULL))
-			return NULL;
+			break;
 	}
-
 	return chan;
 }
 
@@ -207,9 +207,9 @@ static struct iio_channel *of_iio_channel_get_all(struct device *dev)
 
 	do {
 		ret = of_parse_phandle_with_args(dev->of_node,
-						 "io-channels",
-						 "#io-channel-cells",
-						 nummaps, NULL);
+				"io-channels",
+				"#io-channel-cells",
+				nummaps, NULL);
 		if (ret < 0)
 			break;
 	} while (++nummaps);
@@ -225,7 +225,7 @@ static struct iio_channel *of_iio_channel_get_all(struct device *dev)
 	/* Search for OF matches */
 	for (mapind = 0; mapind < nummaps; mapind++) {
 		ret = __of_iio_channel_get(&chans[mapind], dev->of_node,
-					   mapind);
+				mapind);
 		if (ret)
 			goto error_free_chans;
 	}
@@ -254,7 +254,7 @@ static inline struct iio_channel *of_iio_channel_get_all(struct device *dev)
 #endif /* CONFIG_OF */
 
 static struct iio_channel *iio_channel_get_sys(const char *name,
-					       const char *channel_name)
+		const char *channel_name)
 {
 	struct iio_map_internal *c_i = NULL, *c = NULL;
 	struct iio_channel *channel;
@@ -289,7 +289,7 @@ static struct iio_channel *iio_channel_get_sys(const char *name,
 	if (c->map->adc_channel_label) {
 		channel->channel =
 			iio_chan_spec_from_name(channel->indio_dev,
-						c->map->adc_channel_label);
+					c->map->adc_channel_label);
 
 		if (channel->channel == NULL) {
 			err = -EINVAL;
@@ -307,18 +307,17 @@ error_no_mem:
 }
 
 struct iio_channel *iio_channel_get(struct device *dev,
-				    const char *channel_name)
+		const char *channel_name)
 {
 	const char *name = dev ? dev_name(dev) : NULL;
 	struct iio_channel *channel;
 
 	if (dev) {
 		channel = of_iio_channel_get_by_name(dev->of_node,
-						     channel_name);
+				channel_name);
 		if (channel != NULL)
 			return channel;
 	}
-
 	return iio_channel_get_sys(name, channel_name);
 }
 EXPORT_SYMBOL_GPL(iio_channel_get);
@@ -376,7 +375,7 @@ struct iio_channel *iio_channel_get_all(struct device *dev)
 		chans[mapind].data = c->map->consumer_data;
 		chans[mapind].channel =
 			iio_chan_spec_from_name(chans[mapind].indio_dev,
-						c->map->adc_channel_label);
+					c->map->adc_channel_label);
 		if (chans[mapind].channel == NULL) {
 			ret = -EINVAL;
 			goto error_free_chans;
@@ -424,7 +423,7 @@ static int iio_channel_read(struct iio_channel *chan, int *val, int *val2,
 		val2 = &unused;
 
 	return chan->indio_dev->info->read_raw(chan->indio_dev, chan->channel,
-						val, val2, info);
+			val, val2, info);
 }
 
 int iio_read_channel_raw(struct iio_channel *chan, int *val)
@@ -457,7 +456,7 @@ static int iio_convert_raw_to_processed_unlocked(struct iio_channel *chan,
 		raw64 += offset;
 
 	scale_type = iio_channel_read(chan, &scale_val, &scale_val2,
-					IIO_CHAN_INFO_SCALE);
+			IIO_CHAN_INFO_SCALE);
 	if (scale_type < 0)
 		return scale_type;
 
@@ -507,7 +506,7 @@ int iio_convert_raw_to_processed(struct iio_channel *chan, int raw,
 	}
 
 	ret = iio_convert_raw_to_processed_unlocked(chan, raw, processed,
-							scale);
+			scale);
 err_unlock:
 	mutex_unlock(&chan->indio_dev->info_exist_lock);
 

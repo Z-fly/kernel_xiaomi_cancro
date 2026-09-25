@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2015, The Linux Foundation. All rights reserved.
+ * Copyright (C) 2017 XiaoMi, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -51,9 +52,9 @@ void fuse_setup_shortcircuit(struct fuse_conn *fc, struct fuse_req *req)
 }
 
 static ssize_t fuse_shortcircuit_aio_read_write(struct kiocb *iocb,
-						const struct iovec *iov,
-						unsigned long nr_segs,
-						loff_t pos, int do_write)
+			const struct iovec *iov,
+			unsigned long nr_segs,
+			loff_t pos, int do_write)
 {
 	ssize_t ret_val;
 	struct fuse_file *ff;
@@ -97,13 +98,13 @@ static ssize_t fuse_shortcircuit_aio_read_write(struct kiocb *iocb,
 }
 
 ssize_t fuse_shortcircuit_aio_read(struct kiocb *iocb, const struct iovec *iov,
-				   unsigned long nr_segs, loff_t pos)
+			unsigned long nr_segs, loff_t pos)
 {
 	return fuse_shortcircuit_aio_read_write(iocb, iov, nr_segs, pos, 0);
 }
 
 ssize_t fuse_shortcircuit_aio_write(struct kiocb *iocb, const struct iovec *iov,
-				    unsigned long nr_segs, loff_t pos)
+			unsigned long nr_segs, loff_t pos)
 {
 	return fuse_shortcircuit_aio_read_write(iocb, iov, nr_segs, pos, 1);
 }

@@ -110,7 +110,7 @@ static struct page *brd_insert_page(struct brd_device *brd, sector_t sector)
 	if (!page)
 		return NULL;
 
-	if (radix_tree_preload(GFP_NOIO)) {
+	if (radix_tree_maybe_preload(GFP_NOIO)) {
 		__free_page(page);
 		return NULL;
 	}
@@ -334,7 +334,8 @@ static void brd_make_request(struct request_queue *q, struct bio *bio)
 	int err = -EIO;
 
 	sector = bio->bi_sector;
-	if (bio_end_sector(bio) > get_capacity(bdev->bd_disk))
+	if (sector + (bio->bi_size >> SECTOR_SHIFT) >
+						get_capacity(bdev->bd_disk))
 		goto out;
 
 	if (unlikely(bio->bi_rw & REQ_DISCARD)) {

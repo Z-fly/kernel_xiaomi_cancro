@@ -507,6 +507,7 @@ static void iscsi_free_task(struct iscsi_task *task)
 	kfifo_in(&session->cmdpool.queue, (void*)&task, sizeof(void*));
 
 	if (sc) {
+		task->sc = NULL;
 		/* SCSI eh reuses commands to verify us */
 		sc->SCp.ptr = NULL;
 		/*
@@ -2906,10 +2907,10 @@ void iscsi_conn_teardown(struct iscsi_cls_conn *cls_conn)
 {
 	struct iscsi_conn *conn = cls_conn->dd_data;
 	struct iscsi_session *session = conn->session;
-	unsigned long flags;
 
 	del_timer_sync(&conn->transport_timer);
 
+	mutex_lock(&session->eh_mutex);
 	spin_lock_bh(&session->lock);
 	conn->c_stage = ISCSI_CONN_CLEANUP_WAIT;
 	if (session->leadconn == conn) {
@@ -2920,28 +2921,6 @@ void iscsi_conn_teardown(struct iscsi_cls_conn *cls_conn)
 		wake_up(&conn->ehwait);
 	}
 	spin_unlock_bh(&session->lock);
-
-	/*
-	 * Block until all in-progress commands for this connection
-	 * time out or fail.
-	 */
-	for (;;) {
-		spin_lock_irqsave(session->host->host_lock, flags);
-		if (!session->host->host_busy) { /* OK for ERL == 0 */
-			spin_unlock_irqrestore(session->host->host_lock, flags);
-			break;
-		}
-		spin_unlock_irqrestore(session->host->host_lock, flags);
-		msleep_interruptible(500);
-		iscsi_conn_printk(KERN_INFO, conn, "iscsi conn_destroy(): "
-				  "host_busy %d host_failed %d\n",
-				  session->host->host_busy,
-				  session->host->host_failed);
-		/*
-		 * force eh_abort() to unblock
-		 */
-		wake_up(&conn->ehwait);
-	}
 
 	/* flush queued up work because we free the connection below */
 	iscsi_suspend_tx(conn);
@@ -2955,6 +2934,7 @@ void iscsi_conn_teardown(struct iscsi_cls_conn *cls_conn)
 	if (session->leadconn == conn)
 		session->leadconn = NULL;
 	spin_unlock_bh(&session->lock);
+	mutex_unlock(&session->eh_mutex);
 
 	iscsi_destroy_conn(cls_conn);
 }
@@ -3151,7 +3131,7 @@ int iscsi_conn_bind(struct iscsi_cls_session *cls_session,
 }
 EXPORT_SYMBOL_GPL(iscsi_conn_bind);
 
-int iscsi_switch_str_param(char **param, char *new_val_buf)
+static int iscsi_switch_str_param(char **param, char *new_val_buf)
 {
 	char *new_val;
 
@@ -3168,7 +3148,6 @@ int iscsi_switch_str_param(char **param, char *new_val_buf)
 	*param = new_val;
 	return 0;
 }
-EXPORT_SYMBOL_GPL(iscsi_switch_str_param);
 
 int iscsi_set_param(struct iscsi_cls_conn *cls_conn,
 		    enum iscsi_param param, char *buf, int buflen)

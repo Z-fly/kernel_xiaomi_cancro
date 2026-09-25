@@ -1,6 +1,7 @@
 /* The industrial I/O core - generic buffer interfaces.
  *
  * Copyright (c) 2008 Jonathan Cameron
+ * Copyright (C) 2017 XiaoMi, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License version 2 as published by
@@ -38,8 +39,8 @@ struct iio_buffer;
 struct iio_buffer_access_funcs {
 	int (*store_to)(struct iio_buffer *buffer, u8 *data);
 	int (*read_first_n)(struct iio_buffer *buffer,
-			    size_t n,
-			    char __user *buf);
+			size_t n,
+			char __user *buf);
 
 	int (*request_update)(struct iio_buffer *buffer);
 
@@ -94,8 +95,8 @@ struct iio_buffer {
  * Note this will tear down the all buffering and build it up again
  */
 int iio_update_buffers(struct iio_dev *indio_dev,
-		       struct iio_buffer *insert_buffer,
-		       struct iio_buffer *remove_buffer);
+			struct iio_buffer *insert_buffer,
+			struct iio_buffer *remove_buffer);
 
 /**
  * iio_buffer_init() - Initialize the buffer structure
@@ -144,15 +145,15 @@ void iio_buffer_unregister(struct iio_dev *indio_dev);
  * iio_buffer_read_length() - attr func to get number of datums in the buffer
  **/
 ssize_t iio_buffer_read_length(struct device *dev,
-			       struct device_attribute *attr,
-			       char *buf);
+			struct device_attribute *attr,
+			char *buf);
 /**
  * iio_buffer_write_length() - attr func to set number of datums in the buffer
  **/
 ssize_t iio_buffer_write_length(struct device *dev,
-			      struct device_attribute *attr,
-			      const char *buf,
-			      size_t len);
+			struct device_attribute *attr,
+			const char *buf,
+			size_t len);
 /**
  * iio_buffer_store_enable() - attr to turn the buffer on
  **/
@@ -164,8 +165,8 @@ ssize_t iio_buffer_store_enable(struct device *dev,
  * iio_buffer_show_enable() - attr to see if the buffer is on
  **/
 ssize_t iio_buffer_show_enable(struct device *dev,
-			       struct device_attribute *attr,
-			       char *buf);
+			struct device_attribute *attr,
+			char *buf);
 #define IIO_BUFFER_LENGTH_ATTR DEVICE_ATTR(length, S_IRUGO | S_IWUSR,	\
 					   iio_buffer_read_length,	\
 					   iio_buffer_write_length)

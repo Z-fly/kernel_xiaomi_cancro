@@ -85,9 +85,6 @@ static inline void decode_ctrl_reg(u32 reg,
 #define ARM_DSCR_HDBGEN		(1 << 14)
 #define ARM_DSCR_MDBGEN		(1 << 15)
 
-/* OSLSR os lock model bits */
-#define ARM_OSLSR_OSLM0		(1 << 0)
-
 /* opcode2 numbers for the co-processor instructions. */
 #define ARM_OP2_BVR		4
 #define ARM_OP2_BCR		5
@@ -129,7 +126,9 @@ int arch_install_hw_breakpoint(struct perf_event *bp);
 void arch_uninstall_hw_breakpoint(struct perf_event *bp);
 void hw_breakpoint_pmu_read(struct perf_event *bp);
 int hw_breakpoint_slots(int type);
-
+#ifdef CONFIG_WATCHPOINT_TRACE
+void reset_bp_ctrl_regs(void *unused);
+#endif
 #else
 static inline void clear_ptrace_hw_breakpoint(struct task_struct *tsk) {}
 

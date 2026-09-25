@@ -2,6 +2,7 @@
  * AD5421 Digital to analog converters  driver
  *
  * Copyright 2011 Analog Devices Inc.
+ * Copyright (C) 2017 XiaoMi, Inc.
  *
  * Licensed under the GPL-2.
  */

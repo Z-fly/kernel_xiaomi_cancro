@@ -87,11 +87,9 @@ int nf_xfrm_me_harder(struct sk_buff *skb, unsigned int family)
 	struct flowi fl;
 	unsigned int hh_len;
 	struct dst_entry *dst;
-	int err;
 
-	err = xfrm_decode_session(skb, &fl, family);
-	if (err < 0)
-		return err;
+	if (xfrm_decode_session(skb, &fl, family) < 0)
+		return -1;
 
 	dst = skb_dst(skb);
 	if (dst->xfrm)
@@ -100,7 +98,7 @@ int nf_xfrm_me_harder(struct sk_buff *skb, unsigned int family)
 
 	dst = xfrm_lookup(dev_net(dst->dev), dst, &fl, skb->sk, 0);
 	if (IS_ERR(dst))
-		return PTR_ERR(dst);
+		return -1;
 
 	skb_dst_drop(skb);
 	skb_dst_set(skb, dst);
@@ -109,7 +107,7 @@ int nf_xfrm_me_harder(struct sk_buff *skb, unsigned int family)
 	hh_len = skb_dst(skb)->dev->hard_header_len;
 	if (skb_headroom(skb) < hh_len &&
 	    pskb_expand_head(skb, hh_len - skb_headroom(skb), 0, GFP_ATOMIC))
-		return -ENOMEM;
+		return -1;
 	return 0;
 }
 EXPORT_SYMBOL(nf_xfrm_me_harder);
@@ -193,8 +191,9 @@ find_appropriate_src(struct net *net, u16 zone,
 	unsigned int h = hash_by_src(net, zone, tuple);
 	const struct nf_conn_nat *nat;
 	const struct nf_conn *ct;
+	const struct hlist_node *n;
 
-	hlist_for_each_entry_rcu(nat, &net->ct.nat_bysource[h], bysource) {
+	hlist_for_each_entry_rcu(nat, n, &net->ct.nat_bysource[h], bysource) {
 		ct = nat->ct;
 		if (same_src(ct, tuple) && nf_ct_zone(ct) == zone) {
 			/* Copy source part from reply tuple. */
@@ -254,7 +253,7 @@ find_best_ips_proto(u16 zone, struct nf_conntrack_tuple *tuple,
 	 * client coming from the same IP (some Internet Banking sites
 	 * like this), even across reboots.
 	 */
-	j = jhash2((u32 *)&tuple->src.u3, sizeof(tuple->src.u3) / sizeof(u32),
+	j = jhash2((u32 *)&tuple->src.u3, sizeof(tuple->src.u3),
 		   range->flags & NF_NAT_RANGE_PERSISTENT ?
 			0 : (__force u32)tuple->dst.u3.all[max] ^ zone);
 
@@ -469,54 +468,30 @@ EXPORT_SYMBOL_GPL(nf_nat_packet);
 struct nf_nat_proto_clean {
 	u8	l3proto;
 	u8	l4proto;
+	bool	hash;
 };
 
-/* kill conntracks with affected NAT section */
-static int nf_nat_proto_remove(struct nf_conn *i, void *data)
+/* Clear NAT section of all conntracks, in case we're loaded again. */
+static int nf_nat_proto_clean(struct nf_conn *i, void *data)
 {
 	const struct nf_nat_proto_clean *clean = data;
 	struct nf_conn_nat *nat = nfct_nat(i);
 
 	if (!nat)
 		return 0;
-
 	if ((clean->l3proto && nf_ct_l3num(i) != clean->l3proto) ||
 	    (clean->l4proto && nf_ct_protonum(i) != clean->l4proto))
 		return 0;
 
-	return i->status & IPS_NAT_MASK ? 1 : 0;
-}
-
-static int nf_nat_proto_clean(struct nf_conn *ct, void *data)
-{
-	struct nf_conn_nat *nat = nfct_nat(ct);
-
-	if (nf_nat_proto_remove(ct, data))
-		return 1;
-
-	if (!nat || !nat->ct)
-		return 0;
-
-	/* This netns is being destroyed, and conntrack has nat null binding.
-	 * Remove it from bysource hash, as the table will be freed soon.
-	 *
-	 * Else, when the conntrack is destoyed, nf_nat_cleanup_conntrack()
-	 * will delete entry from already-freed table.
-	 */
-	if (!del_timer(&ct->timeout))
-		return 1;
-
-	spin_lock_bh(&nf_nat_lock);
-	hlist_del_rcu(&nat->bysource);
-	ct->status &= ~IPS_NAT_DONE_MASK;
-	nat->ct = NULL;
-	spin_unlock_bh(&nf_nat_lock);
-
-	add_timer(&ct->timeout);
-
-	/* don't delete conntrack.  Although that would make things a lot
-	 * simpler, we'd end up flushing all conntracks on nat rmmod.
-	 */
+	if (clean->hash) {
+		spin_lock_bh(&nf_nat_lock);
+		hlist_del_rcu(&nat->bysource);
+		spin_unlock_bh(&nf_nat_lock);
+	} else {
+		memset(nat, 0, sizeof(*nat));
+		i->status &= ~(IPS_NAT_MASK | IPS_NAT_DONE_MASK |
+			       IPS_SEQ_ADJUST);
+	}
 	return 0;
 }
 
@@ -529,8 +504,16 @@ static void nf_nat_l4proto_clean(u8 l3proto, u8 l4proto)
 	struct net *net;
 
 	rtnl_lock();
+	/* Step 1 - remove from bysource hash */
+	clean.hash = true;
 	for_each_net(net)
-		nf_ct_iterate_cleanup(net, nf_nat_proto_remove, &clean);
+		nf_ct_iterate_cleanup(net, nf_nat_proto_clean, &clean);
+	synchronize_rcu();
+
+	/* Step 2 - clean NAT section */
+	clean.hash = false;
+	for_each_net(net)
+		nf_ct_iterate_cleanup(net, nf_nat_proto_clean, &clean);
 	rtnl_unlock();
 }
 
@@ -542,9 +525,16 @@ static void nf_nat_l3proto_clean(u8 l3proto)
 	struct net *net;
 
 	rtnl_lock();
-
+	/* Step 1 - remove from bysource hash */
+	clean.hash = true;
 	for_each_net(net)
-		nf_ct_iterate_cleanup(net, nf_nat_proto_remove, &clean);
+		nf_ct_iterate_cleanup(net, nf_nat_proto_clean, &clean);
+	synchronize_rcu();
+
+	/* Step 2 - clean NAT section */
+	clean.hash = false;
+	for_each_net(net)
+		nf_ct_iterate_cleanup(net, nf_nat_proto_clean, &clean);
 	rtnl_unlock();
 }
 
@@ -782,7 +772,7 @@ static void __net_exit nf_nat_net_exit(struct net *net)
 {
 	struct nf_nat_proto_clean clean = {};
 
-	nf_ct_iterate_cleanup(net, nf_nat_proto_clean, &clean);
+	nf_ct_iterate_cleanup(net, &nf_nat_proto_clean, &clean);
 	synchronize_rcu();
 	nf_ct_free_hashtable(net->ct.nat_bysource, net->ct.nat_htable_size);
 }

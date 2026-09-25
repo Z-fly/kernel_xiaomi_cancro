@@ -259,7 +259,6 @@ static struct file_system_type vxfs_fs_type = {
 	.fs_flags	= FS_REQUIRES_DEV,
 };
 MODULE_ALIAS_FS("vxfs"); /* makes mount -t vxfs autoload the module */
-MODULE_ALIAS("vxfs");
 
 static int __init
 vxfs_init(void)
@@ -281,11 +280,6 @@ static void __exit
 vxfs_cleanup(void)
 {
 	unregister_filesystem(&vxfs_fs_type);
-	/*
-	 * Make sure all delayed rcu free inodes are flushed before we
-	 * destroy cache.
-	 */
-	rcu_barrier();
 	kmem_cache_destroy(vxfs_inode_cachep);
 }
 

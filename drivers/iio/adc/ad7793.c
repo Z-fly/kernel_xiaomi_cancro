@@ -2,6 +2,7 @@
  * AD7785/AD7792/AD7793/AD7794/AD7795 SPI ADC driver
  *
  * Copyright 2011-2012 Analog Devices Inc.
+ * Copyright (C) 2017 XiaoMi, Inc.
  *
  * Licensed under the GPL-2.
  */
@@ -44,7 +45,7 @@
 #define AD7793_COMM_WEN		(1 << 7) /* Write Enable */
 #define AD7793_COMM_WRITE	(0 << 6) /* Write Operation */
 #define AD7793_COMM_READ	(1 << 6) /* Read Operation */
-#define AD7793_COMM_ADDR(x)	(((x) & 0x7) << 3) /* Register Address */
+#define AD7793_COMM_ADDR(x)	(((x) &0x7) << 3) /* Register Address */
 #define AD7793_COMM_CREAD	(1 << 2) /* Continuous Read of Data Register */
 
 /* Status Register Bit Designations (AD7793_REG_STAT) */
@@ -55,10 +56,10 @@
 #define AD7793_STAT_CH1		(1 << 0) /* Channel 1 */
 
 /* Mode Register Bit Designations (AD7793_REG_MODE) */
-#define AD7793_MODE_SEL(x)	(((x) & 0x7) << 13) /* Operation Mode Select */
+#define AD7793_MODE_SEL(x)	(((x) &0x7) << 13) /* Operation Mode Select */
 #define AD7793_MODE_SEL_MASK	(0x7 << 13) /* Operation Mode Select mask */
-#define AD7793_MODE_CLKSRC(x)	(((x) & 0x3) << 6) /* ADC Clock Source Select */
-#define AD7793_MODE_RATE(x)	((x) & 0xF) /* Filter Update Rate Select */
+#define AD7793_MODE_CLKSRC(x)	(((x) &0x3) << 6) /* ADC Clock Source Select */
+#define AD7793_MODE_RATE(x)	((x) &0xF) /* Filter Update Rate Select */
 
 #define AD7793_MODE_CONT		0 /* Continuous Conversion Mode */
 #define AD7793_MODE_SINGLE		1 /* Single Conversion Mode */
@@ -77,15 +78,15 @@
 #define AD7793_CLK_EXT_DIV2	3 /* External Clock divided by 2 */
 
 /* Configuration Register Bit Designations (AD7793_REG_CONF) */
-#define AD7793_CONF_VBIAS(x)	(((x) & 0x3) << 14) /* Bias Voltage
+#define AD7793_CONF_VBIAS(x)	(((x) &0x3) << 14) /* Bias Voltage
 						     * Generator Enable */
 #define AD7793_CONF_BO_EN	(1 << 13) /* Burnout Current Enable */
 #define AD7793_CONF_UNIPOLAR	(1 << 12) /* Unipolar/Bipolar Enable */
 #define AD7793_CONF_BOOST	(1 << 11) /* Boost Enable */
-#define AD7793_CONF_GAIN(x)	(((x) & 0x7) << 8) /* Gain Select */
+#define AD7793_CONF_GAIN(x)	(((x) &0x7) << 8) /* Gain Select */
 #define AD7793_CONF_REFSEL(x)	((x) << 6) /* INT/EXT Reference Select */
 #define AD7793_CONF_BUF		(1 << 4) /* Buffered Mode Enable */
-#define AD7793_CONF_CHAN(x)	((x) & 0xf) /* Channel select */
+#define AD7793_CONF_CHAN(x)	((x) &0xf) /* Channel select */
 #define AD7793_CONF_CHAN_MASK	0xf /* Channel select mask */
 
 #define AD7793_CH_AIN1P_AIN1M	0 /* AIN1(+) - AIN1(-) */
@@ -355,7 +356,7 @@ static ssize_t ad7793_read_frequency(struct device *dev,
 	struct iio_dev *indio_dev = dev_to_iio_dev(dev);
 	struct ad7793_state *st = iio_priv(indio_dev);
 
-	return sprintf(buf, "%d\n",
+	return snprintf(buf, "%d\n",
 	       st->chip_info->sample_freq_avail[AD7793_MODE_RATE(st->mode)]);
 }
 
@@ -417,10 +418,10 @@ static ssize_t ad7793_show_scale_available(struct device *dev,
 	int i, len = 0;
 
 	for (i = 0; i < ARRAY_SIZE(st->scale_avail); i++)
-		len += sprintf(buf + len, "%d.%09u ", st->scale_avail[i][0],
+		len += snprintf(buf + len, "%d.%09u ", st->scale_avail[i][0],
 			       st->scale_avail[i][1]);
 
-	len += sprintf(buf + len, "\n");
+	len += snprintf(buf + len, "\n");
 
 	return len;
 }

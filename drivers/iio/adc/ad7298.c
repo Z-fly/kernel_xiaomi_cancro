@@ -2,6 +2,7 @@
  * AD7298 SPI ADC driver
  *
  * Copyright 2011 Analog Devices Inc.
+ * Copyright (C) 2017 XiaoMi, Inc.
  *
  * Licensed under the GPL-2.
  */
@@ -169,7 +170,7 @@ static irqreturn_t ad7298_trigger_handler(int irq, void *p)
 	if (indio_dev->scan_timestamp) {
 		time_ns = iio_get_time_ns();
 		memcpy((u8 *)st->rx_buf + indio_dev->scan_bytes - sizeof(s64),
-			&time_ns, sizeof(time_ns));
+				&time_ns, sizeof(time_ns));
 	}
 
 	iio_push_to_buffers(indio_dev, (u8 *)st->rx_buf);
@@ -184,7 +185,7 @@ static int ad7298_scan_direct(struct ad7298_state *st, unsigned ch)
 {
 	int ret;
 	st->tx_buf[0] = cpu_to_be16(AD7298_WRITE | st->ext_ref |
-				   (AD7298_CH(0) >> ch));
+			(AD7298_CH(0) >> ch));
 
 	ret = spi_sync(st->spi, &st->scan_single_msg);
 	if (ret)
@@ -238,10 +239,10 @@ static int ad7298_get_ref_voltage(struct ad7298_state *st)
 }
 
 static int ad7298_read_raw(struct iio_dev *indio_dev,
-			   struct iio_chan_spec const *chan,
-			   int *val,
-			   int *val2,
-			   long m)
+		struct iio_chan_spec const *chan,
+		int *val,
+		int *val2,
+		long m)
 {
 	int ret;
 	struct ad7298_state *st = iio_priv(indio_dev);

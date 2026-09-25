@@ -31,6 +31,10 @@ static int llc_mac_header_len(unsigned short devtype)
 	case ARPHRD_ETHER:
 	case ARPHRD_LOOPBACK:
 		return sizeof(struct ethhdr);
+#if defined(CONFIG_TR) || defined(CONFIG_TR_MODULE)
+	case ARPHRD_IEEE802_TR:
+		return sizeof(struct trh_hdr);
+#endif
 	}
 	return 0;
 }
@@ -290,7 +294,10 @@ static void llc_sap_rcv(struct llc_sap *sap, struct sk_buff *skb,
 
 	ev->type   = LLC_SAP_EV_TYPE_PDU;
 	ev->reason = 0;
+	skb_orphan(skb);
+	sock_hold(sk);
 	skb->sk = sk;
+	skb->destructor = sock_efree;
 	llc_sap_state_process(sap, skb);
 }
 
@@ -393,11 +400,12 @@ static void llc_sap_mcast(struct llc_sap *sap,
 {
 	int i = 0, count = 256 / sizeof(struct sock *);
 	struct sock *sk, *stack[count];
+	struct hlist_node *node;
 	struct llc_sock *llc;
 	struct hlist_head *dev_hb = llc_sk_dev_hash(sap, skb->dev->ifindex);
 
 	spin_lock_bh(&sap->sk_lock);
-	hlist_for_each_entry(llc, dev_hb, dev_hash_node) {
+	hlist_for_each_entry(llc, node, dev_hb, dev_hash_node) {
 
 		sk = &llc->sk;
 

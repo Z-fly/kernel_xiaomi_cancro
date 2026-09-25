@@ -2,6 +2,7 @@
  * STMicroelectronics gyroscopes driver
  *
  * Copyright 2012-2013 STMicroelectronics Inc.
+ * Copyright (C) 2017 XiaoMi, Inc.
  *
  * Denis Ciocca <denis.ciocca@st.com>
  * v. 1.0.0
@@ -19,6 +20,7 @@
 #define LSM330DL_GYRO_DEV_NAME		"lsm330dl_gyro"
 #define LSM330DLC_GYRO_DEV_NAME		"lsm330dlc_gyro"
 #define L3GD20_GYRO_DEV_NAME		"l3gd20"
+#define L3GD20H_GYRO_DEV_NAME		"l3gd20h"
 #define L3G4IS_GYRO_DEV_NAME		"l3g4is_ui"
 #define LSM330_GYRO_DEV_NAME		"lsm330_gyro"
 

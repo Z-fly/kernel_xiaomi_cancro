@@ -3,6 +3,7 @@
 
 /*
  *  Copyright (c) 2007-2009	Jiri Kosina
+ *  Copyright (C) 2017 XiaoMi, Inc.
  */
 
 /*
@@ -51,7 +52,7 @@ struct hid_debug_list {
 #else
 
 #define hid_dump_input(a,b,c)		do { } while (0)
-#define hid_dump_report(a,b,c,d)	do { } while (0)
+#define hid_dump_report(a, b, c, d)	do { } while (0)
 #define hid_dump_device(a,b)		do { } while (0)
 #define hid_dump_field(a,b,c)		do { } while (0)
 #define hid_resolv_usage(a,b)		do { } while (0)

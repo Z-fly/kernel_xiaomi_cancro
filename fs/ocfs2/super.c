@@ -1268,7 +1268,6 @@ static struct file_system_type ocfs2_fs_type = {
 	.fs_flags       = FS_REQUIRES_DEV|FS_RENAME_DOES_D_MOVE,
 	.next           = NULL
 };
-MODULE_ALIAS_FS("ocfs2");
 
 static int ocfs2_check_set_options(struct super_block *sb,
 				   struct mount_options *options)
@@ -1581,8 +1580,8 @@ static int ocfs2_show_options(struct seq_file *s, struct dentry *root)
 		seq_printf(s, ",localflocks,");
 
 	if (osb->osb_cluster_stack[0])
-		seq_printf(s, ",cluster_stack=%.*s", OCFS2_STACK_LABEL_LEN,
-			   osb->osb_cluster_stack);
+		seq_show_option_n(s, "cluster_stack", osb->osb_cluster_stack,
+				  OCFS2_STACK_LABEL_LEN);
 	if (opts & OCFS2_MOUNT_USRQUOTA)
 		seq_printf(s, ",usrquota");
 	if (opts & OCFS2_MOUNT_GRPQUOTA)
@@ -1821,11 +1820,6 @@ static int ocfs2_initialize_mem_caches(void)
 
 static void ocfs2_free_mem_caches(void)
 {
-	/*
-	 * Make sure all delayed rcu free inodes are flushed before we
-	 * destroy cache.
-	 */
-	rcu_barrier();
 	if (ocfs2_inode_cachep)
 		kmem_cache_destroy(ocfs2_inode_cachep);
 	ocfs2_inode_cachep = NULL;
@@ -2528,7 +2522,8 @@ static int ocfs2_check_volume(struct ocfs2_super *osb)
 		mlog_errno(status);
 
 finally:
-	kfree(local_alloc);
+	if (local_alloc)
+		kfree(local_alloc);
 
 	if (status)
 		mlog_errno(status);
@@ -2555,7 +2550,8 @@ static void ocfs2_delete_osb(struct ocfs2_super *osb)
 	 * we free it here.
 	 */
 	kfree(osb->journal);
-	kfree(osb->local_alloc_copy);
+	if (osb->local_alloc_copy)
+		kfree(osb->local_alloc_copy);
 	kfree(osb->uuid_str);
 	ocfs2_put_dlm_debug(osb->osb_dlm_debug);
 	memset(osb, 0, sizeof(struct ocfs2_super));

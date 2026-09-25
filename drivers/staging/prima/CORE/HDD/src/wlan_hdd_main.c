@@ -207,7 +207,14 @@ void wlan_hdd_restart_timer_cb(v_PVOID_t usrDataForCallback);
 void hdd_set_wlan_suspend_mode(bool suspend);
 
 v_U16_t hdd_select_queue(struct net_device *dev,
-    struct sk_buff *skb);
+    struct sk_buff *skb
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3,13,0))
+    , void *accel_priv
+#endif
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3,14,0))
+    , select_queue_fallback_t fallback
+#endif
+);
 
 #ifdef WLAN_FEATURE_PACKET_FILTERING
 static void hdd_set_multicast_list(struct net_device *dev);
@@ -2277,6 +2284,9 @@ static int hdd_driver_command(hdd_adapter_t *pAdapter,
    hdd_scaninfo_t *pScanInfo = NULL;
    int ret = 0;
    int status;
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3,14,0))
+   struct cfg80211_mgmt_tx_params params;
+#endif
 
    ENTER();
    /*
@@ -3109,6 +3119,16 @@ static int hdd_driver_command(hdd_adapter_t *pAdapter,
            vos_mem_free(buf);
            buf = NULL;
 
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3,14,0))
+           params.chan = &chan;
+           params.offchan = 0;
+           params.wait = dwellTime;
+           params.buf = finalBuf;
+           params.len = finalLen;
+           params.no_cck = 1;
+           params.dont_wait_for_ack = 1;
+           ret = wlan_hdd_mgmt_tx(NULL, &pAdapter->wdev, &params, &cookie);
+#else
            wlan_hdd_mgmt_tx( NULL,
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(3,6,0))
                        &(pAdapter->wdev),
@@ -3121,6 +3141,7 @@ static int hdd_driver_command(hdd_adapter_t *pAdapter,
 #endif
                        dwellTime, finalBuf, finalLen,  1,
                        1, &cookie );
+#endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(3,14,0)*/
            vos_mem_free(finalBuf);
        }
        else if (strncmp(command, "GETROAMSCANCHANNELMINTIME", 25) == 0)
@@ -3460,7 +3481,7 @@ static int hdd_driver_command(hdd_adapter_t *pAdapter,
                                            pHddStaCtx->conn_info.bssId, sizeof(tSirMacAddr)))
            {
                VOS_TRACE(VOS_MODULE_ID_HDD, VOS_TRACE_LEVEL_INFO, "%s:Reassoc BSSID is same as currently associated AP bssid",__func__);
-               ret = 0;
+               ret = -EINVAL;
                goto exit;
            }
 
@@ -3470,9 +3491,7 @@ static int hdd_driver_command(hdd_adapter_t *pAdapter,
            {
                hddLog(VOS_TRACE_LEVEL_ERROR,
                       "%s: Invalid Channel [%d]", __func__, channel);
-
-               ret = -EINVAL;
-               goto exit;
+               return -EINVAL;
            }
 
            /* Proceed with reassoc */
@@ -4390,7 +4409,7 @@ static int hdd_driver_command(hdd_adapter_t *pAdapter,
            value += 14;
            ret = sscanf(value, "%d", &set_value);
            if (ret != 1) {
-               VOS_TRACE(VOS_MODULE_ID_HDD, VOS_TRACE_LEVEL_ERROR,
+              VOS_TRACE(VOS_MODULE_ID_HDD, VOS_TRACE_LEVEL_ERROR,
                      "Wrong value is given for hdd_set_tdls_offchannel");
                ret = -EINVAL;
                goto exit;
@@ -6243,8 +6262,11 @@ static hdd_adapter_t* hdd_alloc_station_adapter( hdd_context_t *pHddCtx, tSirMac
    /*
     * cfg80211 initialization and registration....
     */ 
-   pWlanDev = alloc_netdev_mq(sizeof( hdd_adapter_t ), name, ether_setup, NUM_TX_QUEUES);
-   
+   pWlanDev = alloc_netdev_mq(sizeof( hdd_adapter_t ), name,
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3,17,0))
+                              NET_NAME_UNKNOWN,
+#endif
+                              ether_setup, NUM_TX_QUEUES);
    if(pWlanDev != NULL)
    {
 
@@ -6258,32 +6280,7 @@ static hdd_adapter_t* hdd_alloc_station_adapter( hdd_context_t *pHddCtx, tSirMac
       pAdapter->magic = WLAN_HDD_ADAPTER_MAGIC;
       spin_lock_init(&pAdapter->lock_for_active_session);
 
-      init_completion(&pAdapter->session_open_comp_var);
-      init_completion(&pAdapter->session_close_comp_var);
-      init_completion(&pAdapter->disconnect_comp_var);
-      init_completion(&pAdapter->linkup_event_var);
-      init_completion(&pAdapter->cancel_rem_on_chan_var);
-      init_completion(&pAdapter->rem_on_chan_ready_event);
-      init_completion(&pAdapter->pno_comp_var);
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,38))
-      init_completion(&pAdapter->offchannel_tx_event);
-#endif
-      init_completion(&pAdapter->tx_action_cnf_event);
-#ifdef FEATURE_WLAN_TDLS
-      init_completion(&pAdapter->tdls_add_station_comp);
-      init_completion(&pAdapter->tdls_del_station_comp);
-      init_completion(&pAdapter->tdls_mgmt_comp);
-      init_completion(&pAdapter->tdls_link_establish_req_comp);
-#endif
-      init_completion(&pHddCtx->mc_sus_event_var);
-      init_completion(&pHddCtx->tx_sus_event_var);
-      init_completion(&pHddCtx->rx_sus_event_var);
-      init_completion(&pAdapter->ula_complete);
-      init_completion(&pAdapter->change_country_code);
-
 #ifdef FEATURE_WLAN_BATCH_SCAN
-      init_completion(&pAdapter->hdd_set_batch_scan_req_var);
-      init_completion(&pAdapter->hdd_get_batch_scan_req_var);
       pAdapter->pBatchScanRsp = NULL;
       pAdapter->numScanList = 0;
       pAdapter->batchScanState = eHDD_BATCH_SCAN_STATE_STOPPED;
@@ -6712,7 +6709,9 @@ void hdd_set_pwrparams(hdd_context_t *pHddCtx)
 
            /* switch to the DTIM specified in cfg.ini */
             VOS_TRACE(VOS_MODULE_ID_HDD, VOS_TRACE_LEVEL_INFO,
-                      "Switch to DTIM %d", powerRequest.uListenInterval);
+                "Switch to DTIM %d Listen interval %d",
+                powerRequest.uDTIMPeriod,
+                powerRequest.uListenInterval);
             sme_SetPowerParams( pHddCtx->hHal, &powerRequest, TRUE);
             break;
 
@@ -6979,6 +6978,7 @@ hdd_adapter_t* hdd_open_adapter( hdd_context_t *pHddCtx, tANI_U8 session_type,
          mutex_unlock(&pHddCtx->tdls_lock);
 #endif
 
+         hdd_initialize_adapter_common(pAdapter);
          status = hdd_init_station_mode( pAdapter );
          if( VOS_STATUS_SUCCESS != status )
             goto err_free_netdev;
@@ -7037,6 +7037,7 @@ hdd_adapter_t* hdd_open_adapter( hdd_context_t *pHddCtx, tANI_U8 session_type,
                                   NL80211_IFTYPE_P2P_GO;
          pAdapter->device_mode = session_type;
 
+         hdd_initialize_adapter_common(pAdapter);
          status = hdd_init_ap_mode(pAdapter);
          if( VOS_STATUS_SUCCESS != status )
             goto err_free_netdev;
@@ -7069,7 +7070,6 @@ hdd_adapter_t* hdd_open_adapter( hdd_context_t *pHddCtx, tANI_U8 session_type,
              INIT_DELAYED_WORK(&pAdapter->roc_work,
                      hdd_p2p_roc_work_queue);
          }
-
          break;
       }
       case WLAN_HDD_MONITOR:
@@ -7103,6 +7103,7 @@ hdd_adapter_t* hdd_open_adapter( hdd_context_t *pHddCtx, tANI_U8 session_type,
 #endif
          status = hdd_register_interface( pAdapter, rtnl_held );
          hdd_init_mon_mode( pAdapter );
+         hdd_initialize_adapter_common(pAdapter);
          hdd_init_tx_rx( pAdapter );
          set_bit(INIT_TX_RX_SUCCESS, &pAdapter->event_flags);
          //Stop the Interface TX queue.
@@ -7127,6 +7128,7 @@ hdd_adapter_t* hdd_open_adapter( hdd_context_t *pHddCtx, tANI_U8 session_type,
          pAdapter->device_mode = session_type;
          status = hdd_register_interface( pAdapter, rtnl_held );
 
+         hdd_initialize_adapter_common(pAdapter);
          hdd_init_tx_rx( pAdapter );
 
          //Stop the Interface TX queue.
@@ -7146,7 +7148,7 @@ hdd_adapter_t* hdd_open_adapter( hdd_context_t *pHddCtx, tANI_U8 session_type,
 
    if( VOS_STATUS_SUCCESS == status )
    {
-      //Add it to the hdd's session list. 
+      //Add it to the hdd's session list.
       pHddAdapterNode = vos_mem_malloc( sizeof( hdd_adapter_list_node_t ) );
       if( NULL == pHddAdapterNode )
       {
@@ -7339,20 +7341,20 @@ VOS_STATUS hdd_stop_adapter( hdd_context_t *pHddCtx, hdd_adapter_t *pAdapter,
 
    ENTER();
 
-   if ( VOS_TRUE == bCloseSession )
-   {
-      status = hdd_sta_id_hash_detach(pAdapter);
-      if (status != VOS_STATUS_SUCCESS)
-          hddLog(VOS_TRACE_LEVEL_ERROR,
-                    FL("sta id hash detach failed"));
-   }
-
    pScanInfo =  &pHddCtx->scan_info;
    switch(pAdapter->device_mode)
    {
+      case WLAN_HDD_IBSS:
+          if ( VOS_TRUE == bCloseSession )
+          {
+              status = hdd_sta_id_hash_detach(pAdapter);
+              if (status != VOS_STATUS_SUCCESS)
+              hddLog(VOS_TRACE_LEVEL_ERROR,
+                  FL("sta id hash detach failed"));
+          }
+
       case WLAN_HDD_INFRA_STATION:
       case WLAN_HDD_P2P_CLIENT:
-      case WLAN_HDD_IBSS:
       case WLAN_HDD_P2P_DEVICE:
       {
          hdd_station_ctx_t *pstation = WLAN_HDD_GET_STATION_CTX_PTR(pAdapter);
@@ -7478,6 +7480,14 @@ VOS_STATUS hdd_stop_adapter( hdd_context_t *pHddCtx, hdd_adapter_t *pAdapter,
 
       case WLAN_HDD_SOFTAP:
       case WLAN_HDD_P2P_GO:
+          if ( VOS_TRUE == bCloseSession )
+          {
+              status = hdd_sta_id_hash_detach(pAdapter);
+              if (status != VOS_STATUS_SUCCESS)
+              hddLog(VOS_TRACE_LEVEL_ERROR,
+                  FL("sta id hash detach failed"));
+          }
+
          //Any softap specific cleanup here...
          if (pAdapter->device_mode == WLAN_HDD_P2P_GO) {
             while (pAdapter->is_roc_inprogress) {
@@ -7742,8 +7752,8 @@ VOS_STATUS hdd_start_all_adapters( hdd_context_t *pHddCtx )
                pAdapter->sessionCtx.station.hdd_ReassocScenario = VOS_FALSE;
 
                /* indicate disconnected event to nl80211 */
-               wlan_hdd_cfg80211_indicate_disconnect(pAdapter->dev, false,
-                                                     WLAN_REASON_UNSPECIFIED);
+               cfg80211_disconnected(pAdapter->dev, WLAN_REASON_UNSPECIFIED,
+                                     NULL, 0, GFP_KERNEL); 
             }
             else if (eConnectionState_Connecting == connState)
             {
@@ -8257,14 +8267,6 @@ static void __hdd_set_multicast_list(struct net_device *dev)
       }
    }
 
-   if (pHddCtx->hdd_wlan_suspended)
-   {
-       /*
-        * Configure the Mcast address list to FW
-        * If wlan is already in suspend mode
-        */
-       wlan_hdd_set_mc_addr_list(pAdapter, TRUE);
-   }
    EXIT();
    return;
 }
@@ -8290,7 +8292,14 @@ static void hdd_set_multicast_list(struct net_device *dev)
   
   --------------------------------------------------------------------------*/
 v_U16_t hdd_select_queue(struct net_device *dev,
-    struct sk_buff *skb)
+    struct sk_buff *skb
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3,13,0))
+    , void *accel_priv
+#endif
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3,14,0))
+    , select_queue_fallback_t fallback
+#endif
+)
 {
    return hdd_wmm_select_queue(dev, skb);
 }
@@ -8361,6 +8370,27 @@ void hdd_wlan_initial_scan(hdd_adapter_t *pAdapter)
         vos_mem_free(scanReq.ChannelInfo.ChannelList);
 }
 
+void hdd_purge_cmd_list_all_adapters( hdd_context_t *pHddCtx )
+{
+   hdd_adapter_list_node_t *pAdapterNode = NULL, *pNext = NULL;
+   VOS_STATUS status;
+   hdd_adapter_t      *pAdapter;
+
+   ENTER();
+
+   status = hdd_get_front_adapter ( pHddCtx, &pAdapterNode );
+
+   while ( NULL != pAdapterNode && VOS_STATUS_SUCCESS == status )
+   {
+      pAdapter = pAdapterNode->pAdapter;
+
+      status = sme_PurgeCmdList(pHddCtx->hHal, pAdapter->sessionId);
+      status = hdd_get_next_adapter ( pHddCtx, pAdapterNode, &pNext );
+      pAdapterNode = pNext;
+   }
+
+   EXIT();
+}
 /**---------------------------------------------------------------------------
 
   \brief hdd_full_power_callback() - HDD full power callback function
@@ -8644,6 +8674,9 @@ void hdd_wlan_exit(hdd_context_t *pHddCtx)
          pAdapterNode = pNext;
       }
 
+       //Purge all sme cmd's for all interface
+       hdd_purge_cmd_list_all_adapters(pHddCtx);
+
       // Cancel any outstanding scan requests.  We are about to close all
       // of our adapters, but an adapter structure is what SME passes back
       // to our callback function. Hence if there are any outstanding scan
@@ -8718,17 +8751,6 @@ void hdd_wlan_exit(hdd_context_t *pHddCtx)
    {
        hddLog(VOS_TRACE_LEVEL_ERROR,
            "%s: Cannot deallocate Traffic monitor timer", __func__);
-   }
-
-   if (VOS_TIMER_STATE_RUNNING ==
-                      vos_timer_getCurrentState(&pHddCtx->delack_timer)) {
-       vos_timer_stop(&pHddCtx->delack_timer);
-   }
-
-   if (!VOS_IS_STATUS_SUCCESS(vos_timer_destroy(
-                                   &pHddCtx->delack_timer))) {
-       hddLog(VOS_TRACE_LEVEL_ERROR,
-            "%s: Cannot deallocate Bus bandwidth timer", __func__);
    }
 
    //Disable IMPS/BMPS as we do not want the device to enter any power
@@ -8825,8 +8847,7 @@ void hdd_wlan_exit(hdd_context_t *pHddCtx)
       VOS_TRACE( VOS_MODULE_ID_HDD, VOS_TRACE_LEVEL_FATAL,
          "%s: Failed to stop VOSS",__func__);
       VOS_ASSERT( VOS_IS_STATUS_SUCCESS( vosStatus ) );
-      if (isSsrPanicOnFailure())
-          VOS_BUG(0);
+      VOS_BUG(0);
    }
 
    //This requires pMac access, Call this before vos_close().
@@ -8900,10 +8921,9 @@ free_hdd_ctx:
        pHddCtx->cfg_ini= NULL;
    }
 
-   /* FTM/MONITOR mode, WIPHY did not registered
+   /* FTM mode, WIPHY did not registered
       If un-register here, system crash will happen */
-   if (!(VOS_FTM_MODE == hdd_get_conparam() ||
-            VOS_MONITOR_MODE == hdd_get_conparam()))
+   if (VOS_FTM_MODE != hdd_get_conparam())
    {
       wiphy_unregister(wiphy) ;
       hdd_wlan_free_wiphy_channels(wiphy);
@@ -9234,14 +9254,6 @@ void wlan_hdd_send_svc_nlink_msg(int type, void *data, int len)
                         memcpy(nl_data, data, len);
                         skb_put(skb, NLMSG_SPACE(sizeof(tAniMsgHdr) + len));
                         break;
-               case WLAN_SVC_WLAN_TP_IND:
-                        ani_hdr->length = len;
-                        nlh->nlmsg_len = NLMSG_LENGTH((sizeof(tAniMsgHdr)
-                                                                       + len));
-                        nl_data = (char *)ani_hdr + sizeof(tAniMsgHdr);
-                        memcpy(nl_data, data, len);
-                        skb_put(skb, NLMSG_SPACE(sizeof(tAniMsgHdr) + len));
-                        break;
                default:
                        VOS_TRACE(VOS_MODULE_ID_HDD, VOS_TRACE_LEVEL_ERROR,
                        "Attempt to send unknown nlink message %d", type);
@@ -9254,68 +9266,7 @@ void wlan_hdd_send_svc_nlink_msg(int type, void *data, int len)
     return;
 }
 
-/**
- * hdd_request_tcp_delack() - Find the Delack value based on RX packet
- * @pHddCtx: Valid Global HDD context pointer
- * @rx_packets: Number of RX packet in perticular time
- *
- * Based on the RX packet this function calculate  next value of tcp delack.
- * This function compare rx packet value to high and low threshold limit.
- *
- * Return: void
- */
-void hdd_request_tcp_delack(hdd_context_t *pHddCtx, uint64_t rx_packets)
-{
-    /* average of rx_packets and prev_rx is taken so that
-       bus width doesnot fluctuate much */
-    uint64_t temp_rx = (rx_packets + pHddCtx->prev_rx)/2;
-    TP_IND_TYPE next_rx_level = pHddCtx->cur_rx_level;
 
-    pHddCtx->prev_rx = rx_packets;
-    if (temp_rx > pHddCtx->cfg_ini->tcpDelAckThresholdHigh)
-        next_rx_level = TP_IND_HIGH;
-    else if (temp_rx <= pHddCtx->cfg_ini->tcpDelAckThresholdLow)
-        next_rx_level = TP_IND_LOW;
-
-    hdd_set_delack_value(pHddCtx, next_rx_level);
-}
-
-#define HDD_BW_GET_DIFF(x, y) ((x) >= (y) ? (x) - (y) : (ULONG_MAX - (y) + (x)))
-
-/**
- * hdd_tcp_delack_compute_function() - get link status
- * @priv: Valid Global HDD context pointer
- *
- * This function find number of RX packet during timer life span.
- * It request tcp delack with number of RX packet and re-configure delack timer
- * for tcpDelAckComputeInterval timer interval.
- *
- * Return: void
- */
-void hdd_tcp_delack_compute_function(void *priv)
-{
-    hdd_context_t *pHddCtx = (hdd_context_t *)priv;
-    hdd_adapter_t *pAdapter = NULL;
-    v_U32_t rx_packets = 0;
-    hdd_adapter_list_node_t *pAdapterNode = NULL;
-    VOS_STATUS status = 0;
-
-    for (status = hdd_get_front_adapter(pHddCtx, &pAdapterNode);
-          NULL != pAdapterNode && VOS_STATUS_SUCCESS == status;
-          status = hdd_get_next_adapter(pHddCtx, pAdapterNode, &pAdapterNode)) {
-        if ((pAdapter = pAdapterNode->pAdapter) == NULL)
-             continue;
-
-        rx_packets += HDD_BW_GET_DIFF(pAdapter->stats.rx_packets,
-                    pAdapter->prev_rx_packets);
-        pAdapter->prev_rx_packets = pAdapter->stats.rx_packets;
-    }
-
-    hdd_request_tcp_delack(pHddCtx, rx_packets);
-
-    vos_timer_start(&pHddCtx->delack_timer,
-            pHddCtx->cfg_ini->tcpDelAckComputeInterval);
-}
 
 /**---------------------------------------------------------------------------
 
@@ -9430,7 +9381,6 @@ int wlan_hdd_mon_open(hdd_context_t *pHddCtx)
        return VOS_STATUS_E_FAILURE;
    }
 
-#ifdef CONFIG_ENABLE_LINUX_REG
    status = vos_init_wiphy_from_nv_bin();
    if (!VOS_IS_STATUS_SUCCESS(status))
    {
@@ -9439,7 +9389,6 @@ int wlan_hdd_mon_open(hdd_context_t *pHddCtx)
                "%s: vos_init_wiphy failed", __func__);
        goto err_vos_nv_close;
    }
-#endif
 
    status = vos_open( &pVosContext, pHddCtx->parent_dev);
    if ( !VOS_IS_STATUS_SUCCESS( status ))
@@ -9751,6 +9700,10 @@ int hdd_wlan_startup(struct device *dev )
    init_completion(&pHddCtx->scan_info.abortscan_event_var);
    init_completion(&pHddCtx->wiphy_channel_update_event);
    init_completion(&pHddCtx->ssr_comp_var);
+   init_completion(&pHddCtx->mc_sus_event_var);
+   init_completion(&pHddCtx->tx_sus_event_var);
+   init_completion(&pHddCtx->rx_sus_event_var);
+
 
    hdd_init_ll_stats_ctx(pHddCtx);
 
@@ -10098,8 +10051,7 @@ int hdd_wlan_startup(struct device *dev )
    if ( !VOS_IS_STATUS_SUCCESS( status ) )
    {
       hddLog(VOS_TRACE_LEVEL_FATAL,"%s: vos_start failed",__func__);
-      if (isSsrPanicOnFailure())
-          VOS_BUG(0);
+      VOS_BUG(0);
       goto err_vosclose;
    }
 
@@ -10486,10 +10438,6 @@ int hdd_wlan_startup(struct device *dev )
    }
    wlan_hdd_cfg80211_nan_init(pHddCtx);
 
-   mutex_init(&pHddCtx->cur_rx_level_lock);
-   vos_timer_init(&pHddCtx->delack_timer, VOS_TIMER_TYPE_SW,
-                             hdd_tcp_delack_compute_function,(void *)pHddCtx);
-
 #ifdef WLAN_FEATURE_EXTSCAN
     sme_EXTScanRegisterCallback(pHddCtx->hHal,
             wlan_hdd_cfg80211_extscan_callback,
@@ -10655,11 +10603,11 @@ static int hdd_driver_init( void)
 
 #ifdef HAVE_WCNSS_CAL_DOWNLOAD
    /* wait until WCNSS driver downloads NV */
-   while (!wcnss_device_ready() && 5 >= ++max_retries) {
+   while (!wcnss_device_ready() && 10 >= ++max_retries) {
        msleep(1000);
    }
 
-   if (max_retries >= 5) {
+   if (max_retries >= 10) {
       hddLog(VOS_TRACE_LEVEL_FATAL,"%s: WCNSS driver not ready", __func__);
       vos_wake_lock_destroy(&wlan_wake_lock);
 #ifdef WLAN_LOGGING_SOCK_SVC_ENABLE
@@ -11385,7 +11333,6 @@ void wlan_hdd_incr_active_session(hdd_context_t *pHddCtx, tVOS_CON_MODE mode)
  * --------------------------------------------------------------------------*/
 void wlan_hdd_decr_active_session(hdd_context_t *pHddCtx, tVOS_CON_MODE mode)
 {
-
    switch (mode) {
    case VOS_STA_MODE:
    case VOS_P2P_CLIENT_MODE:
@@ -11521,8 +11468,11 @@ static VOS_STATUS wlan_hdd_framework_restart(hdd_context_t *pHddCtx)
           * the driver.
           *
           */
-         
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 11, 0))
+         cfg80211_rx_unprot_mlme_mgmt(pAdapterNode->pAdapter->dev, (u_int8_t*)mgmt, len);
+#else
          cfg80211_send_unprot_deauth(pAdapterNode->pAdapter->dev, (u_int8_t*)mgmt, len );  
+#endif
       }
       status = hdd_get_next_adapter ( pHddCtx, pAdapterNode, &pNext );
       pAdapterNode = pNext;
@@ -11593,178 +11543,6 @@ VOS_STATUS wlan_hdd_restart_driver(hdd_context_t *pHddCtx)
 #endif
  
    return status;
-}
-
-/**
- * hdd_get_total_sessions() -  provide total number of active sessions
- * @pHddCtx: Valid Global HDD context pointer
- *
- * This function iterates through pAdaptors and find the number of all active
- * sessions. This active sessions includes connected sta, p2p client and number
- * of client connected to sap/p2p go.
- *
- * Return:  Total number of active sessions.
- */
-v_U8_t  hdd_get_total_sessions(hdd_context_t *pHddCtx)
-{
-    v_U8_t active_session = 0;
-    hdd_station_ctx_t *pHddStaCtx;
-    hdd_adapter_list_node_t *pAdapterNode, *pNext;
-    hdd_adapter_t *pAdapter;
-    VOS_STATUS status;
-
-    status = hdd_get_front_adapter(pHddCtx, &pAdapterNode);
-    while (NULL != pAdapterNode && VOS_STATUS_SUCCESS == status) {
-        pAdapter = pAdapterNode->pAdapter;
-        switch (pAdapter->device_mode) {
-        case VOS_STA_MODE:
-        case VOS_P2P_CLIENT_MODE:
-            pHddStaCtx = WLAN_HDD_GET_STATION_CTX_PTR(pAdapter);
-            if(eConnectionState_Associated == pHddStaCtx->conn_info.connState)
-               active_session += 1;
-            break;
-        case VOS_STA_SAP_MODE:
-        case VOS_P2P_GO_MODE:
-           active_session += hdd_softap_get_connected_sta(pAdapter);
-           break;
-        default:
-           break;
-        }
-
-        status = hdd_get_next_adapter(pHddCtx, pAdapterNode, &pNext);
-        pAdapterNode = pNext;
-    }
-
-    return active_session;
-}
-
-/**
- * hdd_set_delack_value() - Set delack value
- * @pHddCtx: Valid Global HDD context pointer
- * @next_rx_level: Value to set for delack
- *
- * This function compare  present value and  next value of delack. If the both
- * are diffrent then it sets next value .
- *
- * Return: void.
- */
-void hdd_set_delack_value(hdd_context_t *pHddCtx, v_U32_t next_rx_level)
-{
-    if (pHddCtx->cur_rx_level != next_rx_level) {
-        VOS_TRACE(VOS_MODULE_ID_HDD, VOS_TRACE_LEVEL_DEBUG,
-               "%s: TCP DELACK trigger level %d",
-               __func__, next_rx_level);
-        mutex_lock(&pHddCtx->cur_rx_level_lock);
-        pHddCtx->cur_rx_level = next_rx_level;
-        mutex_unlock(&pHddCtx->cur_rx_level_lock);
-        wlan_hdd_send_svc_nlink_msg(WLAN_SVC_WLAN_TP_IND, &next_rx_level,
-                                                       sizeof(next_rx_level));
-    }
-}
-
-/**
- * hdd_set_default_stop_delack_timer() - Start delack timer
- * @pHddCtx: Valid Global HDD context pointer
- *
- * This function stop delack timer and set delack value to default..
- *
- * Return: void.
- */
-
-void hdd_set_default_stop_delack_timer(hdd_context_t *pHddCtx)
-{
-    if (VOS_TIMER_STATE_RUNNING !=
-                            vos_timer_getCurrentState(&pHddCtx->delack_timer)) {
-         VOS_TRACE(VOS_MODULE_ID_HDD, VOS_TRACE_LEVEL_DEBUG,
-               "%s: Can not stop timer", __func__);
-        return;
-    }
-
-    vos_timer_stop(&pHddCtx->delack_timer);
-    hdd_set_delack_value(pHddCtx, TP_IND_LOW);
-}
-
-/**
- * hdd_start_delack_timer() - Start delack timer
- * @pHddCtx: Valid Global HDD context pointer
- *
- * This function starts the delack timer for tcpDelAckComputeInterval time
- * interval.The default timer value is 2 second.
- *
- * Return: void.
- */
-void hdd_start_delack_timer(hdd_context_t *pHddCtx)
-{
-    if (VOS_TIMER_STATE_RUNNING ==
-                            vos_timer_getCurrentState(&pHddCtx->delack_timer)) {
-        VOS_TRACE(VOS_MODULE_ID_HDD, VOS_TRACE_LEVEL_DEBUG,
-              "%s: Timer is already running", __func__);
-        return;
-    }
-
-    vos_timer_start(&pHddCtx->delack_timer,
-                                pHddCtx->cfg_ini->tcpDelAckComputeInterval);
-}
-
-/**
- * hdd_update_prev_rx_packet_count() - Update previous rx packet count
- * @pHddCtx: Valid Global HDD context pointer
- *
- * This function updates the prev_rx_packets count from the corresponding
- * pAdapter states. This prev_rx_packets will diffed with the packet count
- * at the end of delack timer. That can give number of RX packet is spacific
- * time.
- *
- * Return: void.
- */
-void hdd_update_prev_rx_packet_count(hdd_context_t *pHddCtx)
-{
-    hdd_adapter_list_node_t *pAdapterNode, *pNext;
-    hdd_adapter_t *pAdapter;
-    VOS_STATUS status;
-
-    status = hdd_get_front_adapter ( pHddCtx, &pAdapterNode );
-    while (NULL != pAdapterNode && VOS_STATUS_SUCCESS == status) {
-        pAdapter = pAdapterNode->pAdapter;
-        pAdapter->prev_rx_packets = pAdapter->stats.rx_packets;
-        status = hdd_get_next_adapter ( pHddCtx, pAdapterNode, &pNext );
-        pAdapterNode = pNext;
-    }
-}
-
-/**
- * hdd_manage_delack_timer() - start\stop delack timer
- * @pHddCtx: Valid Global HDD context pointer
- *
- * This function check the number of concerent session present, it starts the
- * delack timer if only one session is present.
- * In the case of BT_COEX and TDLS mode it blindly stop delack functionality.
- *
- * Return: void.
- */
-void hdd_manage_delack_timer(hdd_context_t *pHddCtx)
-{
-    uint8_t sessions;
-
-    if (!pHddCtx->cfg_ini->enable_delack) {
-        VOS_TRACE(VOS_MODULE_ID_HDD, VOS_TRACE_LEVEL_DEBUG,
-               "%s: TCP DELACK is not enabled", __func__);
-        return;
-    }
-
-    /* Blindly stop timer of BTCOEX and TDLS Session is up */
-    if (pHddCtx->mode != 0) {
-        hdd_set_default_stop_delack_timer(pHddCtx);
-        return;
-    }
-
-    sessions = hdd_get_total_sessions(pHddCtx);
-    if (sessions == 1) {
-        hdd_update_prev_rx_packet_count(pHddCtx);
-        hdd_start_delack_timer(pHddCtx);
-    } else {
-        hdd_set_default_stop_delack_timer(pHddCtx);
-    }
 }
 
 /**---------------------------------------------------------------------------
@@ -12371,6 +12149,45 @@ int hdd_sta_id_find_from_mac_addr(hdd_adapter_t *pAdapter,
     }
     spin_unlock_bh( &pAdapter->sta_hash_lock);
     return sta_id;
+}
+
+void hdd_initialize_adapter_common(hdd_adapter_t *pAdapter)
+{
+        if (NULL == pAdapter)
+        {
+            hddLog(VOS_TRACE_LEVEL_ERROR, "%s: pAdapter is NULL ", __func__);
+            return;
+        }
+        init_completion(&pAdapter->session_open_comp_var);
+        init_completion(&pAdapter->session_close_comp_var);
+        init_completion(&pAdapter->disconnect_comp_var);
+        init_completion(&pAdapter->linkup_event_var);
+        init_completion(&pAdapter->cancel_rem_on_chan_var);
+        init_completion(&pAdapter->rem_on_chan_ready_event);
+        init_completion(&pAdapter->pno_comp_var);
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,38))
+        init_completion(&pAdapter->offchannel_tx_event);
+#endif
+        init_completion(&pAdapter->tx_action_cnf_event);
+#ifdef FEATURE_WLAN_TDLS
+        init_completion(&pAdapter->tdls_add_station_comp);
+        init_completion(&pAdapter->tdls_del_station_comp);
+        init_completion(&pAdapter->tdls_mgmt_comp);
+        init_completion(&pAdapter->tdls_link_establish_req_comp);
+#endif
+
+#ifdef WLAN_FEATURE_RMC
+        init_completion(&pAdapter->ibss_peer_info_comp);
+#endif /* WLAN_FEATURE_RMC */
+        init_completion(&pAdapter->ula_complete);
+        init_completion(&pAdapter->change_country_code);
+
+#ifdef FEATURE_WLAN_BATCH_SCAN
+        init_completion(&pAdapter->hdd_set_batch_scan_req_var);
+        init_completion(&pAdapter->hdd_get_batch_scan_req_var);
+#endif
+
+        return;
 }
 
 //Register the module init/exit functions

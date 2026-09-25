@@ -1,7 +1,7 @@
 /*
  * Plugable TCP congestion control support and newReno
  * congestion control.
- * Based on ideas from I/O scheduler support and Web100.
+ * Based on ideas from I/O scheduler suport and Web100.
  *
  * Copyright (C) 2005 Stephen Hemminger <shemminger@osdl.org>
  */
@@ -281,20 +281,20 @@ int tcp_set_congestion_control(struct sock *sk, const char *name)
 /* RFC2861 Check whether we are limited by application or congestion window
  * This is the inverse of cwnd check in tcp_tso_should_defer
  */
-bool tcp_is_cwnd_limited(const struct sock *sk, u32 in_flight)
+int tcp_is_cwnd_limited(const struct sock *sk, u32 in_flight)
 {
 	const struct tcp_sock *tp = tcp_sk(sk);
 	u32 left;
 
 	if (in_flight >= tp->snd_cwnd)
-		return true;
+		return 1;
 
 	left = tp->snd_cwnd - in_flight;
 	if (sk_can_gso(sk) &&
 	    left * sysctl_tcp_tso_win_divisor < tp->snd_cwnd &&
 	    left * tp->mss_cache < sk->sk_gso_max_size &&
 	    left < sk->sk_gso_max_segs)
-		return true;
+		return 1;
 	return left <= tcp_max_tso_deferred_mss(tp);
 }
 EXPORT_SYMBOL_GPL(tcp_is_cwnd_limited);
@@ -309,25 +309,18 @@ EXPORT_SYMBOL_GPL(tcp_is_cwnd_limited);
 void tcp_slow_start(struct tcp_sock *tp)
 {
 	int cnt; /* increase in packets */
-	unsigned int delta = 0;
-	u32 snd_cwnd = tp->snd_cwnd;
-
-	if (unlikely(!snd_cwnd)) {
-		pr_err_once("snd_cwnd is nul, please report this bug.\n");
-		snd_cwnd = 1U;
-	}
 
 	if (sysctl_tcp_max_ssthresh > 0 && tp->snd_cwnd > sysctl_tcp_max_ssthresh)
 		cnt = sysctl_tcp_max_ssthresh >> 1;	/* limited slow start */
 	else
-		cnt = snd_cwnd;				/* exponential increase */
+		cnt = tp->snd_cwnd;			/* exponential increase */
 
 	tp->snd_cwnd_cnt += cnt;
-	while (tp->snd_cwnd_cnt >= snd_cwnd) {
-		tp->snd_cwnd_cnt -= snd_cwnd;
-		delta++;
+	while (tp->snd_cwnd_cnt >= tp->snd_cwnd) {
+		tp->snd_cwnd_cnt -= tp->snd_cwnd;
+		if (tp->snd_cwnd < tp->snd_cwnd_clamp)
+			tp->snd_cwnd++;
 	}
-	tp->snd_cwnd = min(snd_cwnd + delta, tp->snd_cwnd_clamp);
 }
 EXPORT_SYMBOL_GPL(tcp_slow_start);
 

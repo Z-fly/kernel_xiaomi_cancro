@@ -1521,10 +1521,8 @@ __limProcessSmeScanReq(tpAniSirGlobal pMac, tANI_U32 *pMsgBuf)
               pMlmScanReq->maxChannelTime = pScanReq->maxChannelTime;
           }
 
-          pMlmScanReq->min_chntime_btc_esco =
-                   pScanReq->min_chntime_btc_esco;
-          pMlmScanReq->max_chntime_btc_esco =
-                   pScanReq->max_chntime_btc_esco;
+          pMlmScanReq->minChannelTimeBtc = pScanReq->minChannelTimeBtc;
+          pMlmScanReq->maxChannelTimeBtc = pScanReq->maxChannelTimeBtc;
           pMlmScanReq->dot11mode = pScanReq->dot11mode;
           pMlmScanReq->p2pSearch = pScanReq->p2pSearch;
 
@@ -3491,7 +3489,7 @@ void limProcessSmeGetScanChannelInfo(tpAniSirGlobal pMac, tANI_U32 *pMsgBuf)
 
 void limProcessSmeGetAssocSTAsInfo(tpAniSirGlobal pMac, tANI_U32 *pMsgBuf)
 {
-    tSirSmeGetAssocSTAsReq  getAssocSTAsReq = {0};
+    tSirSmeGetAssocSTAsReq  getAssocSTAsReq;
     tpDphHashNode           pStaDs = NULL;
     tpPESession             psessionEntry = NULL;
     tSap_Event              sapEvent;

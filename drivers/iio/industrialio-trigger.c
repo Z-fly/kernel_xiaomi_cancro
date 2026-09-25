@@ -1,6 +1,7 @@
 /* The industrial I/O core, trigger handling functions
  *
  * Copyright (c) 2008 Jonathan Cameron
+ * Copyright (C) 2017 XiaoMi, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License version 2 as published by
@@ -42,8 +43,8 @@ static DEFINE_MUTEX(iio_trigger_list_lock);
  * iio_trigger_read_name() - retrieve useful identifying name
  **/
 static ssize_t iio_trigger_read_name(struct device *dev,
-				     struct device_attribute *attr,
-				     char *buf)
+		struct device_attribute *attr,
+		char *buf)
 {
 	struct iio_trigger *trig = to_iio_trigger(dev);
 	return sprintf(buf, "%s\n", trig->name);
@@ -104,12 +105,12 @@ void iio_trigger_unregister(struct iio_trigger *trig_info)
 
 	ida_simple_remove(&iio_trigger_ida, trig_info->id);
 	/* Possible issue in here */
-	device_unregister(&trig_info->dev);
+	device_del(&trig_info->dev);
 }
 EXPORT_SYMBOL(iio_trigger_unregister);
 
 static struct iio_trigger *iio_trigger_find_by_name(const char *name,
-						    size_t len)
+		size_t len)
 {
 	struct iio_trigger *trig = NULL, *iter;
 
@@ -127,12 +128,17 @@ static struct iio_trigger *iio_trigger_find_by_name(const char *name,
 void iio_trigger_poll(struct iio_trigger *trig, s64 time)
 {
 	int i;
-	if (!trig->use_count)
-		for (i = 0; i < CONFIG_IIO_CONSUMERS_PER_TRIGGER; i++)
-			if (trig->subirqs[i].enabled) {
-				trig->use_count++;
+
+	if (!atomic_read(&trig->use_count)) {
+		atomic_set(&trig->use_count, CONFIG_IIO_CONSUMERS_PER_TRIGGER);
+
+		for (i = 0; i < CONFIG_IIO_CONSUMERS_PER_TRIGGER; i++) {
+			if (trig->subirqs[i].enabled)
 				generic_handle_irq(trig->subirq_base + i);
-			}
+			else
+				iio_trigger_notify_done(trig);
+		}
+	}
 }
 EXPORT_SYMBOL(iio_trigger_poll);
 
@@ -146,19 +152,24 @@ EXPORT_SYMBOL(iio_trigger_generic_data_rdy_poll);
 void iio_trigger_poll_chained(struct iio_trigger *trig, s64 time)
 {
 	int i;
-	if (!trig->use_count)
-		for (i = 0; i < CONFIG_IIO_CONSUMERS_PER_TRIGGER; i++)
-			if (trig->subirqs[i].enabled) {
-				trig->use_count++;
+
+	if (!atomic_read(&trig->use_count)) {
+		atomic_set(&trig->use_count, CONFIG_IIO_CONSUMERS_PER_TRIGGER);
+
+		for (i = 0; i < CONFIG_IIO_CONSUMERS_PER_TRIGGER; i++) {
+			if (trig->subirqs[i].enabled)
 				handle_nested_irq(trig->subirq_base + i);
-			}
+			else
+				iio_trigger_notify_done(trig);
+		}
+	}
 }
 EXPORT_SYMBOL(iio_trigger_poll_chained);
 
 void iio_trigger_notify_done(struct iio_trigger *trig)
 {
-	trig->use_count--;
-	if (trig->use_count == 0 && trig->ops && trig->ops->try_reenable)
+	if (atomic_dec_and_test(&trig->use_count) && trig->ops &&
+		trig->ops->try_reenable)
 		if (trig->ops->try_reenable(trig))
 			/* Missed an interrupt so launch new poll now */
 			iio_trigger_poll(trig, 0);
@@ -171,8 +182,8 @@ static int iio_trigger_get_irq(struct iio_trigger *trig)
 	int ret;
 	mutex_lock(&trig->pool_lock);
 	ret = bitmap_find_free_region(trig->pool,
-				      CONFIG_IIO_CONSUMERS_PER_TRIGGER,
-				      ilog2(1));
+			CONFIG_IIO_CONSUMERS_PER_TRIGGER,
+			ilog2(1));
 	mutex_unlock(&trig->pool_lock);
 	if (ret >= 0)
 		ret += trig->subirq_base;
@@ -195,7 +206,7 @@ static void iio_trigger_put_irq(struct iio_trigger *trig, int irq)
  */
 /* Worth protecting against double additions? */
 static int iio_trigger_attach_poll_func(struct iio_trigger *trig,
-					struct iio_poll_func *pf)
+		struct iio_poll_func *pf)
 {
 	int ret = 0;
 	bool notinuse
@@ -205,8 +216,8 @@ static int iio_trigger_attach_poll_func(struct iio_trigger *trig,
 	__module_get(pf->indio_dev->info->driver_module);
 	pf->irq = iio_trigger_get_irq(trig);
 	ret = request_threaded_irq(pf->irq, pf->h, pf->thread,
-				   pf->type, pf->name,
-				   pf);
+		pf->type, pf->name,
+		pf);
 	if (ret < 0) {
 		module_put(pf->indio_dev->info->driver_module);
 		return ret;
@@ -222,7 +233,7 @@ static int iio_trigger_attach_poll_func(struct iio_trigger *trig,
 }
 
 static int iio_trigger_detach_poll_func(struct iio_trigger *trig,
-					 struct iio_poll_func *pf)
+		 struct iio_poll_func *pf)
 {
 	int ret = 0;
 	bool no_other_users
@@ -294,8 +305,8 @@ EXPORT_SYMBOL_GPL(iio_dealloc_pollfunc);
  * used by the device to be queried.
  **/
 static ssize_t iio_trigger_read_current(struct device *dev,
-					struct device_attribute *attr,
-					char *buf)
+		struct device_attribute *attr,
+		char *buf)
 {
 	struct iio_dev *indio_dev = dev_to_iio_dev(dev);
 
@@ -312,9 +323,9 @@ static ssize_t iio_trigger_read_current(struct device *dev,
  * name.
  **/
 static ssize_t iio_trigger_write_current(struct device *dev,
-					 struct device_attribute *attr,
-					 const char *buf,
-					 size_t len)
+		struct device_attribute *attr,
+		const char *buf,
+		size_t len)
 {
 	struct iio_dev *indio_dev = dev_to_iio_dev(dev);
 	struct iio_trigger *oldtrig = indio_dev->trig;
@@ -385,7 +396,7 @@ static void iio_trig_release(struct device *device)
 		}
 
 		irq_free_descs(trig->subirq_base,
-			       CONFIG_IIO_CONSUMERS_PER_TRIGGER);
+				CONFIG_IIO_CONSUMERS_PER_TRIGGER);
 	}
 	kfree(trig->name);
 	kfree(trig);
@@ -401,7 +412,7 @@ static void iio_trig_subirqmask(struct irq_data *d)
 	struct irq_chip *chip = irq_data_get_irq_chip(d);
 	struct iio_trigger *trig
 		= container_of(chip,
-			       struct iio_trigger, subirq_chip);
+				struct iio_trigger, subirq_chip);
 	trig->subirqs[d->irq - trig->subirq_base].enabled = false;
 }
 
@@ -410,7 +421,7 @@ static void iio_trig_subirqunmask(struct irq_data *d)
 	struct irq_chip *chip = irq_data_get_irq_chip(d);
 	struct iio_trigger *trig
 		= container_of(chip,
-			       struct iio_trigger, subirq_chip);
+				struct iio_trigger, subirq_chip);
 	trig->subirqs[d->irq - trig->subirq_base].enabled = true;
 }
 
@@ -448,7 +459,7 @@ struct iio_trigger *iio_trigger_alloc(const char *fmt, ...)
 		trig->subirq_chip.irq_unmask = &iio_trig_subirqunmask;
 		for (i = 0; i < CONFIG_IIO_CONSUMERS_PER_TRIGGER; i++) {
 			irq_set_chip(trig->subirq_base + i,
-				     &trig->subirq_chip);
+					&trig->subirq_chip);
 			irq_set_handler(trig->subirq_base + i,
 					&handle_simple_irq);
 			irq_modify_status(trig->subirq_base + i,
@@ -484,13 +495,13 @@ void iio_device_unregister_trigger_consumer(struct iio_dev *indio_dev)
 int iio_triggered_buffer_postenable(struct iio_dev *indio_dev)
 {
 	return iio_trigger_attach_poll_func(indio_dev->trig,
-					    indio_dev->pollfunc);
+			indio_dev->pollfunc);
 }
 EXPORT_SYMBOL(iio_triggered_buffer_postenable);
 
 int iio_triggered_buffer_predisable(struct iio_dev *indio_dev)
 {
 	return iio_trigger_detach_poll_func(indio_dev->trig,
-					     indio_dev->pollfunc);
+			indio_dev->pollfunc);
 }
 EXPORT_SYMBOL(iio_triggered_buffer_predisable);

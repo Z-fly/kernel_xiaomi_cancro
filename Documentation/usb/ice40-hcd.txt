@@ -104,8 +104,6 @@ The configuration data file is stored on the eMMC card. Firmware class API
 request_firmware() is used to read the configuration data file. The
 configuration data is then sent to the bridge chip via SPI interface. The
 bridge chip asserts the config done pin once the configuration is completed.
-This configuration data file is cached in kernel memory to improve the resume
-latency.
 
 The driver registers as a Full Speed (USB 1.1) HCD. The following methods
 are implemented that are part of hc_drive struct:
@@ -114,8 +112,7 @@ reset: It is called one time by the core during HCD registration. The
 default address 0 is programmed and the line state is sampled to check if any
 device is connected. If any device is connected, the port flags are updated
 accordingly. As the module is loaded after the UICC card is inserted, the
-device would be present at this time. If the card is not inserted, this
-method returns an error code to fail the USB HCD registration.
+device would be present at this time.
 
 start: This method is called one time by the core during HCD registration.
 The bridge chip is programmed to transmit the SOFs.
@@ -150,14 +147,12 @@ endpoint is not active, the URB is unlinked immediately.  Otherwise the endpoint
 is marked for unlink and URB is unlinked from the asynchronous schedule work.
 
 bus_suspend: This method is called by the core during root hub suspend. The SOFs
-are stopped to put the card in suspend state. The card takes ~3 msec to enter
-suspend. Turn off the SPI_VCC and VCC_CORE power supplies to avoid leakage
-current. The card state will not be lost as it has a different power supply.
+are already stopped during the port suspend which happens before root hub
+suspend. Assert the RSTn pin to put the bridge chip in reset state and stop XO
+(19.2 MHz) clock.
 
-bus_resume: This method is called by the core during root hub resume. The
-configuration data must be loaded again as the bridge is power collapsed
-during suspend. Drive the resume signaling after loading the configuration
-data.
+bus_resume: This method is called by the core during root hub resume. Turn on
+the XO clock and de-assert the RSTn signal to bring the chip out of reset.
 
 endpoint_disable: This method is called by the core during the device
 disconnect. All the URB are unlinked by this time, so free the endpoint private
@@ -201,13 +196,11 @@ detected automatically. The bus is sampled when this string is echoed. If a
 device is connected, port flags are updated and core is notified about the
 device connect event.
 
-"force_disconnect": Echo this string to forcefully disconnect the attached
-device. This can be used to simulate the UICC card disconnect. Echo "poll"
-again to enumerate the card.
-
 "rwtest": Function Address register is written and read back to validate the
 contents. This should NOT be used while the usb device is connected. This is
 strictly for debugging purpose.
+
+"dump": Dumps all the register values to the kernel log buffer.
 
 Design Goals:
 =============
@@ -228,13 +221,10 @@ The driver is compiled as a module and it accepts the configuration data file
 name as a module param called "firmware". The default configuration file name
 is "ice40.bin".
 
-The debugger module param allows the user to load the module without inserting
-the card. The module load will fail otherwise without a card.
-
 Config options
 ==============
 
-Set CONFIG_USB_ICE40_HCD to m to compile this driver as a module.  The driver
+Set CONFIG_USB_SL811_HCD to m to compile this driver as a module.  The driver
 should not be compiled statically, because the configuration data is not
 available during kernel boot.
 
@@ -245,10 +235,10 @@ To do
 - The bridge chip has an interrupt to indicate the transaction (IN/OUT)
 completion. The current implementation uses polling for simplicity and to avoid
 interrupt latencies.  Evaluate interrupt approach.
-- The bridge chip is completely power collapsed during suspend to avoid leakage
-current. Remote wakeup can not be supported with this approach. The bridge
-chip needs to be powered on during suspend to detect the remote wakeup.
-Implement this feature if cards can support remote wakeup.
+- The bridge chip can be completely power collapsed during suspend to avoid
+leakage currents. As the bridge chip does not have any non-volatile memory,
+the configuration data needs to be loaded during resume. This method has higher
+power savings with higher resume latencies. Evaluate this approach.
 - Implement Interrupt transfers if required.
 - The request_firmware() API copies the configuration data file to the kernel
 virtual memory. This memory can't be used for DMA. The current implementation

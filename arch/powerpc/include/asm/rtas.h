@@ -143,8 +143,6 @@ struct rtas_suspend_me_data {
 #define RTAS_TYPE_PMGM_TIME_ALARM	0x6f
 #define RTAS_TYPE_PMGM_CONFIG_CHANGE	0x70
 #define RTAS_TYPE_PMGM_SERVICE_PROC	0x71
-/* Platform Resource Reassignment Notification */
-#define RTAS_TYPE_PRRN			0xA0
 
 /* RTAS check-exception vector offset */
 #define RTAS_VECTOR_EXTERNAL_INTERRUPT	0x500
@@ -255,6 +253,7 @@ extern void rtas_power_off(void);
 extern void rtas_halt(void);
 extern void rtas_os_term(char *str);
 extern int rtas_get_sensor(int sensor, int index, int *state);
+extern int rtas_get_sensor_fast(int sensor, int index, int *state);
 extern int rtas_get_power_level(int powerdomain, int *level);
 extern int rtas_set_power_level(int powerdomain, int level, int *setlevel);
 extern bool rtas_indicator_present(int token, int *maxindex);
@@ -280,10 +279,6 @@ extern int early_init_dt_scan_rtas(unsigned long node,
 		const char *uname, int depth, void *data);
 
 extern void pSeries_log_error(char *buf, unsigned int err_type, int fatal);
-
-#ifdef CONFIG_PPC_PSERIES
-extern int pseries_devicetree_update(s32 scope);
-#endif
 
 #ifdef CONFIG_PPC_RTAS_DAEMON
 extern void rtas_cancel_event_scan(void);
@@ -361,13 +356,8 @@ static inline int page_is_rtas_user_buf(unsigned long pfn)
 		return 1;
 	return 0;
 }
-
-/* Not the best place to put pSeries_coalesce_init, will be fixed when we
- * move some of the rtas suspend-me stuff to pseries */
-extern void pSeries_coalesce_init(void);
 #else
 static inline int page_is_rtas_user_buf(unsigned long pfn) { return 0;}
-static inline void pSeries_coalesce_init(void) { }
 #endif
 
 extern int call_rtas(const char *, int, int, unsigned long *, ...);

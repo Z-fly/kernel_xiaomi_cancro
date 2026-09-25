@@ -5,6 +5,7 @@
  * Copyright (c) 2011 Christian Strobel <christian.strobel@iis.fraunhofer.de>
  * Copyright (c) 2011 Manuel Stahl <manuel.stahl@iis.fraunhofer.de>
  * Copyright (c) 2012 Thorsten Nowak <thorsten.nowak@iis.fraunhofer.de>
+ * Copyright (C) 2017 XiaoMi, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -69,7 +70,7 @@ error_ret:
 int itg3200_buffer_configure(struct iio_dev *indio_dev)
 {
 	return iio_triggered_buffer_setup(indio_dev, &iio_pollfunc_store_time,
-		itg3200_trigger_handler, NULL);
+			itg3200_trigger_handler, NULL);
 }
 
 void itg3200_buffer_unconfigure(struct iio_dev *indio_dev)
@@ -114,15 +115,15 @@ int itg3200_probe_trigger(struct iio_dev *indio_dev)
 	struct itg3200 *st = iio_priv(indio_dev);
 
 	st->trig = iio_trigger_alloc("%s-dev%d", indio_dev->name,
-				     indio_dev->id);
+			indio_dev->id);
 	if (!st->trig)
 		return -ENOMEM;
 
 	ret = request_irq(st->i2c->irq,
-			  &iio_trigger_generic_data_rdy_poll,
-			  IRQF_TRIGGER_RISING,
-			  "itg3200_data_rdy",
-			  st->trig);
+			&iio_trigger_generic_data_rdy_poll,
+			IRQF_TRIGGER_RISING,
+			"itg3200_data_rdy",
+			st->trig);
 	if (ret)
 		goto error_free_trig;
 
@@ -135,7 +136,7 @@ int itg3200_probe_trigger(struct iio_dev *indio_dev)
 		goto error_free_irq;
 
 	/* select default trigger */
-	indio_dev->trig = iio_trigger_get(st->trig);
+	indio_dev->trig = st->trig;
 
 	return 0;
 

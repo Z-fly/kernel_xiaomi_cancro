@@ -9,6 +9,7 @@
  *
  *  Copyright (c) 2010 Johnathon Harris <jmharris@gmail.com>
  *  Copyright (c) 2011 Jiri Kosina
+ *  Copyright (C) 2017 XiaoMi, Inc.
  */
 
 /*

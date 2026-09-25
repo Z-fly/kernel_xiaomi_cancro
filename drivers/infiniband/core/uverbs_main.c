@@ -87,8 +87,6 @@ static ssize_t (*uverbs_cmd_table[])(struct ib_uverbs_file *file,
 	[IB_USER_VERBS_CMD_DEALLOC_PD]		= ib_uverbs_dealloc_pd,
 	[IB_USER_VERBS_CMD_REG_MR]		= ib_uverbs_reg_mr,
 	[IB_USER_VERBS_CMD_DEREG_MR]		= ib_uverbs_dereg_mr,
-	[IB_USER_VERBS_CMD_ALLOC_MW]		= ib_uverbs_alloc_mw,
-	[IB_USER_VERBS_CMD_DEALLOC_MW]		= ib_uverbs_dealloc_mw,
 	[IB_USER_VERBS_CMD_CREATE_COMP_CHANNEL] = ib_uverbs_create_comp_channel,
 	[IB_USER_VERBS_CMD_CREATE_CQ]		= ib_uverbs_create_cq,
 	[IB_USER_VERBS_CMD_RESIZE_CQ]		= ib_uverbs_resize_cq,
@@ -119,13 +117,17 @@ static ssize_t (*uverbs_cmd_table[])(struct ib_uverbs_file *file,
 static void ib_uverbs_add_one(struct ib_device *device);
 static void ib_uverbs_remove_one(struct ib_device *device);
 
-static void ib_uverbs_release_dev(struct kref *ref)
+static void ib_uverbs_release_dev(struct kobject *kobj)
 {
 	struct ib_uverbs_device *dev =
-		container_of(ref, struct ib_uverbs_device, ref);
+		container_of(kobj, struct ib_uverbs_device, kobj);
 
-	complete(&dev->comp);
+	kfree(dev);
 }
+
+static struct kobj_type ib_uverbs_dev_ktype = {
+	.release = ib_uverbs_release_dev,
+};
 
 static void ib_uverbs_release_event_file(struct kref *ref)
 {
@@ -203,15 +205,6 @@ static int ib_uverbs_cleanup_ucontext(struct ib_uverbs_file *file,
 		kfree(uobj);
 	}
 
-	/* Remove MWs before QPs, in order to support type 2A MWs. */
-	list_for_each_entry_safe(uobj, tmp, &context->mw_list, list) {
-		struct ib_mw *mw = uobj->object;
-
-		idr_remove_uobj(&ib_uverbs_mw_idr, uobj);
-		ib_dealloc_mw(mw);
-		kfree(uobj);
-	}
-
 	list_for_each_entry_safe(uobj, tmp, &context->qp_list, list) {
 		struct ib_qp *qp = uobj->object;
 		struct ib_uqp_object *uqp =
@@ -251,6 +244,8 @@ static int ib_uverbs_cleanup_ucontext(struct ib_uverbs_file *file,
 		kfree(uevent);
 	}
 
+	/* XXX Free MWs */
+
 	list_for_each_entry_safe(uobj, tmp, &context->mr_list, list) {
 		struct ib_mr *mr = uobj->object;
 
@@ -282,13 +277,19 @@ static int ib_uverbs_cleanup_ucontext(struct ib_uverbs_file *file,
 	return context->device->dealloc_ucontext(context);
 }
 
+static void ib_uverbs_comp_dev(struct ib_uverbs_device *dev)
+{
+	complete(&dev->comp);
+}
+
 static void ib_uverbs_release_file(struct kref *ref)
 {
 	struct ib_uverbs_file *file =
 		container_of(ref, struct ib_uverbs_file, ref);
 
 	module_put(file->device->ib_dev->owner);
-	kref_put(&file->device->ref, ib_uverbs_release_dev);
+	if (atomic_dec_and_test(&file->device->refcount))
+		ib_uverbs_comp_dev(file->device);
 
 	kfree(file);
 }
@@ -551,15 +552,16 @@ struct file *ib_uverbs_alloc_event_file(struct ib_uverbs_file *uverbs_file,
 struct ib_uverbs_event_file *ib_uverbs_lookup_comp_file(int fd)
 {
 	struct ib_uverbs_event_file *ev_file = NULL;
-	struct fd f = fdget(fd);
+	struct file *filp;
 
-	if (!f.file)
+	filp = fget(fd);
+	if (!filp)
 		return NULL;
 
-	if (f.file->f_op != &uverbs_event_fops)
+	if (filp->f_op != &uverbs_event_fops)
 		goto out;
 
-	ev_file = f.file->private_data;
+	ev_file = filp->private_data;
 	if (ev_file->is_async) {
 		ev_file = NULL;
 		goto out;
@@ -568,7 +570,7 @@ struct ib_uverbs_event_file *ib_uverbs_lookup_comp_file(int fd)
 	kref_get(&ev_file->ref);
 
 out:
-	fdput(f);
+	fput(filp);
 	return ev_file;
 }
 
@@ -629,9 +631,7 @@ static int ib_uverbs_open(struct inode *inode, struct file *filp)
 	int ret;
 
 	dev = container_of(inode->i_cdev, struct ib_uverbs_device, cdev);
-	if (dev)
-		kref_get(&dev->ref);
-	else
+	if (!atomic_inc_not_zero(&dev->refcount))
 		return -ENXIO;
 
 	if (!try_module_get(dev->ib_dev->owner)) {
@@ -652,6 +652,7 @@ static int ib_uverbs_open(struct inode *inode, struct file *filp)
 	mutex_init(&file->mutex);
 
 	filp->private_data = file;
+	kobject_get(&dev->kobj);
 
 	return nonseekable_open(inode, filp);
 
@@ -659,13 +660,16 @@ err_module:
 	module_put(dev->ib_dev->owner);
 
 err:
-	kref_put(&dev->ref, ib_uverbs_release_dev);
+	if (atomic_dec_and_test(&dev->refcount))
+		ib_uverbs_comp_dev(dev);
+
 	return ret;
 }
 
 static int ib_uverbs_close(struct inode *inode, struct file *filp)
 {
 	struct ib_uverbs_file *file = filp->private_data;
+	struct ib_uverbs_device *dev = file->device;
 
 	ib_uverbs_cleanup_ucontext(file, file->ucontext);
 
@@ -673,6 +677,7 @@ static int ib_uverbs_close(struct inode *inode, struct file *filp)
 		kref_put(&file->async_file->ref, ib_uverbs_release_event_file);
 
 	kref_put(&file->ref, ib_uverbs_release_file);
+	kobject_put(&dev->kobj);
 
 	return 0;
 }
@@ -768,10 +773,11 @@ static void ib_uverbs_add_one(struct ib_device *device)
 	if (!uverbs_dev)
 		return;
 
-	kref_init(&uverbs_dev->ref);
+	atomic_set(&uverbs_dev->refcount, 1);
 	init_completion(&uverbs_dev->comp);
 	uverbs_dev->xrcd_tree = RB_ROOT;
 	mutex_init(&uverbs_dev->xrcd_tree_mutex);
+	kobject_init(&uverbs_dev->kobj, &ib_uverbs_dev_ktype);
 
 	spin_lock(&map_lock);
 	devnum = find_first_zero_bit(dev_map, IB_UVERBS_MAX_DEVICES);
@@ -798,6 +804,7 @@ static void ib_uverbs_add_one(struct ib_device *device)
 	cdev_init(&uverbs_dev->cdev, NULL);
 	uverbs_dev->cdev.owner = THIS_MODULE;
 	uverbs_dev->cdev.ops = device->mmap ? &uverbs_mmap_fops : &uverbs_fops;
+	uverbs_dev->cdev.kobj.parent = &uverbs_dev->kobj;
 	kobject_set_name(&uverbs_dev->cdev.kobj, "uverbs%d", uverbs_dev->devnum);
 	if (cdev_add(&uverbs_dev->cdev, base, 1))
 		goto err_cdev;
@@ -828,9 +835,10 @@ err_cdev:
 		clear_bit(devnum, overflow_map);
 
 err:
-	kref_put(&uverbs_dev->ref, ib_uverbs_release_dev);
+	if (atomic_dec_and_test(&uverbs_dev->refcount))
+		ib_uverbs_comp_dev(uverbs_dev);
 	wait_for_completion(&uverbs_dev->comp);
-	kfree(uverbs_dev);
+	kobject_put(&uverbs_dev->kobj);
 	return;
 }
 
@@ -850,9 +858,10 @@ static void ib_uverbs_remove_one(struct ib_device *device)
 	else
 		clear_bit(uverbs_dev->devnum - IB_UVERBS_MAX_DEVICES, overflow_map);
 
-	kref_put(&uverbs_dev->ref, ib_uverbs_release_dev);
+	if (atomic_dec_and_test(&uverbs_dev->refcount))
+		ib_uverbs_comp_dev(uverbs_dev);
 	wait_for_completion(&uverbs_dev->comp);
-	kfree(uverbs_dev);
+	kobject_put(&uverbs_dev->kobj);
 }
 
 static char *uverbs_devnode(struct device *dev, umode_t *mode)

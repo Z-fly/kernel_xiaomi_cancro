@@ -21,7 +21,7 @@
 #define inc_preempt_count() add_preempt_count(1)
 #define dec_preempt_count() sub_preempt_count(1)
 
-#define preempt_count()	(current_thread_info()->preempt_count)
+#define preempt_count()	*((volatile int *)(&current_thread_info()->preempt_count))
 
 #ifdef CONFIG_PREEMPT
 
@@ -33,25 +33,9 @@ do { \
 		preempt_schedule(); \
 } while (0)
 
-#ifdef CONFIG_CONTEXT_TRACKING
-
-void preempt_schedule_context(void);
-
-#define preempt_check_resched_context() \
-do { \
-	if (unlikely(test_thread_flag(TIF_NEED_RESCHED))) \
-		preempt_schedule_context(); \
-} while (0)
-#else
-
-#define preempt_check_resched_context() preempt_check_resched()
-
-#endif /* CONFIG_CONTEXT_TRACKING */
-
 #else /* !CONFIG_PREEMPT */
 
 #define preempt_check_resched()		do { } while (0)
-#define preempt_check_resched_context()	do { } while (0)
 
 #endif /* CONFIG_PREEMPT */
 
@@ -104,7 +88,7 @@ do { \
 do { \
 	preempt_enable_no_resched_notrace(); \
 	barrier(); \
-	preempt_check_resched_context(); \
+	preempt_check_resched(); \
 } while (0)
 
 #else /* !CONFIG_PREEMPT_COUNT */

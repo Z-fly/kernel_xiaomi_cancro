@@ -3,6 +3,7 @@
  *		accelerometer.
  *
  * Copyright (c) 2008-2009 Jonathan Cameron <jic23@kernel.org>
+ * Copyright (C) 2017 XiaoMi, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -112,10 +113,9 @@ static int kxsd9_read(struct iio_dev *indio_dev, u8 address)
 	mutex_lock(&st->buf_lock);
 	st->tx[0] = KXSD9_READ(address);
 	ret = spi_sync_transfer(st->us, xfers, ARRAY_SIZE(xfers));
-	if (!ret)
-		ret = (((u16)(st->rx[0])) << 8) | (st->rx[1] & 0xF0);
-	mutex_unlock(&st->buf_lock);
-	return ret;
+	if (ret)
+		return ret;
+	return (((u16)(st->rx[0])) << 8) | (st->rx[1] & 0xF0);
 }
 
 static IIO_CONST_ATTR(accel_scale_available,
@@ -130,10 +130,10 @@ static struct attribute *kxsd9_attributes[] = {
 };
 
 static int kxsd9_write_raw(struct iio_dev *indio_dev,
-			   struct iio_chan_spec const *chan,
-			   int val,
-			   int val2,
-			   long mask)
+		struct iio_chan_spec const *chan,
+		int val,
+		int val2,
+		long mask)
 {
 	int ret = -EINVAL;
 
@@ -148,8 +148,8 @@ static int kxsd9_write_raw(struct iio_dev *indio_dev,
 }
 
 static int kxsd9_read_raw(struct iio_dev *indio_dev,
-			  struct iio_chan_spec const *chan,
-			  int *val, int *val2, long mask)
+		struct iio_chan_spec const *chan,
+		int *val, int *val2, long mask)
 {
 	int ret = -EINVAL;
 	struct kxsd9_state *st = iio_priv(indio_dev);

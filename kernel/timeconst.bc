@@ -12,7 +12,7 @@ define gcd(a,b) {
 
 /* Division by reciprocal multiplication. */
 define fmul(b,n,d) {
-       return (2^b*n+d-1)/d;
+	return (2^b*n+d-1)/d;
 }
 
 /* Adjustment factor when a ceiling value is used.  Use as:

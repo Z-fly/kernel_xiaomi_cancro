@@ -1,1 +1,1 @@
-header-y += wcd9320_registers.h
+# UAPI Header export list

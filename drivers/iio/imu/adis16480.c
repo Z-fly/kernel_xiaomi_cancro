@@ -2,6 +2,7 @@
  * ADIS16480 and similar IMUs driver
  *
  * Copyright 2012 Analog Devices Inc.
+ * Copyright (C) 2017 XiaoMi, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -101,7 +102,7 @@
 
 /* Each filter coefficent bank spans two pages */
 #define ADIS16480_FIR_COEF(page) (x < 60 ? ADIS16480_REG(page, (x) + 8) : \
-		ADIS16480_REG((page) + 1, (x) - 60 + 8))
+		ADIS16480_REG((page) + 1, (x) -60 + 8))
 #define ADIS16480_FIR_COEF_A(x)			ADIS16480_FIR_COEF(0x05, (x))
 #define ADIS16480_FIR_COEF_B(x)			ADIS16480_FIR_COEF(0x07, (x))
 #define ADIS16480_FIR_COEF_C(x)			ADIS16480_FIR_COEF(0x09, (x))
@@ -200,7 +201,7 @@ static int adis16480_show_product_id(void *arg, u64 *val)
 	int ret;
 
 	ret = adis_read_reg_16(&adis16480->adis, ADIS16480_REG_PROD_ID,
-		&prod_id);
+			&prod_id);
 	if (ret < 0)
 		return ret;
 
@@ -209,7 +210,7 @@ static int adis16480_show_product_id(void *arg, u64 *val)
 	return 0;
 }
 DEFINE_SIMPLE_ATTRIBUTE(adis16480_product_id_fops,
-	adis16480_show_product_id, NULL, "%llu\n");
+		adis16480_show_product_id, NULL, "%llu\n");
 
 static int adis16480_show_flash_count(void *arg, u64 *val)
 {
@@ -234,16 +235,16 @@ static int adis16480_debugfs_init(struct iio_dev *indio_dev)
 	struct adis16480 *adis16480 = iio_priv(indio_dev);
 
 	debugfs_create_file("firmware_revision", 0400,
-		indio_dev->debugfs_dentry, adis16480,
-		&adis16480_firmware_revision_fops);
+			indio_dev->debugfs_dentry, adis16480,
+			&adis16480_firmware_revision_fops);
 	debugfs_create_file("firmware_date", 0400, indio_dev->debugfs_dentry,
-		adis16480, &adis16480_firmware_date_fops);
+			adis16480, &adis16480_firmware_date_fops);
 	debugfs_create_file("serial_number", 0400, indio_dev->debugfs_dentry,
-		adis16480, &adis16480_serial_number_fops);
+			adis16480, &adis16480_serial_number_fops);
 	debugfs_create_file("product_id", 0400, indio_dev->debugfs_dentry,
-		adis16480, &adis16480_product_id_fops);
+			adis16480, &adis16480_product_id_fops);
 	debugfs_create_file("flash_count", 0400, indio_dev->debugfs_dentry,
-		adis16480, &adis16480_flash_count_fops);
+			adis16480, &adis16480_flash_count_fops);
 
 	return 0;
 }
@@ -298,7 +299,7 @@ static ssize_t adis16480_read_frequency(struct device *dev,
 	if (ret < 0)
 		return ret;
 
-	return sprintf(buf, "%d.%.3d\n", freq / 1000, freq % 1000);
+	return snprintf(buf, "%d.%.3d\n", freq / 1000, freq % 1000);
 }
 
 static ssize_t adis16480_write_frequency(struct device *dev,
@@ -327,8 +328,8 @@ static ssize_t adis16480_write_frequency(struct device *dev,
 }
 
 static IIO_DEV_ATTR_SAMP_FREQ(S_IWUSR | S_IRUGO,
-			      adis16480_read_frequency,
-			      adis16480_write_frequency);
+		adis16480_read_frequency,
+		adis16480_write_frequency);
 
 enum {
 	ADIS16480_SCAN_GYRO_X,
@@ -742,7 +743,7 @@ static int adis16480_stop_device(struct iio_dev *indio_dev)
 	ret = adis_write_reg_16(&st->adis, ADIS16480_REG_SLP_CNT, BIT(9));
 	if (ret)
 		dev_err(&indio_dev->dev,
-			"Could not power down device: %d\n", ret);
+				"Could not power down device: %d\n", ret);
 
 	return ret;
 }

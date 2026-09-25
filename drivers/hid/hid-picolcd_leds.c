@@ -2,7 +2,8 @@
  *   Copyright (C) 2010-2012 by Bruno Prémont <bonbons@linux-vserver.org>  *
  *                                                                         *
  *   Based on Logitech G13 driver (v0.4)                                   *
- *     Copyright (C) 2009 by Rick L. Vinyard, Jr. <rvinyard@cs.nmsu.edu>   *
+ *   Copyright (C) 2009 by Rick L. Vinyard, Jr. <rvinyard@cs.nmsu.edu>     *
+ *   Copyright (C) 2017 XiaoMi, Inc.                                       * 
  *                                                                         *
  *   This program is free software: you can redistribute it and/or modify  *
  *   it under the terms of the GNU General Public License as published by  *
@@ -58,7 +59,7 @@ void picolcd_leds_set(struct picolcd_data *data)
 }
 
 static void picolcd_led_set_brightness(struct led_classdev *led_cdev,
-			enum led_brightness value)
+		enum led_brightness value)
 {
 	struct device *dev;
 	struct hid_device *hdev;

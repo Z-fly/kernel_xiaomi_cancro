@@ -6,6 +6,7 @@
  *
  *  Copyright (c) 2002-2004 Johann Deneux
  *  Copyright (c) 2006 Anssi Hannula <anssi.hannula@gmail.com>
+ *  Copyright (C) 2017 XiaoMi, Inc.
  */
 
 /*

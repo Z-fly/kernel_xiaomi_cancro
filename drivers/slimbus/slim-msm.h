@@ -1,4 +1,5 @@
 /* Copyright (c) 2011-2016, The Linux Foundation. All rights reserved.
+ * Copyright (C) 2017 XiaoMi, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -15,9 +16,9 @@
 
 #include <linux/irq.h>
 #include <linux/kthread.h>
-#include <soc/qcom/msm_qmi_interface.h>
-#include <soc/qcom/subsystem_notif.h>
-#include <linux/ipc_logging.h>
+#include <mach/msm_qmi_interface.h>
+#include <mach/subsystem_notif.h>
+#include <mach/msm_ipc_logging.h>
 
 /* Per spec.max 40 bytes per received message */
 #define SLIM_MSGQ_BUF_LEN	40
@@ -44,7 +45,6 @@
 
 #define MSM_SLIM_AUTOSUSPEND		MSEC_PER_SEC
 
-#define SLIM_RX_MSGQ_TIMEOUT_VAL	0x10000
 /*
  * Messages that can be received simultaneously:
  * Client reads, LPASS master responses, announcement messages
@@ -71,12 +71,9 @@
 #define DEF_RETRY_MS	10
 #define MSM_CONCUR_MSG	8
 #define SAT_CONCUR_MSG	8
-
 #define DEF_WATERMARK	(8 << 1)
-#define DEF_ALIGN_LSB	0
-#define DEF_ALIGN_MSB	(1 << 7)
+#define DEF_ALIGN	0
 #define DEF_PACK	(1 << 6)
-#define DEF_NO_PACK	0
 #define ENABLE_PORT	1
 
 #define DEF_BLKSZ	0
@@ -94,9 +91,6 @@
 #define SLIMBUS_QMI_SVC_ID 0x0301
 #define SLIMBUS_QMI_SVC_V1 1
 #define SLIMBUS_QMI_INS_ID 0
-
-/* QMI response timeout of 500ms */
-#define SLIM_QMI_RESP_TOUT 1000
 
 #define PGD_THIS_EE(r, v) ((v) ? PGD_THIS_EE_V2(r) : PGD_THIS_EE_V1(r))
 #define PGD_PORT(r, p, v) ((v) ? PGD_PORT_V2(r, p) : PGD_PORT_V1(r, p))
@@ -195,19 +189,9 @@ enum msm_slim_msgq {
 };
 
 struct msm_slim_sps_bam {
-	unsigned long		hdl;
+	u32			hdl;
 	void __iomem		*base;
 	int			irq;
-};
-
-/*
- * struct slim_pshpull_parm: Structure to store push pull protocol parameters
- * @num_samples: Number of samples in a period
- * @rpt_period: Repeat period value
- */
-struct msm_slim_pshpull_parm {
-	int		num_samples;
-	int		rpt_period;
 };
 
 struct msm_slim_endp {
@@ -216,8 +200,6 @@ struct msm_slim_endp {
 	struct sps_register_event	event;
 	struct sps_mem_buffer		buf;
 	bool				connected;
-	int				port_b;
-	struct msm_slim_pshpull_parm	psh_pull;
 };
 
 struct msm_slim_qmi {
@@ -244,16 +226,6 @@ struct msm_slim_pdata {
 	u32 eapc;
 };
 
-struct msm_slim_bulk_wr {
-	dma_addr_t	wr_dma;
-	void		*base;
-	int		size;
-	int		buf_sz;
-	int		(*cb)(void *ctx, int err);
-	void		*ctx;
-	bool		in_progress;
-};
-
 struct msm_slim_ctrl {
 	struct slim_controller  ctrl;
 	struct slim_framer	framer;
@@ -275,7 +247,7 @@ struct msm_slim_ctrl {
 	int			ee;
 	struct completion	**wr_comp;
 	struct msm_slim_sat	*satd[MSM_MAX_NSATS];
-	struct msm_slim_endp	*pipes;
+	struct msm_slim_endp	pipes[7];
 	struct msm_slim_sps_bam	bam;
 	struct msm_slim_endp	tx_msgq;
 	struct msm_slim_endp	rx_msgq;
@@ -285,11 +257,11 @@ struct msm_slim_ctrl {
 	struct clk		*hclk;
 	struct mutex		tx_lock;
 	struct mutex		ssr_lock;
-	spinlock_t		tx_buf_lock;
+	struct mutex		tx_buf_lock;
 	u8			pgdla;
 	enum msm_slim_msgq	use_rx_msgqs;
 	enum msm_slim_msgq	use_tx_msgqs;
-	int			port_nums;
+	int			port_b;
 	struct completion	reconf;
 	bool			reconf_busy;
 	bool			chan_active;
@@ -301,14 +273,10 @@ struct msm_slim_ctrl {
 	struct msm_slim_pdata	pdata;
 	struct msm_slim_ss	ext_mdm;
 	struct msm_slim_ss	dsp;
-	struct msm_slim_bulk_wr	bulk;
 	int			default_ipc_log_mask;
 	int			ipc_log_mask;
 	bool			sysfs_created;
 	void			*ipc_slimbus_log;
-	void (*rx_slim)(struct msm_slim_ctrl *dev, u8 *buf);
-	u32			current_rx_buf[10];
-	int			current_count;
 };
 
 struct msm_sat_chan {
@@ -371,7 +339,7 @@ enum {
 
 /* warnings and errors show up on console always */
 #define SLIM_WARN(dev, x...) do { \
-	pr_warn_ratelimited(x); \
+	pr_warn(x); \
 	if (dev->ipc_slimbus_log && dev->ipc_log_mask >= WARN_LEV) \
 		ipc_log_string(dev->ipc_slimbus_log, x); \
 } while (0)
@@ -381,7 +349,7 @@ enum {
  * in IPC logging. Further errors continue to log on the console
  */
 #define SLIM_ERR(dev, x...) do { \
-	pr_err_ratelimited(x); \
+	pr_err(x); \
 	if (dev->ipc_slimbus_log && dev->ipc_log_mask >= ERR_LEV) { \
 		ipc_log_string(dev->ipc_slimbus_log, x); \
 		dev->default_ipc_log_mask = dev->ipc_log_mask; \
@@ -400,7 +368,7 @@ void msm_slim_put_ctrl(struct msm_slim_ctrl *dev);
 irqreturn_t msm_slim_port_irq_handler(struct msm_slim_ctrl *dev, u32 pstat);
 int msm_slim_init_endpoint(struct msm_slim_ctrl *dev, struct msm_slim_endp *ep);
 void msm_slim_free_endpoint(struct msm_slim_endp *ep);
-void msm_hw_set_port(struct msm_slim_ctrl *dev, u8 pipenum, u8 portnum);
+void msm_hw_set_port(struct msm_slim_ctrl *dev, u8 pn);
 int msm_alloc_port(struct slim_controller *ctrl, u8 pn);
 void msm_dealloc_port(struct slim_controller *ctrl, u8 pn);
 int msm_slim_connect_pipe_port(struct msm_slim_ctrl *dev, u8 pn);
@@ -412,21 +380,18 @@ int msm_send_msg_buf(struct msm_slim_ctrl *dev, u32 *buf, u8 len, u32 tx_reg);
 u32 *msm_get_msg_buf(struct msm_slim_ctrl *dev, int len,
 			struct completion *comp);
 u32 *msm_slim_manage_tx_msgq(struct msm_slim_ctrl *dev, bool getbuf,
-			struct completion *comp, int err);
+			struct completion *comp);
 int msm_slim_rx_msgq_get(struct msm_slim_ctrl *dev, u32 *data, int offset);
 int msm_slim_sps_init(struct msm_slim_ctrl *dev, struct resource *bam_mem,
 			u32 pipe_reg, bool remote);
 void msm_slim_sps_exit(struct msm_slim_ctrl *dev, bool dereg);
 
 int msm_slim_connect_endp(struct msm_slim_ctrl *dev,
-				struct msm_slim_endp *endpoint);
+				struct msm_slim_endp *endpoint,
+				struct completion *notify);
 void msm_slim_disconnect_endp(struct msm_slim_ctrl *dev,
 					struct msm_slim_endp *endpoint,
 					enum msm_slim_msgq *msgq_flag);
-void msm_slim_deinit_ep(struct msm_slim_ctrl *dev,
-				struct msm_slim_endp *endpoint,
-				enum msm_slim_msgq *msgq_flag);
-
 void msm_slim_qmi_exit(struct msm_slim_ctrl *dev);
 int msm_slim_qmi_init(struct msm_slim_ctrl *dev, bool apps_is_master);
 int msm_slim_qmi_power_request(struct msm_slim_ctrl *dev, bool active);

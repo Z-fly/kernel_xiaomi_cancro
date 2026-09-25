@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2015, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2013, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -33,40 +33,12 @@
  */
 
 #define MBIM_BULK_BUFFER_SIZE		4096
-#define MAX_CTRL_PKT_SIZE		4096
 
-enum mbim_peripheral_ep_type {
-	MBIM_DATA_EP_TYPE_RESERVED   = 0x0,
-	MBIM_DATA_EP_TYPE_HSIC       = 0x1,
-	MBIM_DATA_EP_TYPE_HSUSB      = 0x2,
-	MBIM_DATA_EP_TYPE_PCIE       = 0x3,
-	MBIM_DATA_EP_TYPE_EMBEDDED   = 0x4,
-};
-
-struct mbim_peripheral_ep_info {
-	enum peripheral_ep_type	ep_type;
-	u32  peripheral_iface_id;
-};
-
-struct mbim_ipa_ep_pair {
-	u32 cons_pipe_num;
-	u32 prod_pipe_num;
-};
-
-struct mbim_ipa_ep_info {
-	struct mbim_peripheral_ep_info ph_ep_info;
-	struct mbim_ipa_ep_pair        ipa_ep_pair;
-};
-
-#define MBIM_IOCTL_MAGIC	 'o'
-#define MBIM_GET_NTB_SIZE	 _IOR(MBIM_IOCTL_MAGIC, 2, u32)
-#define MBIM_GET_DATAGRAM_COUNT	 _IOR(MBIM_IOCTL_MAGIC, 3, u16)
-
-#define MBIM_EP_LOOKUP	_IOR(MBIM_IOCTL_MAGIC, 4, struct mbim_ipa_ep_info)
-
+#define MBIM_IOCTL_MAGIC		'o'
+#define MBIM_GET_NTB_SIZE		_IOR(MBIM_IOCTL_MAGIC, 2, u32)
+#define MBIM_GET_DATAGRAM_COUNT		_IOR(MBIM_IOCTL_MAGIC, 3, u16)
 
 #define NR_MBIM_PORTS			1
-#define MBIM_DEFAULT_PORT		0
 
 /* ID for Microsoft OS String */
 #define MBIM_OS_STRING_ID   0xEE
@@ -109,6 +81,7 @@ struct f_mbim {
 	atomic_t	write_excl;
 
 	wait_queue_head_t read_wq;
+	wait_queue_head_t write_wq;
 
 	enum transport_type		xport;
 	u8				port_num;
@@ -119,7 +92,9 @@ struct f_mbim {
 	struct mbim_ep_descs		hs;
 
 	u8				ctrl_id, data_id;
-	bool				data_interface_up;
+	u8				data_alt_int;
+
+	struct mbim_ndp_parser_opts	*parser_opts;
 
 	spinlock_t			lock;
 
@@ -130,7 +105,6 @@ struct f_mbim {
 	u16			ntb_max_datagrams;
 
 	atomic_t		error;
-	unsigned int		cpkt_drop_cnt;
 };
 
 struct mbim_ntb_input_size {
@@ -154,19 +128,25 @@ static inline struct f_mbim *func_to_mbim(struct usb_function *f)
 	return container_of(f, struct f_mbim, function);
 }
 
+/* peak (theoretical) bulk transfer rate in bits-per-second */
+static inline unsigned mbim_bitrate(struct usb_gadget *g)
+{
+	if (gadget_is_dualspeed(g) && g->speed == USB_SPEED_HIGH)
+		return 13 * 512 * 8 * 1000 * 8;
+	else
+		return 19 *  64 * 1 * 1000 * 8;
+}
+
 /*-------------------------------------------------------------------------*/
 
 #define MBIM_NTB_DEFAULT_IN_SIZE	(0x4000)
 #define MBIM_NTB_OUT_SIZE		(0x1000)
 #define MBIM_NDP_IN_DIVISOR		(0x4)
 
-#define NTB_DEFAULT_IN_SIZE_IPA	(0x4000)
-#define MBIM_NTB_OUT_SIZE_IPA		(0x4000)
+#define NTB_DEFAULT_IN_SIZE_IPA	(0x2000)
+#define MBIM_NTB_OUT_SIZE_IPA		(0x2000)
 
 #define MBIM_FORMATS_SUPPORTED	USB_CDC_NCM_NTB16_SUPPORTED
-static int mbim_ntb_out_size_sys2bam;
-module_param(mbim_ntb_out_size_sys2bam, int, S_IRUGO | S_IWUSR);
-MODULE_PARM_DESC(mbim_ntb_out_size_sys2bam, "MBIM OUT SIZE for SYS2BAM Mode");
 
 static struct usb_cdc_ncm_ntb_parameters mbim_ntb_parameters = {
 	.wLength = sizeof mbim_ntb_parameters,
@@ -233,12 +213,12 @@ static struct usb_cdc_union_desc mbim_union_desc = {
 	/* .bSlaveInterface0 =	DYNAMIC */
 };
 
-static struct usb_cdc_mbim_desc mbim_desc = {
-	.bLength =		sizeof mbim_desc,
+static struct usb_cdc_mbb_desc mbb_desc = {
+	.bLength =		sizeof mbb_desc,
 	.bDescriptorType =	USB_DT_CS_INTERFACE,
-	.bDescriptorSubType =	USB_CDC_MBIM_TYPE,
+	.bDescriptorSubType =	USB_CDC_MBB_TYPE,
 
-	.bcdMBIMVersion =	cpu_to_le16(0x0100),
+	.bcdMbbVersion =	cpu_to_le16(0x0100),
 
 	.wMaxControlMessage =	cpu_to_le16(0x1000),
 	.bNumberFilters =	0x20,
@@ -254,7 +234,7 @@ static struct usb_cdc_ext_mbb_desc ext_mbb_desc = {
 
 	.bcdMbbExtendedVersion =	cpu_to_le16(0x0100),
 	.bMaxOutstandingCmdMsges =	64,
-	.wMTU =	cpu_to_le16(1500),
+	.wMTU =	1500,
 };
 
 /* the default data interface has no endpoints ... */
@@ -319,7 +299,7 @@ static struct usb_descriptor_header *mbim_fs_function[] = {
 	(struct usb_descriptor_header *) &mbim_control_intf,
 	(struct usb_descriptor_header *) &mbim_header_desc,
 	(struct usb_descriptor_header *) &mbim_union_desc,
-	(struct usb_descriptor_header *) &mbim_desc,
+	(struct usb_descriptor_header *) &mbb_desc,
 	(struct usb_descriptor_header *) &ext_mbb_desc,
 	(struct usb_descriptor_header *) &fs_mbim_notify_desc,
 	/* data interface, altsettings 0 and 1 */
@@ -365,7 +345,7 @@ static struct usb_descriptor_header *mbim_hs_function[] = {
 	(struct usb_descriptor_header *) &mbim_control_intf,
 	(struct usb_descriptor_header *) &mbim_header_desc,
 	(struct usb_descriptor_header *) &mbim_union_desc,
-	(struct usb_descriptor_header *) &mbim_desc,
+	(struct usb_descriptor_header *) &mbb_desc,
 	(struct usb_descriptor_header *) &ext_mbb_desc,
 	(struct usb_descriptor_header *) &hs_mbim_notify_desc,
 	/* data interface, altsettings 0 and 1 */
@@ -436,7 +416,7 @@ static struct usb_descriptor_header *mbim_ss_function[] = {
 	(struct usb_descriptor_header *) &mbim_control_intf,
 	(struct usb_descriptor_header *) &mbim_header_desc,
 	(struct usb_descriptor_header *) &mbim_union_desc,
-	(struct usb_descriptor_header *) &mbim_desc,
+	(struct usb_descriptor_header *) &mbb_desc,
 	(struct usb_descriptor_header *) &ext_mbb_desc,
 	(struct usb_descriptor_header *) &ss_mbim_notify_desc,
 	(struct usb_descriptor_header *) &ss_mbim_notify_comp_desc,
@@ -528,6 +508,61 @@ static struct {
 	},
 };
 
+/*
+ * Here are options for the Datagram Pointer table (NDP) parser.
+ * There are 2 different formats: NDP16 and NDP32 in the spec (ch. 3),
+ * in NDP16 offsets and sizes fields are 1 16bit word wide,
+ * in NDP32 -- 2 16bit words wide. Also signatures are different.
+ * To make the parser code the same, put the differences in the structure,
+ * and switch pointers to the structures when the format is changed.
+ */
+
+struct mbim_ndp_parser_opts {
+	u32		nth_sign;
+	u32		ndp_sign;
+	unsigned	nth_size;
+	unsigned	ndp_size;
+	unsigned	ndplen_align;
+	/* sizes in u16 units */
+	unsigned	dgram_item_len; /* index or length */
+	unsigned	block_length;
+	unsigned	fp_index;
+	unsigned	reserved1;
+	unsigned	reserved2;
+	unsigned	next_fp_index;
+};
+
+#define INIT_NDP16_OPTS {				\
+	.nth_sign = USB_CDC_NCM_NTH16_SIGN,		\
+	.ndp_sign = USB_CDC_NCM_NDP16_NOCRC_SIGN,	\
+	.nth_size = sizeof(struct usb_cdc_ncm_nth16),	\
+	.ndp_size = sizeof(struct usb_cdc_ncm_ndp16),	\
+	.ndplen_align = 4,				\
+	.dgram_item_len = 1,				\
+	.block_length = 1,				\
+	.fp_index = 1,					\
+	.reserved1 = 0,					\
+	.reserved2 = 0,					\
+	.next_fp_index = 1,				\
+}
+
+#define INIT_NDP32_OPTS {				\
+	.nth_sign = USB_CDC_NCM_NTH32_SIGN,		\
+	.ndp_sign = USB_CDC_NCM_NDP32_NOCRC_SIGN,	\
+	.nth_size = sizeof(struct usb_cdc_ncm_nth32),	\
+	.ndp_size = sizeof(struct usb_cdc_ncm_ndp32),	\
+	.ndplen_align = 8,				\
+	.dgram_item_len = 2,				\
+	.block_length = 2,				\
+	.fp_index = 2,					\
+	.reserved1 = 1,					\
+	.reserved2 = 2,					\
+	.next_fp_index = 2,				\
+}
+
+static struct mbim_ndp_parser_opts mbim_ndp16_opts = INIT_NDP16_OPTS;
+static struct mbim_ndp_parser_opts mbim_ndp32_opts = INIT_NDP32_OPTS;
+
 static inline int mbim_lock(atomic_t *excl)
 {
 	if (atomic_inc_return(excl) == 1) {
@@ -592,6 +627,98 @@ void fmbim_free_req(struct usb_ep *ep, struct usb_request *req)
 	}
 }
 
+static void fmbim_ctrl_response_available(struct f_mbim *dev)
+{
+	struct usb_request		*req = dev->not_port.notify_req;
+	struct usb_cdc_notification	*event = NULL;
+	unsigned long			flags;
+	int				ret;
+
+	pr_debug("dev:%pK portno#%d\n", dev, dev->port_num);
+
+	spin_lock_irqsave(&dev->lock, flags);
+
+	if (!atomic_read(&dev->online)) {
+		pr_err("dev:%pK is not online\n", dev);
+		spin_unlock_irqrestore(&dev->lock, flags);
+		return;
+	}
+
+	if (!req) {
+		pr_err("dev:%pK req is NULL\n", dev);
+		spin_unlock_irqrestore(&dev->lock, flags);
+		return;
+	}
+
+	if (!req->buf) {
+		pr_err("dev:%pK req->buf is NULL\n", dev);
+		spin_unlock_irqrestore(&dev->lock, flags);
+		return;
+	}
+
+	if (atomic_inc_return(&dev->not_port.notify_count) != 1) {
+		pr_debug("delay ep_queue: notifications queue is busy[%d]",
+			atomic_read(&dev->not_port.notify_count));
+		spin_unlock_irqrestore(&dev->lock, flags);
+		return;
+	}
+
+	req->length = sizeof *event;
+	event = req->buf;
+	event->bmRequestType = USB_DIR_IN | USB_TYPE_CLASS
+			| USB_RECIP_INTERFACE;
+	event->bNotificationType = USB_CDC_NOTIFY_RESPONSE_AVAILABLE;
+	event->wValue = cpu_to_le16(0);
+	event->wIndex = cpu_to_le16(dev->ctrl_id);
+	event->wLength = cpu_to_le16(0);
+	spin_unlock_irqrestore(&dev->lock, flags);
+
+	ret = usb_ep_queue(dev->not_port.notify,
+			   req, GFP_ATOMIC);
+	if (ret) {
+		atomic_dec(&dev->not_port.notify_count);
+		pr_err("ep enqueue error %d\n", ret);
+	}
+
+	pr_debug("Successful Exit");
+}
+
+static int
+fmbim_send_cpkt_response(struct f_mbim *gr, struct ctrl_pkt *cpkt)
+{
+	struct f_mbim	*dev = gr;
+	unsigned long	flags;
+
+	if (!gr || !cpkt) {
+		pr_err("Invalid cpkt, dev:%pK cpkt:%pK\n",
+				gr, cpkt);
+		return -ENODEV;
+	}
+
+	pr_debug("dev:%pK port_num#%d\n", dev, dev->port_num);
+
+	if (!atomic_read(&dev->online)) {
+		pr_err("dev:%pK is not connected\n", dev);
+		mbim_free_ctrl_pkt(cpkt);
+		return 0;
+	}
+
+	if (dev->not_port.notify_state != MBIM_NOTIFY_RESPONSE_AVAILABLE) {
+		pr_err("dev:%pK state=%d, recover!!\n", dev,
+			dev->not_port.notify_state);
+		mbim_free_ctrl_pkt(cpkt);
+		return 0;
+	}
+
+	spin_lock_irqsave(&dev->lock, flags);
+	list_add_tail(&cpkt->list, &dev->cpkt_resp_q);
+	spin_unlock_irqrestore(&dev->lock, flags);
+
+	fmbim_ctrl_response_available(dev);
+
+	return 0;
+}
+
 /* ---------------------------- BAM INTERFACE ----------------------------- */
 
 static int mbim_bam_setup(int no_ports)
@@ -600,7 +727,7 @@ static int mbim_bam_setup(int no_ports)
 
 	pr_info("no_ports:%d\n", no_ports);
 
-	ret = bam_data_setup(USB_FUNC_MBIM, no_ports);
+	ret = bam_data_setup(no_ports);
 	if (ret) {
 		pr_err("bam_data_setup failed err: %d\n", ret);
 		return ret;
@@ -610,10 +737,77 @@ static int mbim_bam_setup(int no_ports)
 	return 0;
 }
 
+int mbim_configure_params(void)
+{
+	struct teth_aggr_params aggr_params;
+	int ret = 0;
+
+	aggr_params.dl.aggr_prot = TETH_AGGR_PROTOCOL_MBIM;
+	aggr_params.dl.max_datagrams = mbim_ntb_parameters.wNtbOutMaxDatagrams;
+	aggr_params.dl.max_transfer_size_byte =
+			mbim_ntb_parameters.dwNtbInMaxSize;
+
+	aggr_params.ul.aggr_prot = TETH_AGGR_PROTOCOL_MBIM;
+	aggr_params.ul.max_datagrams = mbim_ntb_parameters.wNtbOutMaxDatagrams;
+	aggr_params.ul.max_transfer_size_byte =
+			mbim_ntb_parameters.dwNtbOutMaxSize;
+
+	ret = teth_bridge_set_aggr_params(&aggr_params);
+	if (ret)
+		pr_err("%s: teth_bridge_set_aggr_params failed\n", __func__);
+
+	return ret;
+}
+
+static int mbim_bam_connect(struct f_mbim *dev)
+{
+	int ret;
+	u8 src_connection_idx, dst_connection_idx;
+	struct usb_gadget *gadget = dev->cdev->gadget;
+	enum peer_bam bam_name = (dev->xport == USB_GADGET_XPORT_BAM2BAM_IPA) ?
+							IPA_P_BAM : A2_P_BAM;
+
+	pr_info("dev:%pK portno:%d\n", dev, dev->port_num);
+
+	src_connection_idx = usb_bam_get_connection_idx(gadget->name, bam_name,
+					USB_TO_PEER_PERIPHERAL, dev->port_num);
+	dst_connection_idx = usb_bam_get_connection_idx(gadget->name, bam_name,
+					PEER_PERIPHERAL_TO_USB, dev->port_num);
+	if (src_connection_idx < 0 || dst_connection_idx < 0) {
+		pr_err("%s: usb_bam_get_connection_idx failed\n", __func__);
+		return ret;
+	}
+
+	ret = bam_data_connect(&dev->bam_port, dev->port_num,
+		dev->xport, src_connection_idx, dst_connection_idx,
+		USB_FUNC_MBIM);
+
+	if (ret) {
+		pr_err("bam_data_setup failed: err:%d\n",
+				ret);
+		return ret;
+	}
+
+	pr_info("mbim bam connected\n");
+	return 0;
+}
+
+static int mbim_bam_disconnect(struct f_mbim *dev)
+{
+	pr_info("dev:%pK port:%d. Do nothing.\n",
+			dev, dev->port_num);
+
+	bam_data_disconnect(&dev->bam_port, dev->port_num);
+
+	return 0;
+}
+
 /* -------------------------------------------------------------------------*/
 
 static inline void mbim_reset_values(struct f_mbim *mbim)
 {
+	mbim->parser_opts = &mbim_ndp16_opts;
+
 	mbim->ntb_input_size = MBIM_NTB_DEFAULT_IN_SIZE;
 
 	atomic_set(&mbim->online, 0);
@@ -623,7 +817,7 @@ static void mbim_reset_function_queue(struct f_mbim *dev)
 {
 	struct ctrl_pkt	*cpkt = NULL;
 
-	pr_debug("Queue empty packet for QBI\n");
+	pr_debug("Queue empty packet for QBI");
 
 	spin_lock(&dev->lock);
 
@@ -637,7 +831,7 @@ static void mbim_reset_function_queue(struct f_mbim *dev)
 	list_add_tail(&cpkt->list, &dev->cpkt_req_q);
 	spin_unlock(&dev->lock);
 
-	pr_debug("%s: Wake up read queue\n", __func__);
+	pr_debug("%s: Wake up read queue", __func__);
 	wake_up(&dev->read_wq);
 }
 
@@ -676,7 +870,7 @@ static void mbim_do_notify(struct f_mbim *mbim)
 	struct usb_cdc_notification	*event;
 	int				status;
 
-	pr_debug("notify_state: %d\n", mbim->not_port.notify_state);
+	pr_debug("notify_state: %d", mbim->not_port.notify_state);
 
 	if (!req)
 		return;
@@ -697,19 +891,16 @@ static void mbim_do_notify(struct f_mbim *mbim)
 		pr_debug("Notification %02x sent\n", event->bNotificationType);
 
 		if (atomic_read(&mbim->not_port.notify_count) <= 0) {
-			pr_debug("notify_response_avaliable: done\n");
+			pr_debug("notify_response_avaliable: done");
 			return;
 		}
 
 		spin_unlock(&mbim->lock);
-		status = usb_func_ep_queue(&mbim->function,
-				mbim->not_port.notify,
-				req, GFP_ATOMIC);
+		status = usb_ep_queue(mbim->not_port.notify, req, GFP_ATOMIC);
 		spin_lock(&mbim->lock);
 		if (status) {
 			atomic_dec(&mbim->not_port.notify_count);
-			pr_err("Queue notify request failed, err: %d\n",
-					status);
+			pr_err("Queue notify request failed, err: %d", status);
 		}
 
 		return;
@@ -724,15 +915,14 @@ static void mbim_do_notify(struct f_mbim *mbim)
 	 * so unlocking
 	 */
 	atomic_inc(&mbim->not_port.notify_count);
-	pr_debug("queue request: notify_count = %d\n",
+	pr_debug("queue request: notify_count = %d",
 		atomic_read(&mbim->not_port.notify_count));
 	spin_unlock(&mbim->lock);
-	status = usb_func_ep_queue(&mbim->function, mbim->not_port.notify, req,
-			GFP_ATOMIC);
+	status = usb_ep_queue(mbim->not_port.notify, req, GFP_ATOMIC);
 	spin_lock(&mbim->lock);
 	if (status) {
 		atomic_dec(&mbim->not_port.notify_count);
-		pr_err("usb_func_ep_queue failed, err: %d\n", status);
+		pr_err("usb_ep_queue failed, err: %d", status);
 	}
 }
 
@@ -747,7 +937,7 @@ static void mbim_notify_complete(struct usb_ep *ep, struct usb_request *req)
 	switch (req->status) {
 	case 0:
 		atomic_dec(&mbim->not_port.notify_count);
-		pr_debug("notify_count = %d\n",
+		pr_debug("notify_count = %d",
 			atomic_read(&mbim->not_port.notify_count));
 		break;
 
@@ -756,7 +946,7 @@ static void mbim_notify_complete(struct usb_ep *ep, struct usb_request *req)
 		/* connection gone */
 		mbim->not_port.notify_state = MBIM_NOTIFY_NONE;
 		atomic_set(&mbim->not_port.notify_count, 0);
-		pr_info("ESHUTDOWN/ECONNRESET, connection gone\n");
+		pr_info("ESHUTDOWN/ECONNRESET, connection gone");
 		spin_unlock(&mbim->lock);
 		mbim_clear_queues(mbim);
 		mbim_reset_function_queue(mbim);
@@ -859,7 +1049,7 @@ fmbim_cmd_complete(struct usb_ep *ep, struct usb_request *req)
 	spin_unlock(&dev->lock);
 
 	/* wakeup read thread */
-	pr_debug("Wake up read queue\n");
+	pr_debug("Wake up read queue");
 	wake_up(&dev->read_wq);
 
 	return;
@@ -883,7 +1073,7 @@ mbim_setup(struct usb_function *f, const struct usb_ctrlrequest *ctrl)
 	 */
 
 	if (!atomic_read(&mbim->online)) {
-		pr_warning("usb cable is not connected\n");
+		pr_info("usb cable is not connected\n");
 		return -ENOTCONN;
 	}
 
@@ -891,7 +1081,7 @@ mbim_setup(struct usb_function *f, const struct usb_ctrlrequest *ctrl)
 	case ((USB_DIR_OUT | USB_TYPE_CLASS | USB_RECIP_INTERFACE) << 8)
 		| USB_CDC_RESET_FUNCTION:
 
-		pr_debug("USB_CDC_RESET_FUNCTION\n");
+		pr_debug("USB_CDC_RESET_FUNCTION");
 		value = 0;
 		req->complete = fmbim_reset_cmd_complete;
 		req->context = mbim;
@@ -900,10 +1090,10 @@ mbim_setup(struct usb_function *f, const struct usb_ctrlrequest *ctrl)
 	case ((USB_DIR_OUT | USB_TYPE_CLASS | USB_RECIP_INTERFACE) << 8)
 		| USB_CDC_SEND_ENCAPSULATED_COMMAND:
 
-		pr_debug("USB_CDC_SEND_ENCAPSULATED_COMMAND\n");
+		pr_debug("USB_CDC_SEND_ENCAPSULATED_COMMAND");
 
 		if (w_length > req->length) {
-			pr_debug("w_length > req->length: %d > %d\n",
+			pr_debug("w_length > req->length: %d > %d",
 			w_length, req->length);
 		}
 		value = w_length;
@@ -914,10 +1104,10 @@ mbim_setup(struct usb_function *f, const struct usb_ctrlrequest *ctrl)
 	case ((USB_DIR_IN | USB_TYPE_CLASS | USB_RECIP_INTERFACE) << 8)
 		| USB_CDC_GET_ENCAPSULATED_RESPONSE:
 
-		pr_debug("USB_CDC_GET_ENCAPSULATED_RESPONSE\n");
+		pr_debug("USB_CDC_GET_ENCAPSULATED_RESPONSE");
 
 		if (w_value) {
-			pr_err("w_length > 0: %d\n", w_length);
+			pr_err("w_length > 0: %d", w_length);
 			break;
 		}
 
@@ -941,7 +1131,7 @@ mbim_setup(struct usb_function *f, const struct usb_ctrlrequest *ctrl)
 		memcpy(req->buf, cpkt->buf, value);
 		mbim_free_ctrl_pkt(cpkt);
 
-		pr_debug("copied encapsulated_response %d bytes\n",
+		pr_debug("copied encapsulated_response %d bytes",
 			value);
 
 		break;
@@ -949,7 +1139,7 @@ mbim_setup(struct usb_function *f, const struct usb_ctrlrequest *ctrl)
 	case ((USB_DIR_IN | USB_TYPE_CLASS | USB_RECIP_INTERFACE) << 8)
 		| USB_CDC_GET_NTB_PARAMETERS:
 
-		pr_debug("USB_CDC_GET_NTB_PARAMETERS\n");
+		pr_debug("USB_CDC_GET_NTB_PARAMETERS");
 
 		if (w_length == 0 || w_value != 0 || w_index != mbim->ctrl_id)
 			break;
@@ -962,7 +1152,7 @@ mbim_setup(struct usb_function *f, const struct usb_ctrlrequest *ctrl)
 	case ((USB_DIR_IN | USB_TYPE_CLASS | USB_RECIP_INTERFACE) << 8)
 		| USB_CDC_GET_NTB_INPUT_SIZE:
 
-		pr_debug("USB_CDC_GET_NTB_INPUT_SIZE\n");
+		pr_debug("USB_CDC_GET_NTB_INPUT_SIZE");
 
 		if (w_length < 4 || w_value != 0 || w_index != mbim->ctrl_id)
 			break;
@@ -976,10 +1166,10 @@ mbim_setup(struct usb_function *f, const struct usb_ctrlrequest *ctrl)
 	case ((USB_DIR_OUT | USB_TYPE_CLASS | USB_RECIP_INTERFACE) << 8)
 		| USB_CDC_SET_NTB_INPUT_SIZE:
 
-		pr_debug("USB_CDC_SET_NTB_INPUT_SIZE\n");
+		pr_debug("USB_CDC_SET_NTB_INPUT_SIZE");
 
 		if (w_length != 4 && w_length != 8) {
-			pr_err("wrong NTB length %d\n", w_length);
+			pr_err("wrong NTB length %d", w_length);
 			break;
 		}
 
@@ -992,6 +1182,46 @@ mbim_setup(struct usb_function *f, const struct usb_ctrlrequest *ctrl)
 
 		value = req->length;
 		break;
+
+	case ((USB_DIR_IN | USB_TYPE_CLASS | USB_RECIP_INTERFACE) << 8)
+		| USB_CDC_GET_NTB_FORMAT:
+	{
+		uint16_t format;
+
+		pr_debug("USB_CDC_GET_NTB_FORMAT");
+
+		if (w_length < 2 || w_value != 0 || w_index != mbim->ctrl_id)
+			break;
+
+		format = (mbim->parser_opts == &mbim_ndp16_opts) ? 0 : 1;
+		put_unaligned_le16(format, req->buf);
+		value = 2;
+		pr_debug("NTB FORMAT: sending %d\n", format);
+		break;
+	}
+
+	case ((USB_DIR_OUT | USB_TYPE_CLASS | USB_RECIP_INTERFACE) << 8)
+		| USB_CDC_SET_NTB_FORMAT:
+	{
+		pr_debug("USB_CDC_SET_NTB_FORMAT");
+
+		if (w_length != 0 || w_index != mbim->ctrl_id)
+			break;
+		switch (w_value) {
+		case 0x0000:
+			mbim->parser_opts = &mbim_ndp16_opts;
+			pr_debug("NCM16 selected\n");
+			break;
+		case 0x0001:
+			mbim->parser_opts = &mbim_ndp32_opts;
+			pr_debug("NCM32 selected\n");
+			break;
+		default:
+			break;
+		}
+		value = 0;
+		break;
+	}
 
 	/* optional in mbim descriptor: */
 	/* case USB_CDC_GET_MAX_DATAGRAM_SIZE: */
@@ -1011,7 +1241,6 @@ mbim_setup(struct usb_function *f, const struct usb_ctrlrequest *ctrl)
 		req->zero = (value < w_length);
 		req->length = value;
 		value = usb_ep_queue(cdev->gadget->ep0, req, GFP_ATOMIC);
-
 		if (value < 0) {
 			pr_err("queueing req failed: %02x.%02x, err %d\n",
 				ctrl->bRequestType,
@@ -1047,7 +1276,7 @@ static int mbim_ctrlrequest(struct usb_composite_dev *cdev,
 	if (cdev->config || !mbim_ext_config_desc.function.subCompatibleID[0])
 		return value;
 
-	pr_debug("%02x.%02x v%04x i%04x l%u\n",
+	pr_debug("%02x.%02x v%04x i%04x l%u",
 			ctrl->bRequestType, ctrl->bRequest,
 			w_value, w_index, w_length);
 
@@ -1079,7 +1308,7 @@ static int mbim_ctrlrequest(struct usb_composite_dev *cdev,
 		cdev->req->length = value;
 		rc = usb_ep_queue(cdev->gadget->ep0, cdev->req, GFP_ATOMIC);
 		if (rc < 0)
-			pr_err("response queue error: %d\n", rc);
+			pr_err("response queue error: %d", rc);
 	}
 	return value;
 }
@@ -1090,12 +1319,10 @@ static int mbim_set_alt(struct usb_function *f, unsigned intf, unsigned alt)
 	struct usb_composite_dev *cdev = mbim->cdev;
 	int ret = 0;
 
-	pr_debug("intf=%u, alt=%u\n", intf, alt);
-
 	/* Control interface has only altsetting 0 */
 	if (intf == mbim->ctrl_id) {
 
-		pr_info("CONTROL_INTERFACE\n");
+		pr_info("CONTROL_INTERFACE");
 
 		if (alt != 0)
 			goto fail;
@@ -1125,14 +1352,10 @@ static int mbim_set_alt(struct usb_function *f, unsigned intf, unsigned alt)
 	/* Data interface has two altsettings, 0 and 1 */
 	} else if (intf == mbim->data_id) {
 
-		pr_info("DATA_INTERFACE id %d, data interface status %d\n",
-				mbim->data_id, mbim->data_interface_up);
+		pr_info("DATA_INTERFACE");
 
 		if (alt > 1)
 			goto fail;
-
-		if (mbim->data_interface_up == alt)
-			return 0;
 
 		if (mbim->bam_port.in->driver_data) {
 			pr_info("reset mbim\n");
@@ -1144,11 +1367,11 @@ static int mbim_set_alt(struct usb_function *f, unsigned intf, unsigned alt)
 		 * Changing altsettings resets filters, statistics, etc.
 		 */
 		if (alt == 1) {
-			pr_info("Alt set 1, initialize ports\n");
+			pr_info("Alt set 1, initialize ports");
 
 			if (!mbim->bam_port.in->desc) {
 
-				pr_info("Choose endpoints\n");
+				pr_info("Choose endpoints");
 
 				ret = config_ep_by_speed(cdev->gadget, f,
 							mbim->bam_port.in);
@@ -1159,7 +1382,7 @@ static int mbim_set_alt(struct usb_function *f, unsigned intf, unsigned alt)
 					return ret;
 				}
 
-				pr_info("Set mbim port in_desc = 0x%pK\n",
+				pr_info("Set mbim port in_desc = 0x%pK",
 					mbim->bam_port.in->desc);
 
 				ret = config_ep_by_speed(cdev->gadget, f,
@@ -1171,51 +1394,18 @@ static int mbim_set_alt(struct usb_function *f, unsigned intf, unsigned alt)
 					return ret;
 				}
 
-				pr_info("Set mbim port out_desc = 0x%pK\n",
+				pr_info("Set mbim port out_desc = 0x%pK",
 					mbim->bam_port.out->desc);
 
-				if (mbim->xport == USB_GADGET_XPORT_BAM2BAM_IPA
-					&& gadget_is_dwc3(cdev->gadget)) {
-					if (msm_ep_config(mbim->bam_port.in) ||
-					   msm_ep_config(mbim->bam_port.out)) {
-						pr_err("%s: ep_config failed\n",
-							__func__);
-						goto fail;
-					}
-				}
+				pr_debug("Activate mbim\n");
+				mbim_bam_connect(mbim);
 
-				ret = bam_data_connect(&mbim->bam_port,
-					mbim->xport, mbim->port_num,
-					USB_FUNC_MBIM);
-				if (ret) {
-					pr_err("bam_data_setup failed:err:%d\n",
-							ret);
-					goto fail;
-				}
 			} else {
-				pr_info("PORTS already SET\n");
+				pr_info("PORTS already SET");
 			}
 		}
 
-		if (alt == 0 && mbim->bam_port.in->driver_data) {
-			/*
-			 * perform bam data disconnect handshake upon usb
-			 * disconnect
-			 */
-			bam_data_disconnect(&mbim->bam_port, USB_FUNC_MBIM,
-					mbim->port_num);
-			if (mbim->xport == USB_GADGET_XPORT_BAM2BAM_IPA &&
-					mbim->data_interface_up &&
-					gadget_is_dwc3(cdev->gadget)) {
-				if (msm_ep_unconfig(mbim->bam_port.in) ||
-					msm_ep_unconfig(mbim->bam_port.out)) {
-					pr_err("ep_unconfig failed\n");
-					goto fail;
-				}
-			}
-		}
-
-		mbim->data_interface_up = alt;
+		mbim->data_alt_int = alt;
 		spin_lock(&mbim->lock);
 		mbim->not_port.notify_state = MBIM_NOTIFY_RESPONSE_AVAILABLE;
 		spin_unlock(&mbim->lock);
@@ -1225,12 +1415,16 @@ static int mbim_set_alt(struct usb_function *f, unsigned intf, unsigned alt)
 
 	atomic_set(&mbim->online, 1);
 
-	pr_info("SET DEVICE ONLINE\n");
+	pr_info("SET DEVICE ONLINE");
+
+	/* wakeup file threads */
+	wake_up(&mbim->read_wq);
+	wake_up(&mbim->write_wq);
 
 	return 0;
 
 fail:
-	pr_err("ERROR: Illegal Interface\n");
+	pr_err("ERROR: Illegal Interface");
 	return -EINVAL;
 }
 
@@ -1245,7 +1439,7 @@ static int mbim_get_alt(struct usb_function *f, unsigned intf)
 	if (intf == mbim->ctrl_id)
 		return 0;
 	else if (intf == mbim->data_id)
-		return mbim->data_interface_up;
+		return mbim->data_alt_int;
 
 	return -EINVAL;
 }
@@ -1253,37 +1447,24 @@ static int mbim_get_alt(struct usb_function *f, unsigned intf)
 static void mbim_disable(struct usb_function *f)
 {
 	struct f_mbim	*mbim = func_to_mbim(f);
-	struct usb_composite_dev *cdev = mbim->cdev;
 
-	pr_info("SET DEVICE OFFLINE\n");
+	pr_info("SET DEVICE OFFLINE");
 	atomic_set(&mbim->online, 0);
 
-	 /* Disable Control Path */
-	if (mbim->not_port.notify->driver_data) {
-		usb_ep_disable(mbim->not_port.notify);
-		mbim->not_port.notify->driver_data = NULL;
-	}
-	atomic_set(&mbim->not_port.notify_count, 0);
 	mbim->not_port.notify_state = MBIM_NOTIFY_NONE;
 
 	mbim_clear_queues(mbim);
 	mbim_reset_function_queue(mbim);
 
-	/* Disable Data Path  - only if it was initialized already (alt=1) */
-	if (!mbim->data_interface_up) {
-		pr_debug("MBIM data interface is not opened. Returning\n");
-		return;
+	mbim_bam_disconnect(mbim);
+
+	if (mbim->not_port.notify->driver_data) {
+		usb_ep_disable(mbim->not_port.notify);
+		mbim->not_port.notify->driver_data = NULL;
 	}
 
-	if (mbim->xport == USB_GADGET_XPORT_BAM2BAM_IPA &&
-			gadget_is_dwc3(cdev->gadget)) {
-		msm_ep_unconfig(mbim->bam_port.out);
-		msm_ep_unconfig(mbim->bam_port.in);
-	}
+	atomic_set(&mbim->not_port.notify_count, 0);
 
-	bam_data_disconnect(&mbim->bam_port, USB_FUNC_MBIM, mbim->port_num);
-
-	mbim->data_interface_up = false;
 	pr_info("mbim deactivated\n");
 }
 
@@ -1291,130 +1472,14 @@ static void mbim_disable(struct usb_function *f)
 
 static void mbim_suspend(struct usb_function *f)
 {
-	bool remote_wakeup_allowed;
-	struct f_mbim	*mbim = func_to_mbim(f);
-
 	pr_info("mbim suspended\n");
-
-	pr_debug("%s(): remote_wakeup:%d\n:", __func__,
-			mbim->cdev->gadget->remote_wakeup);
-
-	/* If the function is in Function Suspend state, avoid suspending the
-	 * MBIM function again.
-	 */
-	if ((mbim->cdev->gadget->speed == USB_SPEED_SUPER) &&
-		f->func_is_suspended)
-		return;
-
-	if (mbim->cdev->gadget->speed == USB_SPEED_SUPER)
-		remote_wakeup_allowed = f->func_wakeup_allowed;
-	else
-		remote_wakeup_allowed = mbim->cdev->gadget->remote_wakeup;
-
-	/* MBIM data interface is up only when alt setting is set to 1. */
-	if (!mbim->data_interface_up) {
-		pr_debug("MBIM data interface is not opened. Returning\n");
-		return;
-	}
-
-	if (!remote_wakeup_allowed)
-		atomic_set(&mbim->online, 0);
-
-	bam_data_suspend(&mbim->bam_port, mbim->port_num, USB_FUNC_MBIM,
-			remote_wakeup_allowed);
+	bam_data_suspend(MBIM_ACTIVE_PORT);
 }
 
 static void mbim_resume(struct usb_function *f)
 {
-	bool remote_wakeup_allowed;
-	struct f_mbim	*mbim = func_to_mbim(f);
-
 	pr_info("mbim resumed\n");
-
-	/*
-	 * If the function is in USB3 Function Suspend state, resume is
-	 * canceled. In this case resume is done by a Function Resume request.
-	 */
-	if ((mbim->cdev->gadget->speed == USB_SPEED_SUPER) &&
-		f->func_is_suspended)
-		return;
-
-	/* resume control path by queuing notify req */
-	spin_lock(&mbim->lock);
-	mbim_do_notify(mbim);
-	spin_unlock(&mbim->lock);
-
-	if (mbim->cdev->gadget->speed == USB_SPEED_SUPER)
-		remote_wakeup_allowed = f->func_wakeup_allowed;
-	else
-		remote_wakeup_allowed = mbim->cdev->gadget->remote_wakeup;
-
-	/* MBIM data interface is up only when alt setting is set to 1. */
-	if (!mbim->data_interface_up) {
-		pr_debug("MBIM data interface is not opened. Returning\n");
-		return;
-	}
-
-	if (!remote_wakeup_allowed)
-		atomic_set(&mbim->online, 1);
-
-	bam_data_resume(&mbim->bam_port, mbim->port_num, USB_FUNC_MBIM,
-			remote_wakeup_allowed);
-}
-
-static int mbim_func_suspend(struct usb_function *f, unsigned char options)
-{
-	enum {
-		MBIM_FUNC_SUSPEND_MASK   = 0x1,
-		MBIM_FUNC_WAKEUP_EN_MASK = 0x2
-	};
-
-	bool func_wakeup_allowed;
-	struct f_mbim	*mbim = func_to_mbim(f);
-
-	if (f == NULL)
-		return -EINVAL;
-
-	pr_debug("Got Function Suspend(%u) command for %s function\n",
-		options, f->name ? f->name : "");
-
-	/* Function Suspend is supported by Super Speed devices only */
-	if (mbim->cdev->gadget->speed != USB_SPEED_SUPER)
-		return -ENOTSUPP;
-
-	func_wakeup_allowed =
-		((options & MBIM_FUNC_WAKEUP_EN_MASK) != 0);
-
-	if (options & MBIM_FUNC_SUSPEND_MASK) {
-		f->func_wakeup_allowed = func_wakeup_allowed;
-		if (!f->func_is_suspended) {
-			mbim_suspend(f);
-			f->func_is_suspended = true;
-		}
-	} else {
-		if (f->func_is_suspended) {
-			f->func_is_suspended = false;
-			mbim_resume(f);
-		}
-		f->func_wakeup_allowed = func_wakeup_allowed;
-	}
-
-	return 0;
-}
-
-static int mbim_get_status(struct usb_function *f)
-{
-	enum {
-		MBIM_STS_FUNC_WAKEUP_CAP_SHIFT  = 0,
-		MBIM_STS_FUNC_WAKEUP_EN_SHIFT   = 1
-	};
-
-	unsigned remote_wakeup_enabled_bit;
-	const unsigned remote_wakeup_capable_bit = 1;
-
-	remote_wakeup_enabled_bit = f->func_wakeup_allowed ? 1 : 0;
-	return (remote_wakeup_enabled_bit << MBIM_STS_FUNC_WAKEUP_EN_SHIFT) |
-		(remote_wakeup_capable_bit << MBIM_STS_FUNC_WAKEUP_CAP_SHIFT);
+	bam_data_resume(MBIM_ACTIVE_PORT);
 }
 
 /*---------------------- function driver setup/binding ---------------------*/
@@ -1422,13 +1487,12 @@ static int mbim_get_status(struct usb_function *f)
 static int
 mbim_bind(struct usb_configuration *c, struct usb_function *f)
 {
-	struct usb_composite_dev	*cdev = c->cdev;
-	struct f_mbim			*mbim = func_to_mbim(f);
-	int				status;
-	struct usb_ep			*ep;
-	struct usb_cdc_notification	*event;
+	struct usb_composite_dev *cdev = c->cdev;
+	struct f_mbim		*mbim = func_to_mbim(f);
+	int			status;
+	struct usb_ep		*ep;
 
-	pr_info("Enter\n");
+	pr_info("Enter");
 
 	mbim->cdev = cdev;
 
@@ -1446,7 +1510,7 @@ mbim_bind(struct usb_configuration *c, struct usb_function *f)
 	if (status < 0)
 		goto fail;
 	mbim->data_id = status;
-	mbim->data_interface_up = false;
+	mbim->data_alt_int = 0;
 
 	mbim_data_nop_intf.bInterfaceNumber = status;
 	mbim_data_intf.bInterfaceNumber = status;
@@ -1497,19 +1561,11 @@ mbim_bind(struct usb_configuration *c, struct usb_function *f)
 
 	mbim->not_port.notify_req->context = mbim;
 	mbim->not_port.notify_req->complete = mbim_notify_complete;
-	mbim->not_port.notify_req->length = sizeof(*event);
-	event = mbim->not_port.notify_req->buf;
-	event->bmRequestType = USB_DIR_IN | USB_TYPE_CLASS
-			| USB_RECIP_INTERFACE;
-	event->bNotificationType = USB_CDC_NOTIFY_RESPONSE_AVAILABLE;
-	event->wValue = cpu_to_le16(0);
-	event->wIndex = cpu_to_le16(mbim->ctrl_id);
-	event->wLength = cpu_to_le16(0);
 
 	if (mbim->xport == USB_GADGET_XPORT_BAM2BAM_IPA)
-		mbim_desc.wMaxSegmentSize = cpu_to_le16(0x800);
+		mbb_desc.wMaxSegmentSize = cpu_to_le16(0x800);
 	else
-		mbim_desc.wMaxSegmentSize = cpu_to_le16(0xfe0);
+		mbb_desc.wMaxSegmentSize = cpu_to_le16(0xfe0);
 
 	/* copy descriptors, and track endpoint copies */
 	f->fs_descriptors = usb_copy_descriptors(mbim_fs_function);
@@ -1555,7 +1611,7 @@ mbim_bind(struct usb_configuration *c, struct usb_function *f)
 	 * subCompatibleID field. Windows only supports up to config #4.
 	 */
 	if (c->bConfigurationValue >= 2 && c->bConfigurationValue <= 4) {
-		pr_debug("MBIM in configuration %d\n", c->bConfigurationValue);
+		pr_debug("MBIM in configuration %d", c->bConfigurationValue);
 		mbim_ext_config_desc.function.subCompatibleID[0] =
 			c->bConfigurationValue + '0';
 	}
@@ -1599,7 +1655,7 @@ static void mbim_unbind(struct usb_configuration *c, struct usb_function *f)
 {
 	struct f_mbim	*mbim = func_to_mbim(f);
 
-	pr_debug("unbinding mbim\n");
+	bam_data_destroy(mbim->port_num);
 
 	if (gadget_is_superspeed(c->cdev->gadget))
 		usb_free_descriptors(f->ss_descriptors);
@@ -1625,14 +1681,19 @@ int mbim_bind_config(struct usb_configuration *c, unsigned portno,
 {
 	struct f_mbim	*mbim = NULL;
 	int status = 0;
-	int mbim_out_max_size;
 
-	pr_info("port number %u\n", portno);
+	pr_info("port number %u", portno);
 
 	if (portno >= nr_mbim_ports) {
-		pr_err("Can not add port %u. Max ports = %d\n",
+		pr_err("Can not add port %u. Max ports = %d",
 		       portno, nr_mbim_ports);
 		return -ENODEV;
+	}
+
+	status = mbim_bam_setup(nr_mbim_ports);
+	if (status) {
+		pr_err("bam setup failed");
+		return status;
 	}
 
 	/* maybe allocate device-global string IDs */
@@ -1657,7 +1718,7 @@ int mbim_bind_config(struct usb_configuration *c, unsigned portno,
 	/* allocate and initialize one new instance */
 	mbim = mbim_ports[0].port;
 	if (!mbim) {
-		pr_info("mbim struct not allocated\n");
+		pr_info("mbim struct not allocated");
 		return -ENOMEM;
 	}
 
@@ -1674,8 +1735,6 @@ int mbim_bind_config(struct usb_configuration *c, unsigned portno,
 	mbim->function.setup = mbim_setup;
 	mbim->function.disable = mbim_disable;
 	mbim->function.suspend = mbim_suspend;
-	mbim->function.func_suspend = mbim_func_suspend;
-	mbim->function.get_status = mbim_get_status;
 	mbim->function.resume = mbim_resume;
 	mbim->xport = str_to_xport(xport_name);
 
@@ -1688,21 +1747,9 @@ int mbim_bind_config(struct usb_configuration *c, unsigned portno,
 		/* For IPA this is proven to give maximum throughput */
 		mbim_ntb_parameters.dwNtbInMaxSize =
 		cpu_to_le32(NTB_DEFAULT_IN_SIZE_IPA);
-		/*
-		 * If mbim_ntb_out_size_sys2bam is set, use that value
-		 * otherwise use default value.
-		 */
-		if (mbim_ntb_out_size_sys2bam)
-			mbim_out_max_size = mbim_ntb_out_size_sys2bam;
-		else
-			mbim_out_max_size = MBIM_NTB_OUT_SIZE_IPA;
-
 		mbim_ntb_parameters.dwNtbOutMaxSize =
-				cpu_to_le32(mbim_out_max_size);
-		/* update rx buffer size to be used by usb rx request buffer */
-		mbim->bam_port.rx_buffer_size = mbim_out_max_size;
+				cpu_to_le32(MBIM_NTB_OUT_SIZE_IPA);
 		mbim_ntb_parameters.wNdpInDivisor = 1;
-		pr_debug("MBIM: dwNtbOutMaxSize:%d\n", mbim_out_max_size);
 	}
 
 	INIT_LIST_HEAD(&mbim->cpkt_req_q);
@@ -1710,7 +1757,7 @@ int mbim_bind_config(struct usb_configuration *c, unsigned portno,
 
 	status = usb_add_function(c, &mbim->function);
 
-	pr_info("Exit status %d\n", status);
+	pr_info("Exit status %d", status);
 
 	return status;
 }
@@ -1725,7 +1772,7 @@ mbim_read(struct file *fp, char __user *buf, size_t count, loff_t *pos)
 	unsigned long	flags;
 	int ret = 0;
 
-	pr_debug("Enter(%zu)\n", count);
+	pr_debug("Enter(%d)\n", count);
 
 	if (!dev) {
 		pr_err("Received NULL mbim pointer\n");
@@ -1733,7 +1780,7 @@ mbim_read(struct file *fp, char __user *buf, size_t count, loff_t *pos)
 	}
 
 	if (count > MBIM_BULK_BUFFER_SIZE) {
-		pr_err("Buffer size is too big %zu, should be at most %d\n",
+		pr_err("Buffer size is too big %d, should be at most %d\n",
 			count, MBIM_BULK_BUFFER_SIZE);
 		return -EINVAL;
 	}
@@ -1741,6 +1788,18 @@ mbim_read(struct file *fp, char __user *buf, size_t count, loff_t *pos)
 	if (mbim_lock(&dev->read_excl)) {
 		pr_err("Previous reading is not finished yet\n");
 		return -EBUSY;
+	}
+
+	/* block until mbim online */
+	while (!(atomic_read(&dev->online) || atomic_read(&dev->error))) {
+		pr_err("USB cable not connected. Wait.\n");
+		ret = wait_event_interruptible(dev->read_wq,
+			(atomic_read(&dev->online) ||
+			atomic_read(&dev->error)));
+		if (ret < 0) {
+			mbim_unlock(&dev->read_excl);
+			return -ERESTARTSYS;
+		}
 	}
 
 	if (atomic_read(&dev->error)) {
@@ -1768,7 +1827,7 @@ mbim_read(struct file *fp, char __user *buf, size_t count, loff_t *pos)
 	if (cpkt->len > count) {
 		spin_unlock_irqrestore(&dev->lock, flags);
 		mbim_unlock(&dev->read_excl);
-		pr_err("cpkt size too big:%d > buf size:%zu\n",
+		pr_err("cpkt size too big:%d > buf size:%d\n",
 				cpkt->len, count);
 		return -ENOMEM;
 	}
@@ -1798,21 +1857,24 @@ mbim_write(struct file *fp, const char __user *buf, size_t count, loff_t *pos)
 {
 	struct f_mbim *dev = fp->private_data;
 	struct ctrl_pkt *cpkt = NULL;
-	struct usb_request *req = dev->not_port.notify_req;
 	int ret = 0;
-	unsigned long flags;
 
-	pr_debug("Enter(%zu)\n", count);
+	pr_debug("Enter(%d)", count);
 
-	if (!dev || !req || !req->buf) {
-		pr_err("%s: dev %p req %p req->buf %p\n",
-			__func__, dev, req, req ? req->buf : req);
+	if (!dev) {
+		pr_err("Received NULL mbim pointer\n");
 		return -ENODEV;
 	}
 
-	if (!count || count > MAX_CTRL_PKT_SIZE) {
-		pr_err("error: ctrl pkt lenght %zu\n", count);
-		return -EINVAL;
+	if (!count) {
+		pr_err("zero length ctrl pkt\n");
+		return -ENODEV;
+	}
+
+	if (count > MAX_CTRL_PKT_SIZE) {
+		pr_err("given pkt size too big:%d > max_pkt_size:%d\n",
+				count, MAX_CTRL_PKT_SIZE);
+		return -ENOMEM;
 	}
 
 	if (mbim_lock(&dev->write_excl)) {
@@ -1824,20 +1886,6 @@ mbim_write(struct file *fp, const char __user *buf, size_t count, loff_t *pos)
 		pr_err("USB cable not connected\n");
 		mbim_unlock(&dev->write_excl);
 		return -EPIPE;
-	}
-
-	if (dev->not_port.notify_state != MBIM_NOTIFY_RESPONSE_AVAILABLE) {
-		pr_err("dev:%p state=%d error\n", dev,
-			dev->not_port.notify_state);
-		mbim_unlock(&dev->write_excl);
-		return -EINVAL;
-	}
-
-	if (dev->function.func_is_suspended &&
-			!dev->function.func_wakeup_allowed) {
-		dev->cpkt_drop_cnt++;
-		pr_err("drop ctrl pkt of len %zu\n", count);
-		return -ENOTSUPP;
 	}
 
 	cpkt = mbim_alloc_ctrl_pkt(count, GFP_KERNEL);
@@ -1852,42 +1900,17 @@ mbim_write(struct file *fp, const char __user *buf, size_t count, loff_t *pos)
 		pr_err("copy_from_user failed err:%d\n", ret);
 		mbim_free_ctrl_pkt(cpkt);
 		mbim_unlock(&dev->write_excl);
-		return ret;
+		return 0;
 	}
 
-	spin_lock_irqsave(&dev->lock, flags);
-	list_add_tail(&cpkt->list, &dev->cpkt_resp_q);
+	fmbim_send_cpkt_response(dev, cpkt);
 
-	if (atomic_inc_return(&dev->not_port.notify_count) != 1) {
-		pr_debug("delay ep_queue: notifications queue is busy[%d]\n",
-			atomic_read(&dev->not_port.notify_count));
-		spin_unlock_irqrestore(&dev->lock, flags);
-		mbim_unlock(&dev->write_excl);
-		return count;
-	}
-	spin_unlock_irqrestore(&dev->lock, flags);
-
-	ret = usb_func_ep_queue(&dev->function, dev->not_port.notify,
-			   req, GFP_ATOMIC);
-	if (ret == -ENOTSUPP || (ret < 0 && ret != -EAGAIN)) {
-		spin_lock_irqsave(&dev->lock, flags);
-		/* check if device disconnected while we dropped lock */
-		if (atomic_read(&dev->online)) {
-			list_del(&cpkt->list);
-			atomic_dec(&dev->not_port.notify_count);
-			mbim_free_ctrl_pkt(cpkt);
-		}
-		dev->cpkt_drop_cnt++;
-		spin_unlock_irqrestore(&dev->lock, flags);
-		pr_err("drop ctrl pkt of len %d error %d\n", cpkt->len, ret);
-	} else {
-		ret = 0;
-	}
 	mbim_unlock(&dev->write_excl);
 
-	pr_debug("Exit(%zu)\n", count);
+	pr_debug("Exit(%d)", count);
 
-	return ret ? ret : count;
+	return count;
+
 }
 
 static int mbim_open(struct inode *ip, struct file *fp)
@@ -1920,7 +1943,7 @@ static int mbim_open(struct inode *ip, struct file *fp)
 
 static int mbim_release(struct inode *ip, struct file *fp)
 {
-	pr_info("Close mbim file\n");
+	pr_info("Close mbim file");
 
 	mbim_unlock(&_mbim_dev->open_excl);
 
@@ -1930,16 +1953,9 @@ static int mbim_release(struct inode *ip, struct file *fp)
 static long mbim_ioctl(struct file *fp, unsigned cmd, unsigned long arg)
 {
 	struct f_mbim *mbim = fp->private_data;
-	struct data_port *port;
-	struct mbim_ipa_ep_info info;
 	int ret = 0;
 
-	pr_debug("Received command %d\n", cmd);
-
-	if (!mbim) {
-		pr_err("Bad parameter\n");
-		return -EINVAL;
-	}
+	pr_debug("Received command %d", cmd);
 
 	if (mbim_lock(&mbim->ioctl_excl))
 		return -EBUSY;
@@ -1949,53 +1965,24 @@ static long mbim_ioctl(struct file *fp, unsigned cmd, unsigned long arg)
 		ret = copy_to_user((void __user *)arg,
 			&mbim->ntb_input_size, sizeof(mbim->ntb_input_size));
 		if (ret) {
-			pr_err("copying to user space failed\n");
+			pr_err("copying to user space failed");
 			ret = -EFAULT;
 		}
-		pr_info("Sent NTB size %d\n", mbim->ntb_input_size);
+		pr_info("Sent NTB size %d", mbim->ntb_input_size);
 		break;
 	case MBIM_GET_DATAGRAM_COUNT:
 		ret = copy_to_user((void __user *)arg,
 			&mbim->ntb_max_datagrams,
 			sizeof(mbim->ntb_max_datagrams));
 		if (ret) {
-			pr_err("copying to user space failed\n");
+			pr_err("copying to user space failed");
 			ret = -EFAULT;
 		}
-		pr_info("Sent NTB datagrams count %d\n",
+		pr_info("Sent NTB datagrams count %d",
 			mbim->ntb_max_datagrams);
 		break;
-
-	case MBIM_EP_LOOKUP:
-		if (!atomic_read(&mbim->online)) {
-			pr_warn("usb cable is not connected\n");
-			ret = -ENOTCONN;
-			break;
-		}
-
-		port = &mbim->bam_port;
-		if ((port->ipa_producer_ep == -1) ||
-			(port->ipa_consumer_ep == -1)) {
-			pr_err("EP_LOOKUP failed - IPA pipes not updated\n");
-			ret = -EAGAIN;
-			break;
-		}
-
-		info.ph_ep_info.ep_type = MBIM_DATA_EP_TYPE_HSUSB;
-		info.ph_ep_info.peripheral_iface_id = mbim->data_id;
-		info.ipa_ep_pair.cons_pipe_num = port->ipa_consumer_ep;
-		info.ipa_ep_pair.prod_pipe_num = port->ipa_producer_ep;
-
-		ret = copy_to_user((void __user *)arg, &info,
-			sizeof(info));
-		if (ret) {
-			pr_err("copying to user space failed\n");
-			ret = -EFAULT;
-		}
-		break;
-
 	default:
-		pr_err("wrong parameter\n");
+		pr_err("wrong parameter");
 		ret = -EINVAL;
 	}
 
@@ -2042,9 +2029,6 @@ static int mbim_init(int instances)
 		}
 
 		dev->port_num = i;
-		dev->bam_port.ipa_consumer_ep = -1;
-		dev->bam_port.ipa_producer_ep = -1;
-
 		spin_lock_init(&dev->lock);
 		INIT_LIST_HEAD(&dev->cpkt_req_q);
 		INIT_LIST_HEAD(&dev->cpkt_resp_q);
@@ -2053,6 +2037,7 @@ static int mbim_init(int instances)
 		mbim_ports[i].port_num = i;
 
 		init_waitqueue_head(&dev->read_wq);
+		init_waitqueue_head(&dev->write_wq);
 
 		atomic_set(&dev->open_excl, 0);
 		atomic_set(&dev->ioctl_excl, 0);
@@ -2066,22 +2051,16 @@ static int mbim_init(int instances)
 	_mbim_dev = dev;
 	ret = misc_register(&mbim_device);
 	if (ret) {
-		pr_err("mbim driver failed to register\n");
+		pr_err("mbim driver failed to register");
 		goto fail_probe;
 	}
 
 	pr_info("Initialized %d ports\n", nr_mbim_ports);
 
-	ret = mbim_bam_setup(nr_mbim_ports);
-	if (ret) {
-		pr_err("bam_data_setup failed err: %d\n", ret);
-		return ret;
-	}
-
 	return ret;
 
 fail_probe:
-	pr_err("Failed\n");
+	pr_err("Failed");
 	for (i = 0; i < nr_mbim_ports; i++) {
 		kfree(mbim_ports[i].port);
 		mbim_ports[i].port = NULL;
@@ -2094,7 +2073,7 @@ static void fmbim_cleanup(void)
 {
 	int i = 0;
 
-	pr_info("Enter\n");
+	pr_info("Enter");
 
 	for (i = 0; i < nr_mbim_ports; i++) {
 		kfree(mbim_ports[i].port);

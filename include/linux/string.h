@@ -1,12 +1,16 @@
 #ifndef _LINUX_STRING_H_
 #define _LINUX_STRING_H_
 
+/* We don't want strings.h stuff being used by user stuff by accident */
+
+#ifndef __KERNEL__
+#include <string.h>
+#else
 
 #include <linux/compiler.h>	/* for inline */
 #include <linux/types.h>	/* for size_t */
 #include <linux/stddef.h>	/* for NULL */
 #include <stdarg.h>
-#include <uapi/linux/string.h>
 
 extern char *strndup_user(const char __user *, long);
 extern void *memdup_user(const void __user *, size_t);
@@ -111,7 +115,6 @@ extern int memcmp(const void *,const void *,__kernel_size_t);
 extern void * memchr(const void *,int,__kernel_size_t);
 #endif
 void *memchr_inv(const void *s, int c, size_t n);
-char *strreplace(char *s, char old, char new);
 
 extern char *kstrdup(const char *s, gfp_t gfp);
 extern char *kstrndup(const char *s, size_t len, gfp_t gfp);
@@ -142,18 +145,6 @@ static inline bool strstarts(const char *str, const char *prefix)
 	return strncmp(str, prefix, strlen(prefix)) == 0;
 }
 
-size_t memweight(const void *ptr, size_t bytes);
 void memzero_explicit(void *s, size_t count);
-
-/**
- * kbasename - return the last part of a pathname.
- *
- * @path: path to extract the filename from.
- */
-static inline const char *kbasename(const char *path)
-{
-	const char *tail = strrchr(path, '/');
-	return tail ? tail + 1 : path;
-}
-
+#endif
 #endif /* _LINUX_STRING_H_ */

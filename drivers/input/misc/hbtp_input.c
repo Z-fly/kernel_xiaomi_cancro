@@ -1,5 +1,6 @@
 
-/* Copyright (c) 2014-2015, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2014, The Linux Foundation. All rights reserved.
+ * Copyright (C) 2017 XiaoMi, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -18,10 +19,10 @@
 #include <linux/init.h>
 #include <linux/fs.h>
 #include <linux/miscdevice.h>
+#include <linux/hbtp_input.h>
 #include <linux/input/mt.h>
 #include <linux/platform_device.h>
 #include <linux/regulator/consumer.h>
-#include <uapi/linux/hbtp_input.h>
 #include "../input-compat.h"
 
 #if defined(CONFIG_FB)
@@ -30,21 +31,19 @@
 #endif
 
 #define HBTP_INPUT_NAME			"hbtp_input"
+#define HBTP_AFE_LOAD_UA		150000
+#define HBTP_AFE_VTG_MIN_UV		2700000
+#define HBTP_AFE_VTG_MAX_UV		3300000
 
 struct hbtp_data {
 	struct platform_device *pdev;
 	struct input_dev *input_dev;
 	s32 count;
-	struct mutex mutex;
 	bool touch_status[HBTP_MAX_FINGER];
 #if defined(CONFIG_FB)
 	struct notifier_block fb_notif;
 #endif
 	struct regulator *vcc_ana;
-	int afe_load_ua;
-	int afe_vtg_min_uv;
-	int afe_vtg_max_uv;
-	bool manage_afe_power;
 };
 
 static struct hbtp_data *hbtp;
@@ -57,17 +56,16 @@ static int fb_notifier_callback(struct notifier_block *self,
 	struct fb_event *evdata = data;
 	struct hbtp_data *hbtp_data =
 		container_of(self, struct hbtp_data, fb_notif);
-	char *envp[] = {HBTP_EVENT_TYPE_DISPLAY, NULL};
 
 	if (evdata && evdata->data && event == FB_EVENT_BLANK &&
 		hbtp_data && hbtp_data->input_dev) {
 		blank = *(int *)(evdata->data);
 		if (blank == FB_BLANK_UNBLANK)
-			kobject_uevent_env(&hbtp_data->input_dev->dev.kobj,
-					KOBJ_ONLINE, envp);
+			kobject_uevent(&hbtp_data->input_dev->dev.kobj,
+					KOBJ_ONLINE);
 		else if (blank == FB_BLANK_POWERDOWN)
-			kobject_uevent_env(&hbtp_data->input_dev->dev.kobj,
-					KOBJ_OFFLINE, envp);
+			kobject_uevent(&hbtp_data->input_dev->dev.kobj,
+					KOBJ_OFFLINE);
 	}
 
 	return 0;
@@ -76,28 +74,22 @@ static int fb_notifier_callback(struct notifier_block *self,
 
 static int hbtp_input_open(struct inode *inode, struct file *file)
 {
-	mutex_lock(&hbtp->mutex);
 	if (hbtp->count) {
 		pr_err("%s is busy\n", HBTP_INPUT_NAME);
-		mutex_unlock(&hbtp->mutex);
 		return -EBUSY;
 	}
 	hbtp->count++;
-	mutex_unlock(&hbtp->mutex);
 
 	return 0;
 }
 
 static int hbtp_input_release(struct inode *inode, struct file *file)
 {
-	mutex_lock(&hbtp->mutex);
 	if (!hbtp->count) {
 		pr_err("%s wasn't opened\n", HBTP_INPUT_NAME);
-		mutex_unlock(&hbtp->mutex);
 		return -ENOTTY;
 	}
 	hbtp->count--;
-	mutex_unlock(&hbtp->mutex);
 
 	return 0;
 }
@@ -123,11 +115,8 @@ static int hbtp_input_create_input_dev(struct hbtp_input_absinfo *absinfo)
 	__set_bit(BTN_TOUCH, input_dev->keybit);
 	__set_bit(INPUT_PROP_DIRECT, input_dev->propbit);
 
-	for (i = KEY_HOME; i <= KEY_MICMUTE; i++)
-		__set_bit(i, input_dev->keybit);
-
 	/* For multi touch */
-	input_mt_init_slots(input_dev, HBTP_MAX_FINGER, 0);
+	input_mt_init_slots(input_dev, HBTP_MAX_FINGER);
 	for (i = 0; i <= ABS_MT_LAST - ABS_MT_FIRST; i++) {
 		abs = absinfo + i;
 		if (abs->active) {
@@ -218,7 +207,7 @@ static int hbtp_pdev_power_on(struct hbtp_data *hbtp, bool on)
 	if (!on)
 		goto reg_off;
 
-	ret = reg_set_optimum_mode_check(hbtp->vcc_ana, hbtp->afe_load_ua);
+	ret = reg_set_optimum_mode_check(hbtp->vcc_ana, HBTP_AFE_LOAD_UA);
 	if (ret < 0) {
 		pr_err("%s: Regulator vcc_ana set_opt failed rc=%d\n",
 			__func__, ret);
@@ -251,7 +240,6 @@ static long hbtp_input_ioctl_handler(struct file *file, unsigned int cmd,
 	int error;
 	struct hbtp_input_mt mt_data;
 	struct hbtp_input_absinfo absinfo[ABS_MT_LAST - ABS_MT_FIRST + 1];
-	struct hbtp_input_key key_data;
 	enum hbtp_afe_power_cmd power_cmd;
 
 	switch (cmd) {
@@ -324,25 +312,6 @@ static long hbtp_input_ioctl_handler(struct file *file, unsigned int cmd,
 		}
 		break;
 
-	case HBTP_SET_KEYDATA:
-		if (!hbtp || !hbtp->input_dev) {
-			pr_err("%s: The input device hasn't been created\n",
-				__func__);
-			return -EFAULT;
-		}
-
-		if (copy_from_user(&key_data, (void *)arg,
-					sizeof(struct hbtp_input_key))) {
-			pr_err("%s: Error copying data for key info\n",
-				__func__);
-			return -EFAULT;
-		}
-
-		input_report_key(hbtp->input_dev, key_data.code,
-				key_data.value);
-		input_sync(hbtp->input_dev);
-		break;
-
 	default:
 		pr_err("%s: Unsupported ioctl command %u\n", __func__, cmd);
 		error = -EINVAL;
@@ -384,87 +353,32 @@ static struct miscdevice hbtp_input_misc = {
 MODULE_ALIAS_MISCDEV(MISC_DYNAMIC_MINOR);
 MODULE_ALIAS("devname:" HBTP_INPUT_NAME);
 
-#ifdef CONFIG_OF
-static int hbtp_parse_dt(struct device *dev)
+static int __devinit hbtp_pdev_probe(struct platform_device *pdev)
 {
-	int rc;
-	struct device_node *np = dev->of_node;
-	u32 temp_val;
-
-	if (of_find_property(np, "vcc_ana-supply", NULL)) {
-		hbtp->manage_afe_power = true;
-
-		rc = of_property_read_u32(np, "qcom,afe-load", &temp_val);
-		if (!rc) {
-			hbtp->afe_load_ua = (int) temp_val;
-		} else {
-			dev_err(dev, "Unable to read AFE load\n");
-			return rc;
-		}
-
-		rc = of_property_read_u32(np, "qcom,afe-vtg-min", &temp_val);
-		if (!rc) {
-			hbtp->afe_vtg_min_uv = (int) temp_val;
-		} else {
-			dev_err(dev, "Unable to read AFE min voltage\n");
-			return rc;
-		}
-
-		rc = of_property_read_u32(np, "qcom,afe-vtg-max", &temp_val);
-		if (!rc) {
-			hbtp->afe_vtg_max_uv = (int) temp_val;
-		} else {
-			dev_err(dev, "Unable to read AFE max voltage\n");
-			return rc;
-		}
-	}
-
-	return 0;
-}
-#else
-static int hbtp_parse_dt(struct device *dev)
-{
-	return -ENODEV;
-}
-#endif
-
-static int hbtp_pdev_probe(struct platform_device *pdev)
-{
-	int error, ret;
+	int ret, error;
 	struct regulator *vcc_ana;
 
-	if (pdev->dev.of_node) {
-		error = hbtp_parse_dt(&pdev->dev);
-		if (error) {
-			pr_err("%s: parse dt failed, rc=%d\n", __func__, error);
-			return error;
-		}
+	vcc_ana = regulator_get(&pdev->dev, "vcc_ana");
+	if (IS_ERR(vcc_ana)) {
+		ret = PTR_ERR(vcc_ana);
+		pr_err("%s: Regulator get failed vcc_ana rc=%d\n",
+			__func__, ret);
+		return -EINVAL;
 	}
 
-	if (hbtp->manage_afe_power) {
-		vcc_ana = regulator_get(&pdev->dev, "vcc_ana");
-		if (IS_ERR(vcc_ana)) {
-			ret = PTR_ERR(vcc_ana);
-			pr_err("%s: regulator get failed vcc_ana rc=%d\n",
+	if (regulator_count_voltages(vcc_ana) > 0) {
+		ret = regulator_set_voltage(vcc_ana,
+				HBTP_AFE_VTG_MIN_UV, HBTP_AFE_VTG_MAX_UV);
+		if (ret) {
+			pr_err("%s: regulator set_vtg failed rc=%d\n",
 				__func__, ret);
-			return -EINVAL;
+			error = -EINVAL;
+			goto error_set_vtg_vcc_ana;
 		}
-
-		if (regulator_count_voltages(vcc_ana) > 0) {
-			ret = regulator_set_voltage(vcc_ana,
-				hbtp->afe_vtg_min_uv, hbtp->afe_vtg_max_uv);
-			if (ret) {
-				pr_err("%s: regulator set vtg failed rc=%d\n",
-					__func__, ret);
-				error = -EINVAL;
-				goto error_set_vtg_vcc_ana;
-			}
-		}
-		hbtp->vcc_ana = vcc_ana;
 	}
 
+	hbtp->vcc_ana = vcc_ana;
 	hbtp->pdev = pdev;
-
 	return 0;
 
 error_set_vtg_vcc_ana:
@@ -473,7 +387,7 @@ error_set_vtg_vcc_ana:
 	return error;
 };
 
-static int hbtp_pdev_remove(struct platform_device *pdev)
+static int __devexit hbtp_pdev_remove(struct platform_device *pdev)
 {
 	if (hbtp->vcc_ana) {
 		hbtp_pdev_power_on(hbtp, false);
@@ -485,7 +399,7 @@ static int hbtp_pdev_remove(struct platform_device *pdev)
 
 #ifdef CONFIG_OF
 static struct of_device_id hbtp_match_table[] = {
-	{ .compatible = "qcom,hbtp-input",},
+	{ .compatible = "qcom,hbtp",},
 	{ },
 };
 #else
@@ -494,7 +408,7 @@ static struct of_device_id hbtp_match_table[] = {
 
 static struct platform_driver hbtp_pdev_driver = {
 	.probe		= hbtp_pdev_probe,
-	.remove		= hbtp_pdev_remove,
+	.remove		= __devexit_p(hbtp_pdev_remove),
 	.driver		= {
 		.name		= "hbtp",
 		.owner		= THIS_MODULE,
@@ -509,8 +423,6 @@ static int __init hbtp_init(void)
 	hbtp = kzalloc(sizeof(struct hbtp_data), GFP_KERNEL);
 	if (!hbtp)
 		return -ENOMEM;
-
-	mutex_init(&hbtp->mutex);
 
 	error = misc_register(&hbtp_input_misc);
 	if (error) {

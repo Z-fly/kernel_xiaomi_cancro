@@ -3,6 +3,7 @@
  *  providing midi & extra multimedia keys functionality
  *
  *  Copyright (c) 2009 Don Prince <dhprince.devel@yahoo.co.uk>
+ *  Copyright (C) 2017 XiaoMi, Inc.
  *
  *  Controls for Octave Shift Up/Down, Channel, and
  *  Sustain Duration available via sysfs.

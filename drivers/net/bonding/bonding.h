@@ -18,11 +18,11 @@
 #include <linux/timer.h>
 #include <linux/proc_fs.h>
 #include <linux/if_bonding.h>
+#include <linux/etherdevice.h>
 #include <linux/cpumask.h>
 #include <linux/in6.h>
 #include <linux/netpoll.h>
 #include <linux/inetdevice.h>
-#include <linux/etherdevice.h>
 #include "bond_3ad.h"
 #include "bond_alb.h"
 
@@ -219,13 +219,13 @@ struct bonding {
 	struct   slave *primary_slave;
 	bool     force_primary;
 	s32      slave_cnt; /* never change this value outside the attach/detach wrappers */
-	int     (*recv_probe)(const struct sk_buff *, struct bonding *,
-			      struct slave *);
+	int     (*recv_probe)(struct sk_buff *, struct bonding *,
+			       struct slave *);
 	rwlock_t lock;
 	rwlock_t curr_slave_lock;
 	u8	 send_peer_notif;
 	s8	 setup_by_slave;
-	u8       igmp_retrans;
+	s8       igmp_retrans;
 #ifdef CONFIG_PROC_FS
 	struct   proc_dir_entry *proc_entry;
 	char     proc_file_name[IFNAMSIZ];
@@ -245,10 +245,9 @@ struct bonding {
 	struct   delayed_work ad_work;
 	struct   delayed_work mcast_work;
 #ifdef CONFIG_DEBUG_FS
-	/* debugging support via debugfs */
+	/* debugging suport via debugfs */
 	struct	 dentry *debug_dir;
 #endif /* CONFIG_DEBUG_FS */
-	bool	dev_addr_from_first;
 };
 
 static inline bool bond_vlan_used(struct bonding *bond)
@@ -258,9 +257,6 @@ static inline bool bond_vlan_used(struct bonding *bond)
 
 #define bond_slave_get_rcu(dev) \
 	((struct slave *) rcu_dereference(dev->rx_handler_data))
-
-#define bond_slave_get_rtnl(dev) \
-	((struct slave *) rtnl_dereference(dev->rx_handler_data))
 
 /**
  * Returns NULL if the net_device does not belong to any of the bond's slaves
@@ -284,9 +280,11 @@ static inline struct slave *bond_get_slave_by_dev(struct bonding *bond,
 
 static inline struct bonding *bond_get_bond_by_slave(struct slave *slave)
 {
-	if (!slave || !slave->bond)
+	if (!slave || !slave->dev->master) {
 		return NULL;
-	return slave->bond;
+	}
+
+	return netdev_priv(slave->dev->master);
 }
 
 static inline bool bond_is_lb(const struct bonding *bond)
@@ -362,9 +360,10 @@ static inline void bond_netpoll_send_skb(const struct slave *slave,
 
 static inline void bond_set_slave_inactive_flags(struct slave *slave)
 {
-	if (!bond_is_lb(slave->bond))
+	struct bonding *bond = netdev_priv(slave->dev->master);
+	if (!bond_is_lb(bond))
 		bond_set_backup_slave(slave);
-	if (!slave->bond->params.all_slaves_active)
+	if (!bond->params.all_slaves_active)
 		slave->inactive = 1;
 }
 
@@ -459,7 +458,7 @@ static inline struct slave *bond_slave_has_mac(struct bonding *bond,
 	struct slave *tmp;
 
 	bond_for_each_slave(bond, tmp, i)
-		if (ether_addr_equal_64bits(mac, tmp->dev->dev_addr))
+		if (!compare_ether_addr_64bits(mac, tmp->dev->dev_addr))
 			return tmp;
 
 	return NULL;

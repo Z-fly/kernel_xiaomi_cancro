@@ -27,7 +27,9 @@
 #include <linux/debugfs.h>
 #include <linux/ctype.h>
 #include <linux/efi.h>
+#if (defined CONFIG_ACPI_VIDEO || defined CONFIG_ACPI_VIDEO_MODULE)
 #include <acpi/video.h>
+#endif
 
 /*
  * This driver is needed because a number of Samsung laptops do not hook
@@ -1464,15 +1466,6 @@ static struct dmi_system_id __initdata samsung_dmi_table[] = {
 			DMI_MATCH(DMI_CHASSIS_TYPE, "14"), /* Sub-Notebook */
 		},
 	},
-	/* DMI ids for laptops with bad Chassis Type */
-	{
-	  .ident = "R40/R41",
-	  .matches = {
-		DMI_MATCH(DMI_SYS_VENDOR, "SAMSUNG ELECTRONICS CO., LTD."),
-		DMI_MATCH(DMI_PRODUCT_NAME, "R40/R41"),
-		DMI_MATCH(DMI_BOARD_NAME, "R40/R41"),
-		},
-	},
 	/* Specific DMI ids for laptop with quirks */
 	{
 	 .callback = samsung_dmi_matched,
@@ -1516,21 +1509,21 @@ static struct dmi_system_id __initdata samsung_dmi_table[] = {
 	},
 	{
 	 .callback = samsung_dmi_matched,
-	 .ident = "X360",
-	 .matches = {
-		DMI_MATCH(DMI_SYS_VENDOR, "SAMSUNG ELECTRONICS CO., LTD."),
-		DMI_MATCH(DMI_PRODUCT_NAME, "X360"),
-		DMI_MATCH(DMI_BOARD_NAME, "X360"),
-		},
-	 .driver_data = &samsung_broken_acpi_video,
-	},
-	{
-	 .callback = samsung_dmi_matched,
 	 .ident = "N250P",
 	 .matches = {
 		DMI_MATCH(DMI_SYS_VENDOR, "SAMSUNG ELECTRONICS CO., LTD."),
 		DMI_MATCH(DMI_PRODUCT_NAME, "N250P"),
 		DMI_MATCH(DMI_BOARD_NAME, "N250P"),
+		},
+	 .driver_data = &samsung_broken_acpi_video,
+	},
+	{
+	 .callback = samsung_dmi_matched,
+	 .ident = "NC210",
+	 .matches = {
+		DMI_MATCH(DMI_SYS_VENDOR, "SAMSUNG ELECTRONICS CO., LTD."),
+		DMI_MATCH(DMI_PRODUCT_NAME, "NC210/NC110"),
+		DMI_MATCH(DMI_BOARD_NAME, "NC210/NC110"),
 		},
 	 .driver_data = &samsung_broken_acpi_video,
 	},
@@ -1561,16 +1554,15 @@ static int __init samsung_init(void)
 	samsung->quirks = quirks;
 
 
-#ifdef CONFIG_ACPI
-	if (samsung->quirks->broken_acpi_video)
-		acpi_video_dmi_promote_vendor();
-
+#if (defined CONFIG_ACPI_VIDEO || defined CONFIG_ACPI_VIDEO_MODULE)
 	/* Don't handle backlight here if the acpi video already handle it */
 	if (acpi_video_backlight_support()) {
-		samsung->handle_backlight = false;
-	} else if (samsung->quirks->broken_acpi_video) {
-		pr_info("Disabling ACPI video driver\n");
-		acpi_video_unregister();
+		if (samsung->quirks->broken_acpi_video) {
+			pr_info("Disabling ACPI video driver\n");
+			acpi_video_unregister();
+		} else {
+			samsung->handle_backlight = false;
+		}
 	}
 #endif
 
@@ -1584,7 +1576,8 @@ static int __init samsung_init(void)
 
 #ifdef CONFIG_ACPI
 	/* Only log that if we are really on a sabi platform */
-	if (acpi_video_backlight_support())
+	if (acpi_video_backlight_support() &&
+	    !samsung->quirks->broken_acpi_video)
 		pr_info("Backlight controlled by ACPI video driver\n");
 #endif
 

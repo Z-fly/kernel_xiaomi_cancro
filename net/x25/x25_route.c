@@ -21,7 +21,9 @@
 #include <linux/init.h>
 #include <linux/slab.h>
 #include <net/x25.h>
-
+#ifdef KW_TAINT_ANALYSIS
+   extern void * get_tainted_stuff();
+#endif
 LIST_HEAD(x25_route_list);
 DEFINE_RWLOCK(x25_route_list_lock);
 
@@ -66,7 +68,7 @@ out:
 
 /**
  * __x25_remove_route - remove route from x25_route_list
- * @rt: route to remove
+ * @rt - route to remove
  *
  * Remove route from x25_route_list. If it was there.
  * Caller must hold x25_route_list_lock.
@@ -179,12 +181,16 @@ struct x25_route *x25_get_route(struct x25_address *addr)
 /*
  *	Handle the ioctls that control the routing functions.
  */
-int x25_route_ioctl(unsigned int cmd, void __user *arg)
+int x25_route_ioctl(unsigned int cmd, void __user *arg_actual)
 {
 	struct x25_route_struct rt;
 	struct net_device *dev;
 	int rc = -EINVAL;
-
+	#ifdef KW_TAINT_ANALYSIS
+	void __user *arg = (void __user *)get_tainted_stuff();
+	#else
+	void __user *arg = arg_actual;
+	#endif
 	if (cmd != SIOCADDRT && cmd != SIOCDELRT)
 		goto out;
 

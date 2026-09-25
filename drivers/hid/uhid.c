@@ -1,6 +1,7 @@
 /*
  * User-space I/O driver support for HID subsystem
  * Copyright (c) 2012 David Herrmann
+ * Copyright (C) 2017 XiaoMi, Inc.
  */
 
 /*
@@ -27,8 +28,6 @@
 
 #define UHID_NAME	"uhid"
 #define UHID_BUFSIZE	32
-
-static DEFINE_MUTEX(uhid_open_mutex);
 
 struct uhid_device {
 	struct mutex devlock;
@@ -107,26 +106,39 @@ static void uhid_hid_stop(struct hid_device *hid)
 static int uhid_hid_open(struct hid_device *hid)
 {
 	struct uhid_device *uhid = hid->driver_data;
-	int retval = 0;
 
-	mutex_lock(&uhid_open_mutex);
-	if (!hid->open++) {
-		retval = uhid_queue_event(uhid, UHID_OPEN);
-		if (retval)
-			hid->open--;
-	}
-	mutex_unlock(&uhid_open_mutex);
-	return retval;
+	return uhid_queue_event(uhid, UHID_OPEN);
 }
 
 static void uhid_hid_close(struct hid_device *hid)
 {
 	struct uhid_device *uhid = hid->driver_data;
 
-	mutex_lock(&uhid_open_mutex);
-	if (!--hid->open)
-		uhid_queue_event(uhid, UHID_CLOSE);
-	mutex_unlock(&uhid_open_mutex);
+	uhid_queue_event(uhid, UHID_CLOSE);
+}
+
+static int uhid_hid_input(struct input_dev *input, unsigned int type,
+			  unsigned int code, int value)
+{
+	struct hid_device *hid = input_get_drvdata(input);
+	struct uhid_device *uhid = hid->driver_data;
+	unsigned long flags;
+	struct uhid_event *ev;
+
+	ev = kzalloc(sizeof(*ev), GFP_ATOMIC);
+	if (!ev)
+		return -ENOMEM;
+
+	ev->type = UHID_OUTPUT_EV;
+	ev->u.output_ev.type = type;
+	ev->u.output_ev.code = code;
+	ev->u.output_ev.value = value;
+
+	spin_lock_irqsave(&uhid->qlock, flags);
+	uhid_queue(uhid, ev);
+	spin_unlock_irqrestore(&uhid->qlock, flags);
+
+	return 0;
 }
 
 static int uhid_hid_parse(struct hid_device *hid)
@@ -262,6 +274,7 @@ static struct hid_ll_driver uhid_hid_driver = {
 	.stop = uhid_hid_stop,
 	.open = uhid_hid_open,
 	.close = uhid_hid_close,
+	.hidinput_input_event = uhid_hid_input,
 	.parse = uhid_hid_parse,
 };
 
@@ -284,7 +297,7 @@ struct uhid_create_req_compat {
 } __attribute__((__packed__));
 
 static int uhid_event_from_user(const char __user *buffer, size_t len,
-				struct uhid_event *event)
+		struct uhid_event *event)
 {
 	if (is_compat_task()) {
 		u32 type;
@@ -300,7 +313,7 @@ static int uhid_event_from_user(const char __user *buffer, size_t len,
 			 */
 			struct uhid_create_req_compat *compat;
 
-			compat = kzalloc(sizeof(*compat), GFP_KERNEL);
+			compat = kmalloc(sizeof(*compat), GFP_KERNEL);
 			if (!compat)
 				return -ENOMEM;
 
@@ -344,7 +357,7 @@ static int uhid_event_from_user(const char __user *buffer, size_t len,
 }
 #else
 static int uhid_event_from_user(const char __user *buffer, size_t len,
-				struct uhid_event *event)
+		struct uhid_event *event)
 {
 	if (copy_from_user(event, buffer, min(len, sizeof(*event))))
 		return -EFAULT;
@@ -354,7 +367,7 @@ static int uhid_event_from_user(const char __user *buffer, size_t len,
 #endif
 
 static int uhid_dev_create(struct uhid_device *uhid,
-			   const struct uhid_event *ev)
+		const struct uhid_event *ev)
 {
 	struct hid_device *hid;
 	int ret;

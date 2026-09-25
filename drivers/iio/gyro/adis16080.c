@@ -2,6 +2,7 @@
  * ADIS16080/100 Yaw Rate Gyroscope with SPI driver
  *
  * Copyright 2010 Analog Devices Inc.
+ * Copyright (C) 2017 XiaoMi, Inc.
  *
  * Licensed under the GPL-2 or later.
  */
@@ -78,10 +79,10 @@ static int adis16080_read_sample(struct iio_dev *indio_dev,
 }
 
 static int adis16080_read_raw(struct iio_dev *indio_dev,
-			     struct iio_chan_spec const *chan,
-			     int *val,
-			     int *val2,
-			     long mask)
+		struct iio_chan_spec const *chan,
+		int *val,
+		int *val2,
+		long mask)
 {
 	struct adis16080_state *st = iio_priv(indio_dev);
 	int ret;

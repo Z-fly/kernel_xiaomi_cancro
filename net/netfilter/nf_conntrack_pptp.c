@@ -11,12 +11,10 @@
  *
  * Development of this code funded by Astaro AG (http://www.astaro.com/)
  *
- * (C) 2006-2012 Patrick McHardy <kaber@trash.net>
- *
  * Limitations:
  * 	 - We blindly assume that control connections are always
  * 	   established in PNS->PAC direction.  This is a violation
- *	   of RFC 2637
+ * 	   of RFFC2673
  * 	 - We can only support one single call within each session
  * TODO:
  *	 - testing of incoming PPTP calls

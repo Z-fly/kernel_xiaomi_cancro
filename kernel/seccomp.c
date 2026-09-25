@@ -97,7 +97,7 @@ u32 seccomp_bpf_load(int off)
 	if (off == BPF_DATA(nr))
 		return syscall_get_nr(current, regs);
 	if (off == BPF_DATA(arch))
-		return syscall_get_arch();
+		return syscall_get_arch(current, regs);
 	if (off >= BPF_DATA(args[0]) && off < BPF_DATA(args[6])) {
 		unsigned long value;
 		int arg = (off - BPF_DATA(args[0])) / sizeof(u64);
@@ -162,8 +162,6 @@ static int seccomp_check_filter(struct sock_filter *filter, unsigned int flen)
 		case BPF_S_ALU_AND_X:
 		case BPF_S_ALU_OR_K:
 		case BPF_S_ALU_OR_X:
-		case BPF_S_ALU_XOR_K:
-		case BPF_S_ALU_XOR_X:
 		case BPF_S_ALU_LSH_K:
 		case BPF_S_ALU_LSH_X:
 		case BPF_S_ALU_RSH_K:
@@ -219,7 +217,7 @@ static u32 seccomp_run_filters(int syscall)
 	 */
 	for (; f; f = f->prev) {
 		u32 cur_ret = sk_run_filter(NULL, f->insns);
-		
+
 		if ((cur_ret & SECCOMP_RET_ACTION) < (ret & SECCOMP_RET_ACTION))
 			ret = cur_ret;
 	}
@@ -337,26 +335,26 @@ static inline void seccomp_sync_threads(void)
 		 * allows a put before the assignment.)
 		 */
 		put_seccomp_filter(thread);
-		smp_store_release(&thread->seccomp.filter,
-				  caller->seccomp.filter);
-
-		/*
-		 * Don't let an unprivileged task work around
-		 * the no_new_privs restriction by creating
-		 * a thread that sets it up, enters seccomp,
-		 * then dies.
-		 */
-		if (task_no_new_privs(caller))
-			task_set_no_new_privs(thread);
-
+		smp_mb();
+		ACCESS_ONCE(thread->seccomp.filter) = caller->seccomp.filter;
 		/*
 		 * Opt the other thread into seccomp if needed.
 		 * As threads are considered to be trust-realm
 		 * equivalent (see ptrace_may_access), it is safe to
 		 * allow one thread to transition the other.
 		 */
-		if (thread->seccomp.mode == SECCOMP_MODE_DISABLED)
+		if (thread->seccomp.mode == SECCOMP_MODE_DISABLED) {
+			/*
+			 * Don't let an unprivileged task work around
+			 * the no_new_privs restriction by creating
+			 * a thread that sets it up, enters seccomp,
+			 * then dies.
+			 */
+			if (task_no_new_privs(caller))
+				task_set_no_new_privs(thread);
+
 			seccomp_assign_mode(thread, SECCOMP_MODE_FILTER);
+		}
 	}
 }
 
@@ -397,7 +395,7 @@ static struct seccomp_filter *seccomp_prepare_filter(struct sock_fprog *fprog)
 	filter = kzalloc(sizeof(struct seccomp_filter) + fp_size,
 			 GFP_KERNEL|__GFP_NOWARN);
 	if (!filter)
-		return ERR_PTR(-ENOMEM);;
+		return ERR_PTR(-ENOMEM);
 	atomic_set(&filter->usage, 1);
 	filter->len = fprog->len;
 
@@ -417,7 +415,6 @@ static struct seccomp_filter *seccomp_prepare_filter(struct sock_fprog *fprog)
 		goto fail;
 
 	return filter;
-
 fail:
 	kfree(filter);
 	return ERR_PTR(ret);
@@ -542,7 +539,7 @@ static void seccomp_send_sigsys(int syscall, int reason)
 	info.si_code = SYS_SECCOMP;
 	info.si_call_addr = (void __user *)KSTK_EIP(current);
 	info.si_errno = reason;
-	info.si_arch = syscall_get_arch();
+	info.si_arch = syscall_get_arch(current, task_pt_regs(current));
 	info.si_syscall = syscall;
 	force_sig_info(SIGSYS, &info, current);
 }
@@ -594,29 +591,27 @@ int __secure_computing(int this_syscall)
 #ifdef CONFIG_SECCOMP_FILTER
 	case SECCOMP_MODE_FILTER: {
 		int data;
-		struct pt_regs *regs = task_pt_regs(current);
 		ret = seccomp_run_filters(this_syscall);
 		data = ret & SECCOMP_RET_DATA;
 		ret &= SECCOMP_RET_ACTION;
 		switch (ret) {
 		case SECCOMP_RET_ERRNO:
-			/* Set low-order bits as an errno, capped at MAX_ERRNO. */
-			if (data > MAX_ERRNO)
-				data = MAX_ERRNO;
-			syscall_set_return_value(current, regs,
+			/* Set the low-order 16-bits as a errno. */
+			syscall_set_return_value(current, task_pt_regs(current),
 						 -data, 0);
 			goto skip;
 		case SECCOMP_RET_TRAP:
 			/* Show the handler the original registers. */
-			syscall_rollback(current, regs);
+			syscall_rollback(current, task_pt_regs(current));
 			/* Let the filter pass back 16 bits of data. */
 			seccomp_send_sigsys(this_syscall, data);
 			goto skip;
 		case SECCOMP_RET_TRACE:
 			/* Skip these calls if there is no tracer. */
 			if (!ptrace_event_enabled(current, PTRACE_EVENT_SECCOMP)) {
-				syscall_set_return_value(current, regs,
-							 -ENOSYS, 0);
+				/* Make sure userspace sees an ENOSYS. */
+				syscall_set_return_value(current,
+					task_pt_regs(current), -ENOSYS, 0);
 				goto skip;
 			}
 			/* Allow the BPF to provide the event message */
@@ -629,9 +624,6 @@ int __secure_computing(int this_syscall)
 			 */
 			if (fatal_signal_pending(current))
 				break;
-			if (syscall_get_nr(current, regs) < 0)
-				goto skip;  /* Explicit request to skip. */
-
 			return 0;
 		case SECCOMP_RET_ALLOW:
 			return 0;

@@ -2,6 +2,7 @@
  * STMicroelectronics gyroscopes driver
  *
  * Copyright 2012-2013 STMicroelectronics Inc.
+ * Copyright (C) 2017 XiaoMi, Inc.
  *
  * Denis Ciocca <denis.ciocca@st.com>
  *
@@ -56,7 +57,7 @@ static int st_gyro_buffer_postenable(struct iio_dev *indio_dev)
 	}
 
 	err = st_sensors_set_axis_enable(indio_dev,
-					(u8)indio_dev->active_scan_mask[0]);
+			(u8)indio_dev->active_scan_mask[0]);
 	if (err < 0)
 		goto st_gyro_buffer_postenable_error;
 

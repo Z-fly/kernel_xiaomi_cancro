@@ -1,6 +1,7 @@
 /* The industrial I/O core, trigger handling functions
  *
  * Copyright (c) 2008 Jonathan Cameron
+ * Copyright (C) 2017 XiaoMi, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License version 2 as published by
@@ -8,6 +9,7 @@
  */
 #include <linux/irq.h>
 #include <linux/module.h>
+#include <linux/atomic.h>
 
 #ifndef _IIO_TRIGGER_H_
 #define _IIO_TRIGGER_H_
@@ -61,7 +63,7 @@ struct iio_trigger {
 
 	struct list_head		list;
 	struct list_head		alloc_list;
-	int use_count;
+	atomic_t			use_count;
 
 	struct irq_chip			subirq_chip;
 	int				subirq_base;
@@ -83,12 +85,10 @@ static inline void iio_trigger_put(struct iio_trigger *trig)
 	put_device(&trig->dev);
 }
 
-static inline struct iio_trigger *iio_trigger_get(struct iio_trigger *trig)
+static inline void iio_trigger_get(struct iio_trigger *trig)
 {
 	get_device(&trig->dev);
 	__module_get(trig->ops->owner);
-
-	return trig;
 }
 
 /**

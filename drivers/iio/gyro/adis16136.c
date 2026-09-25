@@ -2,8 +2,8 @@
  * ADIS16133/ADIS16135/ADIS16136 gyroscope driver
  *
  * Copyright 2012 Analog Devices Inc.
- *   Author: Lars-Peter Clausen <lars@metafoo.de>
- *
+ * Author: Lars-Peter Clausen <lars@metafoo.de>
+ * Copyright (C) 2017 XiaoMi, Inc.
  * Licensed under the GPL-2.
  */
 
@@ -229,12 +229,12 @@ static ssize_t adis16136_read_frequency(struct device *dev,
 	if (ret < 0)
 		return ret;
 
-	return sprintf(buf, "%d\n", freq);
+	return snprintf(buf, "%d\n", freq);
 }
 
 static IIO_DEV_ATTR_SAMP_FREQ(S_IWUSR | S_IRUGO,
-				  adis16136_read_frequency,
-				  adis16136_write_frequency);
+		adis16136_read_frequency,
+		adis16136_write_frequency);
 
 static const unsigned adis16136_3db_divisors[] = {
 	[0] = 2, /* Special case */
@@ -414,7 +414,7 @@ static int adis16136_stop_device(struct iio_dev *indio_dev)
 	ret = adis_write_reg_16(&adis16136->adis, ADIS16136_REG_SLP_CTRL, 0xff);
 	if (ret)
 		dev_err(&indio_dev->dev,
-			"Could not power down device: %d\n", ret);
+				"Could not power down device: %d\n", ret);
 
 	return ret;
 }

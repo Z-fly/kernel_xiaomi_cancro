@@ -1,7 +1,7 @@
 /*
  *  sata_sil.c - Silicon Image SATA
  *
- *  Maintained by:  Tejun Heo <tj@kernel.org>
+ *  Maintained by:  Jeff Garzik <jgarzik@pobox.com>
  *  		    Please ALWAYS copy linux-ide@vger.kernel.org
  *		    on emails.
  *
@@ -631,6 +631,9 @@ static void sil_dev_config(struct ata_device *dev)
 	unsigned int n, quirks = 0;
 	unsigned char model_num[ATA_ID_PROD_LEN + 1];
 
+	/* This controller doesn't support trim */
+	dev->horkage |= ATA_HORKAGE_NOTRIM;
+
 	ata_id_c_string(dev->id, model_num, ATA_ID_PROD, sizeof(model_num));
 
 	for (n = 0; sil_blacklist[n].product; n++)
@@ -820,4 +823,16 @@ static int sil_pci_device_resume(struct pci_dev *pdev)
 }
 #endif
 
-module_pci_driver(sil_pci_driver);
+static int __init sil_init(void)
+{
+	return pci_register_driver(&sil_pci_driver);
+}
+
+static void __exit sil_exit(void)
+{
+	pci_unregister_driver(&sil_pci_driver);
+}
+
+
+module_init(sil_init);
+module_exit(sil_exit);

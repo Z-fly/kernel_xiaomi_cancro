@@ -4,6 +4,7 @@
 /*
  *  Main header file for the ALSA driver
  *  Copyright (c) 1994-2001 by Jaroslav Kysela <perex@perex.cz>
+ * Copyright (C) 2017 XiaoMi, Inc.
  *
  *
  *   This program is free software; you can redistribute it and/or modify
@@ -106,6 +107,7 @@ struct snd_card {
 	char mixername[80];		/* mixer name */
 	char components[128];		/* card components delimited with
 								space */
+	int version;
 	struct module *module;		/* top-level module */
 
 	void *private_data;		/* private data for soundcard */
@@ -234,7 +236,7 @@ int snd_register_device_for_dev(int type, struct snd_card *card,
  * This function uses the card's device pointer to link to the
  * correct &struct device.
  *
- * Return: Zero if successful, or a negative error code on failure.
+ * Returns zero if successful, or a negative error code on failure.
  */
 static inline int snd_register_device(int type, struct snd_card *card, int dev,
 				      const struct file_operations *f_ops,
@@ -302,9 +304,9 @@ int snd_card_info_done(void);
 int snd_component_add(struct snd_card *card, const char *component);
 int snd_card_file_add(struct snd_card *card, struct file *file);
 int snd_card_file_remove(struct snd_card *card, struct file *file);
-void snd_card_unref(struct snd_card *card);
 void snd_card_change_online_state(struct snd_card *card, int online);
 bool snd_card_is_online_state(struct snd_card *card);
+void snd_card_unref(struct snd_card *card);
 
 #define snd_card_set_dev(card, devptr) ((card)->dev = (devptr))
 
@@ -386,24 +388,29 @@ void __snd_printk(unsigned int level, const char *file, int line,
  * snd_BUG_ON - debugging check macro
  * @cond: condition to evaluate
  *
- * Has the same behavior as WARN_ON when CONFIG_SND_DEBUG is set,
- * otherwise just evaluates the conditional and returns the value.
+ * When CONFIG_SND_DEBUG is set, this macro evaluates the given condition,
+ * and call WARN() and returns the value if it's non-zero.
+ * 
+ * When CONFIG_SND_DEBUG is not set, this just returns zero, and the given
+ * condition is ignored.
+ *
+ * NOTE: the argument won't be evaluated at all when CONFIG_SND_DEBUG=n.
+ * Thus, don't put any statement that influences on the code behavior,
+ * such as pre/post increment, to the argument of this macro.
+ * If you want to evaluate and give a warning, use standard WARN_ON().
  */
-#define snd_BUG_ON(cond)	WARN_ON((cond))
+#define snd_BUG_ON(cond)	WARN((cond), "BUG? (%s)\n", __stringify(cond))
 
 #else /* !CONFIG_SND_DEBUG */
 
-__printf(1, 2)
-static inline void snd_printd(const char *format, ...) {}
-__printf(2, 3)
-static inline void _snd_printd(int level, const char *format, ...) {}
-
+#define snd_printd(fmt, args...)	do { } while (0)
+#define _snd_printd(level, fmt, args...) do { } while (0)
 #define snd_BUG()			do { } while (0)
-
-#define snd_BUG_ON(condition) ({ \
-	int __ret_warn_on = !!(condition); \
-	unlikely(__ret_warn_on); \
-})
+static inline int __snd_bug_on(int cond)
+{
+	return 0;
+}
+#define snd_BUG_ON(cond)	__snd_bug_on(0 && (cond))  /* always false */
 
 #endif /* CONFIG_SND_DEBUG */
 
@@ -418,8 +425,7 @@ static inline void _snd_printd(int level, const char *format, ...) {}
 #define snd_printdd(format, args...) \
 	__snd_printk(2, __FILE__, __LINE__, format, ##args)
 #else
-__printf(1, 2)
-static inline void snd_printdd(const char *format, ...) {}
+#define snd_printdd(format, args...)	do { } while (0)
 #endif
 
 
@@ -457,7 +463,6 @@ struct snd_pci_quirk {
 #define SND_PCI_QUIRK_MASK(vend, mask, dev, xname, val)			\
 	{_SND_PCI_QUIRK_ID_MASK(vend, mask, dev),			\
 			.value = (val), .name = (xname)}
-#define snd_pci_quirk_name(q)	((q)->name)
 #else
 #define SND_PCI_QUIRK(vend,dev,xname,val) \
 	{_SND_PCI_QUIRK_ID(vend, dev), .value = (val)}
@@ -465,7 +470,6 @@ struct snd_pci_quirk {
 	{_SND_PCI_QUIRK_ID_MASK(vend, mask, dev), .value = (val)}
 #define SND_PCI_QUIRK_VENDOR(vend, xname, val)			\
 	{_SND_PCI_QUIRK_ID_MASK(vend, 0, 0), .value = (val)}
-#define snd_pci_quirk_name(q)	""
 #endif
 
 const struct snd_pci_quirk *

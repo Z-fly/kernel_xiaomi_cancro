@@ -754,7 +754,7 @@ cmos_do_probe(struct device *dev, struct resource *ports, int rtc_irq)
 			rtc_cmos_int_handler = hpet_rtc_interrupt;
 			err = hpet_register_irq_handler(cmos_interrupt);
 			if (err != 0) {
-				dev_warn(dev, "hpet_register_irq_handler "
+				printk(KERN_WARNING "hpet_register_irq_handler "
 						" failed in rtc_init().");
 				goto cleanup1;
 			}
@@ -779,7 +779,8 @@ cmos_do_probe(struct device *dev, struct resource *ports, int rtc_irq)
 		goto cleanup2;
 	}
 
-	dev_info(dev, "%s%s, %zd bytes nvram%s\n",
+	pr_info("%s: %s%s, %zd bytes nvram%s\n",
+		dev_name(&cmos_rtc.rtc->dev),
 		!is_valid_irq(rtc_irq) ? "no alarms" :
 			cmos_rtc.mon_alrm ? "alarms up to one year" :
 			cmos_rtc.day_alrm ? "alarms up to one month" :
@@ -866,7 +867,8 @@ static int cmos_suspend(struct device *dev)
 			enable_irq_wake(cmos->irq);
 	}
 
-	dev_dbg(dev, "suspend%s, ctrl %02x\n",
+	pr_debug("%s: suspend%s, ctrl %02x\n",
+			dev_name(&cmos_rtc.rtc->dev),
 			(tmp & RTC_AIE) ? ", alarm may wake" : "",
 			tmp);
 
@@ -902,9 +904,6 @@ static int cmos_resume(struct device *dev)
 		}
 
 		spin_lock_irq(&rtc_lock);
-		if (device_may_wakeup(dev))
-			hpet_rtc_timer_init();
-
 		do {
 			CMOS_WRITE(tmp, RTC_CONTROL);
 			hpet_set_rtc_irq_bit(tmp & RTC_IRQMASK);
@@ -920,11 +919,14 @@ static int cmos_resume(struct device *dev)
 			rtc_update_irq(cmos->rtc, 1, mask);
 			tmp &= ~RTC_AIE;
 			hpet_mask_rtc_irq_bit(RTC_AIE);
+			hpet_rtc_timer_init();
 		} while (mask & RTC_AIE);
 		spin_unlock_irq(&rtc_lock);
 	}
 
-	dev_dbg(dev, "resume, ctrl %02x\n", tmp);
+	pr_debug("%s: resume, ctrl %02x\n",
+			dev_name(&cmos_rtc.rtc->dev),
+			tmp);
 
 	return 0;
 }
@@ -956,17 +958,14 @@ static inline int cmos_poweroff(struct device *dev)
 
 static u32 rtc_handler(void *context)
 {
-	struct device *dev = context;
-
-	pm_wakeup_event(dev, 0);
 	acpi_clear_event(ACPI_EVENT_RTC);
 	acpi_disable_event(ACPI_EVENT_RTC, 0);
 	return ACPI_INTERRUPT_HANDLED;
 }
 
-static inline void rtc_wake_setup(struct device *dev)
+static inline void rtc_wake_setup(void)
 {
-	acpi_install_fixed_event_handler(ACPI_EVENT_RTC, rtc_handler, dev);
+	acpi_install_fixed_event_handler(ACPI_EVENT_RTC, rtc_handler, NULL);
 	/*
 	 * After the RTC handler is installed, the Fixed_RTC event should
 	 * be disabled. Only when the RTC alarm is set will it be enabled.
@@ -993,12 +992,13 @@ static void rtc_wake_off(struct device *dev)
  */
 static struct cmos_rtc_board_info acpi_rtc_info;
 
-static void cmos_wake_setup(struct device *dev)
+static void __devinit
+cmos_wake_setup(struct device *dev)
 {
 	if (acpi_disabled)
 		return;
 
-	rtc_wake_setup(dev);
+	rtc_wake_setup();
 	acpi_rtc_info.wake_on = rtc_wake_on;
 	acpi_rtc_info.wake_off = rtc_wake_off;
 
@@ -1025,7 +1025,8 @@ static void cmos_wake_setup(struct device *dev)
 
 #else
 
-static void cmos_wake_setup(struct device *dev)
+static void __devinit
+cmos_wake_setup(struct device *dev)
 {
 }
 
@@ -1035,7 +1036,8 @@ static void cmos_wake_setup(struct device *dev)
 
 #include <linux/pnp.h>
 
-static int cmos_pnp_probe(struct pnp_dev *pnp, const struct pnp_device_id *id)
+static int __devinit
+cmos_pnp_probe(struct pnp_dev *pnp, const struct pnp_device_id *id)
 {
 	cmos_wake_setup(&pnp->dev);
 
@@ -1144,6 +1146,7 @@ static __init void cmos_of_init(struct platform_device *pdev)
 }
 #else
 static inline void cmos_of_init(struct platform_device *pdev) {}
+#define of_cmos_match NULL
 #endif
 /*----------------------------------------------------------------*/
 
@@ -1185,7 +1188,7 @@ static struct platform_driver cmos_platform_driver = {
 #ifdef CONFIG_PM
 		.pm		= &cmos_pm_ops,
 #endif
-		.of_match_table = of_match_ptr(of_cmos_match),
+		.of_match_table = of_cmos_match,
 	}
 };
 

@@ -28,6 +28,7 @@
   device features.
 */
 
+#define DRIVER_VERSION "v0.7.2"
 #define DRIVER_AUTHOR "Matthias Urlichs <smurf@smurf.noris.de>"
 #define DRIVER_DESC "USB Driver for GSM modems"
 
@@ -46,7 +47,6 @@
 /* Function prototypes */
 static int  option_probe(struct usb_serial *serial,
 			const struct usb_device_id *id);
-static int option_attach(struct usb_serial *serial);
 static void option_release(struct usb_serial *serial);
 static int option_send_setup(struct usb_serial_port *port);
 static void option_instat_callback(struct urb *urb);
@@ -162,6 +162,7 @@ static void option_instat_callback(struct urb *urb);
 #define NOVATELWIRELESS_PRODUCT_HSPA_EMBEDDED_HIGHSPEED	0x9001
 #define NOVATELWIRELESS_PRODUCT_E362		0x9010
 #define NOVATELWIRELESS_PRODUCT_E371		0x9011
+#define NOVATELWIRELESS_PRODUCT_U620L		0x9022
 #define NOVATELWIRELESS_PRODUCT_G2		0xA010
 #define NOVATELWIRELESS_PRODUCT_MC551		0xB001
 
@@ -276,8 +277,9 @@ static void option_instat_callback(struct urb *urb);
 #define ZTE_PRODUCT_MF622			0x0001
 #define ZTE_PRODUCT_MF628			0x0015
 #define ZTE_PRODUCT_MF626			0x0031
-#define ZTE_PRODUCT_AC2726			0xfff1
 #define ZTE_PRODUCT_CDMA_TECH			0xfffe
+#define ZTE_PRODUCT_AC8710			0xfff1
+#define ZTE_PRODUCT_AC2726			0xfff5
 #define ZTE_PRODUCT_AC8710T			0xffff
 #define ZTE_PRODUCT_MC2718			0xffe8
 #define ZTE_PRODUCT_AD3812			0xffeb
@@ -350,6 +352,7 @@ static void option_instat_callback(struct urb *urb);
 /* This is the 4G XS Stick W14 a.k.a. Mobilcom Debitel Surf-Stick *
  * It seems to contain a Qualcomm QSC6240/6290 chipset            */
 #define FOUR_G_SYSTEMS_PRODUCT_W14		0x9603
+#define FOUR_G_SYSTEMS_PRODUCT_W100		0x9b01
 
 /* iBall 3.5G connect wireless modem */
 #define IBALL_3_5G_CONNECT			0x9605
@@ -521,6 +524,11 @@ struct option_blacklist_info {
 
 static const struct option_blacklist_info four_g_w14_blacklist = {
 	.sendsetup = BIT(0) | BIT(1),
+};
+
+static const struct option_blacklist_info four_g_w100_blacklist = {
+	.sendsetup = BIT(1) | BIT(2),
+	.reserved = BIT(3),
 };
 
 static const struct option_blacklist_info alcatel_x200_blacklist = {
@@ -1044,6 +1052,7 @@ static const struct usb_device_id option_ids[] = {
 	{ USB_DEVICE_AND_INTERFACE_INFO(NOVATELWIRELESS_VENDOR_ID, NOVATELWIRELESS_PRODUCT_MC551, 0xff, 0xff, 0xff) },
 	{ USB_DEVICE_AND_INTERFACE_INFO(NOVATELWIRELESS_VENDOR_ID, NOVATELWIRELESS_PRODUCT_E362, 0xff, 0xff, 0xff) },
 	{ USB_DEVICE_AND_INTERFACE_INFO(NOVATELWIRELESS_VENDOR_ID, NOVATELWIRELESS_PRODUCT_E371, 0xff, 0xff, 0xff) },
+	{ USB_DEVICE_AND_INTERFACE_INFO(NOVATELWIRELESS_VENDOR_ID, NOVATELWIRELESS_PRODUCT_U620L, 0xff, 0x00, 0x00) },
 
 	{ USB_DEVICE(AMOI_VENDOR_ID, AMOI_PRODUCT_H01) },
 	{ USB_DEVICE(AMOI_VENDOR_ID, AMOI_PRODUCT_H01A) },
@@ -1074,23 +1083,23 @@ static const struct usb_device_id option_ids[] = {
 	{ USB_DEVICE(ANYDATA_VENDOR_ID, ANYDATA_PRODUCT_ADU_620UW) },
 	{ USB_DEVICE(AXESSTEL_VENDOR_ID, AXESSTEL_PRODUCT_MV110H) },
 	{ USB_DEVICE(YISO_VENDOR_ID, YISO_PRODUCT_U893) },
-	{ USB_DEVICE_INTERFACE_CLASS(BANDRICH_VENDOR_ID, BANDRICH_PRODUCT_C100_1, 0xff) },
-	{ USB_DEVICE_INTERFACE_CLASS(BANDRICH_VENDOR_ID, BANDRICH_PRODUCT_C100_2, 0xff) },
-	{ USB_DEVICE_INTERFACE_CLASS(BANDRICH_VENDOR_ID, BANDRICH_PRODUCT_1004, 0xff) },
-	{ USB_DEVICE_INTERFACE_CLASS(BANDRICH_VENDOR_ID, BANDRICH_PRODUCT_1005, 0xff) },
-	{ USB_DEVICE_INTERFACE_CLASS(BANDRICH_VENDOR_ID, BANDRICH_PRODUCT_1006, 0xff) },
-	{ USB_DEVICE_INTERFACE_CLASS(BANDRICH_VENDOR_ID, BANDRICH_PRODUCT_1007, 0xff) },
-	{ USB_DEVICE_INTERFACE_CLASS(BANDRICH_VENDOR_ID, BANDRICH_PRODUCT_1008, 0xff) },
-	{ USB_DEVICE_INTERFACE_CLASS(BANDRICH_VENDOR_ID, BANDRICH_PRODUCT_1009, 0xff) },
-	{ USB_DEVICE_INTERFACE_CLASS(BANDRICH_VENDOR_ID, BANDRICH_PRODUCT_100A, 0xff) },
-	{ USB_DEVICE_INTERFACE_CLASS(BANDRICH_VENDOR_ID, BANDRICH_PRODUCT_100B, 0xff) },
-	{ USB_DEVICE_INTERFACE_CLASS(BANDRICH_VENDOR_ID, BANDRICH_PRODUCT_100C, 0xff) },
-	{ USB_DEVICE_INTERFACE_CLASS(BANDRICH_VENDOR_ID, BANDRICH_PRODUCT_100D, 0xff) },
-	{ USB_DEVICE_INTERFACE_CLASS(BANDRICH_VENDOR_ID, BANDRICH_PRODUCT_100E, 0xff) },
-	{ USB_DEVICE_INTERFACE_CLASS(BANDRICH_VENDOR_ID, BANDRICH_PRODUCT_100F, 0xff) },
-	{ USB_DEVICE_INTERFACE_CLASS(BANDRICH_VENDOR_ID, BANDRICH_PRODUCT_1010, 0xff) },
-	{ USB_DEVICE_INTERFACE_CLASS(BANDRICH_VENDOR_ID, BANDRICH_PRODUCT_1011, 0xff) },
-	{ USB_DEVICE_INTERFACE_CLASS(BANDRICH_VENDOR_ID, BANDRICH_PRODUCT_1012, 0xff) },
+	{ USB_DEVICE(BANDRICH_VENDOR_ID, BANDRICH_PRODUCT_C100_1) },
+	{ USB_DEVICE(BANDRICH_VENDOR_ID, BANDRICH_PRODUCT_C100_2) },
+	{ USB_DEVICE(BANDRICH_VENDOR_ID, BANDRICH_PRODUCT_1004) },
+	{ USB_DEVICE(BANDRICH_VENDOR_ID, BANDRICH_PRODUCT_1005) },
+	{ USB_DEVICE(BANDRICH_VENDOR_ID, BANDRICH_PRODUCT_1006) },
+	{ USB_DEVICE(BANDRICH_VENDOR_ID, BANDRICH_PRODUCT_1007) },
+	{ USB_DEVICE(BANDRICH_VENDOR_ID, BANDRICH_PRODUCT_1008) },
+	{ USB_DEVICE(BANDRICH_VENDOR_ID, BANDRICH_PRODUCT_1009) },
+	{ USB_DEVICE(BANDRICH_VENDOR_ID, BANDRICH_PRODUCT_100A) },
+	{ USB_DEVICE(BANDRICH_VENDOR_ID, BANDRICH_PRODUCT_100B) },
+	{ USB_DEVICE(BANDRICH_VENDOR_ID, BANDRICH_PRODUCT_100C) },
+	{ USB_DEVICE(BANDRICH_VENDOR_ID, BANDRICH_PRODUCT_100D) },
+	{ USB_DEVICE(BANDRICH_VENDOR_ID, BANDRICH_PRODUCT_100E) },
+	{ USB_DEVICE(BANDRICH_VENDOR_ID, BANDRICH_PRODUCT_100F) },
+	{ USB_DEVICE(BANDRICH_VENDOR_ID, BANDRICH_PRODUCT_1010) },
+	{ USB_DEVICE(BANDRICH_VENDOR_ID, BANDRICH_PRODUCT_1011) },
+	{ USB_DEVICE(BANDRICH_VENDOR_ID, BANDRICH_PRODUCT_1012) },
 	{ USB_DEVICE(KYOCERA_VENDOR_ID, KYOCERA_PRODUCT_KPC650) },
 	{ USB_DEVICE(KYOCERA_VENDOR_ID, KYOCERA_PRODUCT_KPC680) },
 	{ USB_DEVICE(QUALCOMM_VENDOR_ID, 0x6000)}, /* ZTE AC8700 */
@@ -1571,6 +1580,7 @@ static const struct usb_device_id option_ids[] = {
 	{ USB_DEVICE_AND_INTERFACE_INFO(ZTE_VENDOR_ID, 0xff94, 0xff, 0xff, 0xff) },
 
 	{ USB_DEVICE_AND_INTERFACE_INFO(ZTE_VENDOR_ID, ZTE_PRODUCT_CDMA_TECH, 0xff, 0xff, 0xff) },
+	{ USB_DEVICE_AND_INTERFACE_INFO(ZTE_VENDOR_ID, ZTE_PRODUCT_AC8710, 0xff, 0xff, 0xff) },
 	{ USB_DEVICE_AND_INTERFACE_INFO(ZTE_VENDOR_ID, ZTE_PRODUCT_AC2726, 0xff, 0xff, 0xff) },
 	{ USB_DEVICE_AND_INTERFACE_INFO(ZTE_VENDOR_ID, ZTE_PRODUCT_AC8710T, 0xff, 0xff, 0xff) },
 	{ USB_DEVICE_AND_INTERFACE_INFO(ZTE_VENDOR_ID, ZTE_PRODUCT_MC2718, 0xff, 0xff, 0xff),
@@ -1617,28 +1627,31 @@ static const struct usb_device_id option_ids[] = {
 	{ USB_DEVICE(LONGCHEER_VENDOR_ID, FOUR_G_SYSTEMS_PRODUCT_W14),
   	  .driver_info = (kernel_ulong_t)&four_g_w14_blacklist
   	},
+	{ USB_DEVICE(LONGCHEER_VENDOR_ID, FOUR_G_SYSTEMS_PRODUCT_W100),
+	  .driver_info = (kernel_ulong_t)&four_g_w100_blacklist
+	},
 	{ USB_DEVICE_INTERFACE_CLASS(LONGCHEER_VENDOR_ID, SPEEDUP_PRODUCT_SU9800, 0xff) },
 	{ USB_DEVICE(LONGCHEER_VENDOR_ID, ZOOM_PRODUCT_4597) },
 	{ USB_DEVICE(LONGCHEER_VENDOR_ID, IBALL_3_5G_CONNECT) },
 	{ USB_DEVICE(HAIER_VENDOR_ID, HAIER_PRODUCT_CE100) },
 	{ USB_DEVICE_AND_INTERFACE_INFO(HAIER_VENDOR_ID, HAIER_PRODUCT_CE81B, 0xff, 0xff, 0xff) },
 	/* Pirelli  */
-	{ USB_DEVICE_INTERFACE_CLASS(PIRELLI_VENDOR_ID, PIRELLI_PRODUCT_C100_1, 0xff) },
-	{ USB_DEVICE_INTERFACE_CLASS(PIRELLI_VENDOR_ID, PIRELLI_PRODUCT_C100_2, 0xff) },
-	{ USB_DEVICE_INTERFACE_CLASS(PIRELLI_VENDOR_ID, PIRELLI_PRODUCT_1004, 0xff) },
-	{ USB_DEVICE_INTERFACE_CLASS(PIRELLI_VENDOR_ID, PIRELLI_PRODUCT_1005, 0xff) },
-	{ USB_DEVICE_INTERFACE_CLASS(PIRELLI_VENDOR_ID, PIRELLI_PRODUCT_1006, 0xff) },
-	{ USB_DEVICE_INTERFACE_CLASS(PIRELLI_VENDOR_ID, PIRELLI_PRODUCT_1007, 0xff) },
-	{ USB_DEVICE_INTERFACE_CLASS(PIRELLI_VENDOR_ID, PIRELLI_PRODUCT_1008, 0xff) },
-	{ USB_DEVICE_INTERFACE_CLASS(PIRELLI_VENDOR_ID, PIRELLI_PRODUCT_1009, 0xff) },
-	{ USB_DEVICE_INTERFACE_CLASS(PIRELLI_VENDOR_ID, PIRELLI_PRODUCT_100A, 0xff) },
-	{ USB_DEVICE_INTERFACE_CLASS(PIRELLI_VENDOR_ID, PIRELLI_PRODUCT_100B, 0xff) },
-	{ USB_DEVICE_INTERFACE_CLASS(PIRELLI_VENDOR_ID, PIRELLI_PRODUCT_100C, 0xff) },
-	{ USB_DEVICE_INTERFACE_CLASS(PIRELLI_VENDOR_ID, PIRELLI_PRODUCT_100D, 0xff) },
-	{ USB_DEVICE_INTERFACE_CLASS(PIRELLI_VENDOR_ID, PIRELLI_PRODUCT_100E, 0xff) },
-	{ USB_DEVICE_INTERFACE_CLASS(PIRELLI_VENDOR_ID, PIRELLI_PRODUCT_100F, 0xff) },
-	{ USB_DEVICE_INTERFACE_CLASS(PIRELLI_VENDOR_ID, PIRELLI_PRODUCT_1011, 0xff) },
-	{ USB_DEVICE_INTERFACE_CLASS(PIRELLI_VENDOR_ID, PIRELLI_PRODUCT_1012, 0xff) },
+	{ USB_DEVICE(PIRELLI_VENDOR_ID, PIRELLI_PRODUCT_C100_1)},
+	{ USB_DEVICE(PIRELLI_VENDOR_ID, PIRELLI_PRODUCT_C100_2)},
+	{ USB_DEVICE(PIRELLI_VENDOR_ID, PIRELLI_PRODUCT_1004)},
+	{ USB_DEVICE(PIRELLI_VENDOR_ID, PIRELLI_PRODUCT_1005)},
+	{ USB_DEVICE(PIRELLI_VENDOR_ID, PIRELLI_PRODUCT_1006)},
+	{ USB_DEVICE(PIRELLI_VENDOR_ID, PIRELLI_PRODUCT_1007)},
+	{ USB_DEVICE(PIRELLI_VENDOR_ID, PIRELLI_PRODUCT_1008)},
+	{ USB_DEVICE(PIRELLI_VENDOR_ID, PIRELLI_PRODUCT_1009)},
+	{ USB_DEVICE(PIRELLI_VENDOR_ID, PIRELLI_PRODUCT_100A)},
+	{ USB_DEVICE(PIRELLI_VENDOR_ID, PIRELLI_PRODUCT_100B) },
+	{ USB_DEVICE(PIRELLI_VENDOR_ID, PIRELLI_PRODUCT_100C) },
+	{ USB_DEVICE(PIRELLI_VENDOR_ID, PIRELLI_PRODUCT_100D) },
+	{ USB_DEVICE(PIRELLI_VENDOR_ID, PIRELLI_PRODUCT_100E) },
+	{ USB_DEVICE(PIRELLI_VENDOR_ID, PIRELLI_PRODUCT_100F) },
+	{ USB_DEVICE(PIRELLI_VENDOR_ID, PIRELLI_PRODUCT_1011)},
+	{ USB_DEVICE(PIRELLI_VENDOR_ID, PIRELLI_PRODUCT_1012)},
 	/* Cinterion */
 	{ USB_DEVICE(CINTERION_VENDOR_ID, CINTERION_PRODUCT_EU3_E) },
 	{ USB_DEVICE(CINTERION_VENDOR_ID, CINTERION_PRODUCT_EU3_P) },
@@ -1755,11 +1768,24 @@ static const struct usb_device_id option_ids[] = {
 	{ USB_DEVICE_AND_INTERFACE_INFO(0x2001, 0x7d03, 0xff, 0x00, 0x00) },
 	{ USB_DEVICE_AND_INTERFACE_INFO(0x07d1, 0x3e01, 0xff, 0xff, 0xff) }, /* D-Link DWM-152/C1 */
 	{ USB_DEVICE_AND_INTERFACE_INFO(0x07d1, 0x3e02, 0xff, 0xff, 0xff) }, /* D-Link DWM-156/C1 */
+	{ USB_DEVICE_INTERFACE_CLASS(0x2020, 0x4000, 0xff) },                /* OLICARD300 - MT6225 */
 	{ USB_DEVICE(INOVIA_VENDOR_ID, INOVIA_SEW858) },
 	{ USB_DEVICE(VIATELECOM_VENDOR_ID, VIATELECOM_PRODUCT_CDS7) },
 	{ } /* Terminating entry */
 };
 MODULE_DEVICE_TABLE(usb, option_ids);
+
+static struct usb_driver option_driver = {
+	.name       = "option",
+	.probe      = usb_serial_probe,
+	.disconnect = usb_serial_disconnect,
+#ifdef CONFIG_PM
+	.suspend    = usb_serial_suspend,
+	.resume     = usb_serial_resume,
+	.supports_autosuspend =	1,
+#endif
+	.id_table   = option_ids,
+};
 
 /* The card has three separate interfaces, which the serial driver
  * recognizes separately, thus num_port=1.
@@ -1784,10 +1810,9 @@ static struct usb_serial_driver option_1port_device = {
 	.tiocmget          = usb_wwan_tiocmget,
 	.tiocmset          = usb_wwan_tiocmset,
 	.ioctl             = usb_wwan_ioctl,
-	.attach            = option_attach,
+	.attach            = usb_wwan_startup,
+	.disconnect        = usb_wwan_disconnect,
 	.release           = option_release,
-	.port_probe        = usb_wwan_port_probe,
-	.port_remove	   = usb_wwan_port_remove,
 	.read_int_callback = option_instat_callback,
 #ifdef CONFIG_PM
 	.suspend           = usb_wwan_suspend,
@@ -1799,11 +1824,9 @@ static struct usb_serial_driver * const serial_drivers[] = {
 	&option_1port_device, NULL
 };
 
-struct option_private {
-	u8 bInterfaceNumber;
-};
+static bool debug;
 
-module_usb_serial_driver(serial_drivers, option_ids);
+module_usb_serial_driver(option_driver, serial_drivers);
 
 static bool is_blacklisted(const u8 ifnum, enum option_blacklist_reason reason,
 			   const struct option_blacklist_info *blacklist)
@@ -1832,101 +1855,71 @@ static bool is_blacklisted(const u8 ifnum, enum option_blacklist_reason reason,
 static int option_probe(struct usb_serial *serial,
 			const struct usb_device_id *id)
 {
-	struct usb_interface_descriptor *iface_desc =
-				&serial->interface->cur_altsetting->desc;
-	struct usb_device_descriptor *dev_desc = &serial->dev->descriptor;
+	struct usb_wwan_intf_private *data;
 
-	/* Never bind to the CD-Rom emulation interface	*/
-	if (iface_desc->bInterfaceClass == 0x08)
+	/* D-Link DWM 652 still exposes CD-Rom emulation interface in modem mode */
+	if (serial->dev->descriptor.idVendor == DLINK_VENDOR_ID &&
+		serial->dev->descriptor.idProduct == DLINK_PRODUCT_DWM_652 &&
+		serial->interface->cur_altsetting->desc.bInterfaceClass == 0x8)
 		return -ENODEV;
 
-	/*
-	 * Don't bind reserved interfaces (like network ones) which often have
+	/* Bandrich modem and AT command interface is 0xff */
+	if ((serial->dev->descriptor.idVendor == BANDRICH_VENDOR_ID ||
+		serial->dev->descriptor.idVendor == PIRELLI_VENDOR_ID) &&
+		serial->interface->cur_altsetting->desc.bInterfaceClass != 0xff)
+		return -ENODEV;
+
+	/* Don't bind reserved interfaces (like network ones) which often have
 	 * the same class/subclass/protocol as the serial interfaces.  Look at
 	 * the Windows driver .INF files for reserved interface numbers.
 	 */
 	if (is_blacklisted(
-		iface_desc->bInterfaceNumber,
+		serial->interface->cur_altsetting->desc.bInterfaceNumber,
 		OPTION_BLACKLIST_RESERVED_IF,
 		(const struct option_blacklist_info *) id->driver_info))
 		return -ENODEV;
-	/*
-	 * Don't bind network interface on Samsung GT-B3730, it is handled by
-	 * a separate module.
-	 */
-	if (dev_desc->idVendor == cpu_to_le16(SAMSUNG_VENDOR_ID) &&
-	    dev_desc->idProduct == cpu_to_le16(SAMSUNG_PRODUCT_GT_B3730) &&
-	    iface_desc->bInterfaceClass != USB_CLASS_CDC_DATA)
+
+	/* Don't bind network interface on Samsung GT-B3730, it is handled by a separate module */
+	if (serial->dev->descriptor.idVendor == SAMSUNG_VENDOR_ID &&
+		serial->dev->descriptor.idProduct == SAMSUNG_PRODUCT_GT_B3730 &&
+		serial->interface->cur_altsetting->desc.bInterfaceClass != USB_CLASS_CDC_DATA)
 		return -ENODEV;
 
-	/* Store device id so we can use it during attach. */
-	usb_set_serial_data(serial, (void *)id);
-
-	return 0;
-}
-
-static int option_attach(struct usb_serial *serial)
-{
-	struct usb_interface_descriptor *iface_desc;
-	const struct usb_device_id *id;
-	struct usb_wwan_intf_private *data;
-	struct option_private *priv;
-
-	data = kzalloc(sizeof(struct usb_wwan_intf_private), GFP_KERNEL);
+	data = serial->private = kzalloc(sizeof(struct usb_wwan_intf_private), GFP_KERNEL);
 	if (!data)
 		return -ENOMEM;
-
-	priv = kzalloc(sizeof(*priv), GFP_KERNEL);
-	if (!priv) {
-		kfree(data);
-		return -ENOMEM;
-	}
-
-	/* Retrieve device id stored at probe. */
-	id = usb_get_serial_data(serial);
-	iface_desc = &serial->interface->cur_altsetting->desc;
-
-	priv->bInterfaceNumber = iface_desc->bInterfaceNumber;
-	data->private = priv;
-
-	if (!is_blacklisted(iface_desc->bInterfaceNumber,
-			OPTION_BLACKLIST_SENDSETUP,
-			(struct option_blacklist_info *)id->driver_info)) {
-		data->send_setup = option_send_setup;
-	}
+	data->send_setup = option_send_setup;
 	spin_lock_init(&data->susp_lock);
-
-	usb_set_serial_data(serial, data);
-
+	data->private = (void *)id->driver_info;
 	return 0;
 }
 
 static void option_release(struct usb_serial *serial)
 {
-	struct usb_wwan_intf_private *intfdata = usb_get_serial_data(serial);
-	struct option_private *priv = intfdata->private;
+	struct usb_wwan_intf_private *priv = usb_get_serial_data(serial);
+
+	usb_wwan_release(serial);
 
 	kfree(priv);
-	kfree(intfdata);
 }
 
 static void option_instat_callback(struct urb *urb)
 {
 	int err;
 	int status = urb->status;
-	struct usb_serial_port *port = urb->context;
-	struct device *dev = &port->dev;
+	struct usb_serial_port *port =  urb->context;
 	struct usb_wwan_port_private *portdata =
 					usb_get_serial_port_data(port);
 
-	dev_dbg(dev, "%s: urb %p port %p has data %p\n", __func__, urb, port, portdata);
+	dbg("%s", __func__);
+	dbg("%s: urb %p port %p has data %p", __func__, urb, port, portdata);
 
 	if (status == 0) {
 		struct usb_ctrlrequest *req_pkt =
 				(struct usb_ctrlrequest *)urb->transfer_buffer;
 
 		if (!req_pkt) {
-			dev_dbg(dev, "%s: NULL req_pkt\n", __func__);
+			dbg("%s: NULL req_pkt", __func__);
 			return;
 		}
 		if ((req_pkt->bRequestType == 0xA1) &&
@@ -1936,7 +1929,7 @@ static void option_instat_callback(struct urb *urb)
 					urb->transfer_buffer +
 					sizeof(struct usb_ctrlrequest));
 
-			dev_dbg(dev, "%s: signal x%x\n", __func__, signals);
+			dbg("%s: signal x%x", __func__, signals);
 
 			old_dcd_state = portdata->dcd_state;
 			portdata->cts_state = 1;
@@ -1944,22 +1937,25 @@ static void option_instat_callback(struct urb *urb)
 			portdata->dsr_state = ((signals & 0x02) ? 1 : 0);
 			portdata->ri_state = ((signals & 0x08) ? 1 : 0);
 
-			if (old_dcd_state && !portdata->dcd_state)
-				tty_port_tty_hangup(&port->port, true);
+			if (old_dcd_state && !portdata->dcd_state) {
+				struct tty_struct *tty =
+						tty_port_tty_get(&port->port);
+				if (tty && !C_CLOCAL(tty))
+					tty_hangup(tty);
+				tty_kref_put(tty);
+			}
 		} else {
-			dev_dbg(dev, "%s: type %x req %x\n", __func__,
+			dbg("%s: type %x req %x", __func__,
 				req_pkt->bRequestType, req_pkt->bRequest);
 		}
-	} else if (status == -ENOENT || status == -ESHUTDOWN) {
-		dev_dbg(dev, "%s: urb stopped: %d\n", __func__, status);
 	} else
-		dev_err(dev, "%s: error %d\n", __func__, status);
+		err("%s: error %d", __func__, status);
 
 	/* Resubmit urb so we continue receiving IRQ data */
 	if (status != -ESHUTDOWN && status != -ENOENT) {
 		err = usb_submit_urb(urb, GFP_ATOMIC);
 		if (err)
-			dev_dbg(dev, "%s: resubmit intr urb failed. (%d)\n",
+			dbg("%s: resubmit intr urb failed. (%d)",
 				__func__, err);
 	}
 }
@@ -1972,11 +1968,19 @@ static void option_instat_callback(struct urb *urb)
 static int option_send_setup(struct usb_serial_port *port)
 {
 	struct usb_serial *serial = port->serial;
-	struct usb_wwan_intf_private *intfdata = usb_get_serial_data(serial);
-	struct option_private *priv = intfdata->private;
+	struct usb_wwan_intf_private *intfdata =
+		(struct usb_wwan_intf_private *) serial->private;
 	struct usb_wwan_port_private *portdata;
+	int ifNum = serial->interface->cur_altsetting->desc.bInterfaceNumber;
 	int val = 0;
 	int res;
+	dbg("%s", __func__);
+
+	if (is_blacklisted(ifNum, OPTION_BLACKLIST_SENDSETUP,
+			(struct option_blacklist_info *) intfdata->private)) {
+		dbg("No send_setup on blacklisted interface #%d\n", ifNum);
+		return -EIO;
+	}
 
 	portdata = usb_get_serial_port_data(port);
 
@@ -1990,7 +1994,7 @@ static int option_send_setup(struct usb_serial_port *port)
 		return res;
 
 	res = usb_control_msg(serial->dev, usb_rcvctrlpipe(serial->dev, 0),
-				0x22, 0x21, val, priv->bInterfaceNumber, NULL,
+				0x22, 0x21, val, ifNum, NULL,
 				0, USB_CTRL_SET_TIMEOUT);
 
 	usb_autopm_put_interface(serial->interface);
@@ -2000,4 +2004,8 @@ static int option_send_setup(struct usb_serial_port *port)
 
 MODULE_AUTHOR(DRIVER_AUTHOR);
 MODULE_DESCRIPTION(DRIVER_DESC);
+MODULE_VERSION(DRIVER_VERSION);
 MODULE_LICENSE("GPL");
+
+module_param(debug, bool, S_IRUGO | S_IWUSR);
+MODULE_PARM_DESC(debug, "Debug messages");

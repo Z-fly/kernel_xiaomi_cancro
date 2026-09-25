@@ -713,15 +713,15 @@ static struct attribute_group compal_attribute_group = {
 	.attrs = compal_attributes
 };
 
-static int compal_probe(struct platform_device *);
-static int compal_remove(struct platform_device *);
+static int __devinit compal_probe(struct platform_device *);
+static int __devexit compal_remove(struct platform_device *);
 static struct platform_driver compal_driver = {
 	.driver = {
 		.name = DRIVER_NAME,
 		.owner = THIS_MODULE,
 	},
 	.probe	= compal_probe,
-	.remove	= compal_remove,
+	.remove	= __devexit_p(compal_remove)
 };
 
 static enum power_supply_property compal_bat_properties[] = {
@@ -1015,7 +1015,7 @@ err_backlight:
 	return ret;
 }
 
-static int compal_probe(struct platform_device *pdev)
+static int __devinit compal_probe(struct platform_device *pdev)
 {
 	int err;
 	struct compal_data *data;
@@ -1047,7 +1047,13 @@ static int compal_probe(struct platform_device *pdev)
 
 	/* Power supply */
 	initialize_power_supply_data(data);
-	power_supply_register(&compal_device->dev, &data->psy);
+	err = power_supply_register(&compal_device->dev, &data->psy);
+	if (err < 0) {
+		hwmon_device_unregister(data->hwmon_dev);
+		sysfs_remove_group(&pdev->dev.kobj,
+				&compal_attribute_group);
+		kfree(data);
+	}
 
 	platform_set_drvdata(pdev, data);
 
@@ -1067,7 +1073,7 @@ static void __exit compal_cleanup(void)
 	pr_info("Driver unloaded\n");
 }
 
-static int compal_remove(struct platform_device *pdev)
+static int __devexit compal_remove(struct platform_device *pdev)
 {
 	struct compal_data *data;
 

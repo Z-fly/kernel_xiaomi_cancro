@@ -2,8 +2,8 @@
  * TI LP8788 MFD - ADC driver
  *
  * Copyright 2012 Texas Instruments
- *
  * Author: Milo(Woogyom) Kim <milo.kim@ti.com>
+ * Copyright (C) 2017 XiaoMi, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -49,7 +49,7 @@ static const int lp8788_scale[LPADC_MAX] = {
 };
 
 static int lp8788_get_adc_result(struct lp8788_adc *adc, enum lp8788_adc_id id,
-				int *val)
+		int *val)
 {
 	unsigned int msb;
 	unsigned int lsb;
@@ -95,8 +95,8 @@ err_io:
 }
 
 static int lp8788_adc_read_raw(struct iio_dev *indio_dev,
-			struct iio_chan_spec const *chan,
-			int *val, int *val2, long mask)
+		struct iio_chan_spec const *chan,
+		int *val, int *val2, long mask)
 {
 	struct lp8788_adc *adc = iio_priv(indio_dev);
 	enum lp8788_adc_id id = chan->channel;
@@ -168,8 +168,8 @@ static struct iio_map lp8788_default_iio_maps[] = {
 };
 
 static int lp8788_iio_map_register(struct iio_dev *indio_dev,
-				struct lp8788_platform_data *pdata,
-				struct lp8788_adc *adc)
+		struct lp8788_platform_data *pdata,
+		struct lp8788_adc *adc)
 {
 	struct iio_map *map;
 	int ret;

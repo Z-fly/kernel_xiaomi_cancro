@@ -31,7 +31,6 @@
 #include <linux/security.h>
 #include <linux/compat.h>
 #include <linux/fs_stack.h>
-#include <linux/aio.h>
 #include "ecryptfs_kernel.h"
 
 /**
@@ -68,7 +67,6 @@ static ssize_t ecryptfs_read_update_atime(struct kiocb *iocb,
 }
 
 struct ecryptfs_getdents_callback {
-	struct dir_context ctx;
 	void *dirent;
 	struct dentry *dentry;
 	filldir_t filldir;
@@ -116,19 +114,18 @@ static int ecryptfs_readdir(struct file *file, void *dirent, filldir_t filldir)
 	int rc;
 	struct file *lower_file;
 	struct inode *inode;
-	struct ecryptfs_getdents_callback buf = {
-		.dirent = dirent,
-		.dentry = file->f_path.dentry,
-		.filldir = filldir,
-		.filldir_called = 0,
-		.entries_written = 0,
-		.ctx.actor = ecryptfs_filldir
-	};
+	struct ecryptfs_getdents_callback buf;
 
 	lower_file = ecryptfs_file_to_lower(file);
 	lower_file->f_pos = file->f_pos;
-	inode = file_inode(file);
-	rc = iterate_dir(lower_file, &buf.ctx);
+	inode = file->f_path.dentry->d_inode;
+	memset(&buf, 0, sizeof(buf));
+	buf.dirent = dirent;
+	buf.dentry = file->f_path.dentry;
+	buf.filldir = filldir;
+	buf.filldir_called = 0;
+	buf.entries_written = 0;
+	rc = vfs_readdir(lower_file, ecryptfs_filldir, (void *)&buf);
 	file->f_pos = lower_file->f_pos;
 	if (rc < 0)
 		goto out;
@@ -136,7 +133,7 @@ static int ecryptfs_readdir(struct file *file, void *dirent, filldir_t filldir)
 		goto out;
 	if (rc >= 0)
 		fsstack_copy_attr_atime(inode,
-					file_inode(lower_file));
+					lower_file->f_path.dentry->d_inode);
 out:
 	return rc;
 }
@@ -214,6 +211,7 @@ static int ecryptfs_open(struct inode *inode, struct file *file)
 	struct dentry *ecryptfs_dentry = file->f_path.dentry;
 	/* Private value of ecryptfs_dentry allocated in
 	 * ecryptfs_lookup() */
+	struct dentry *lower_dentry;
 	struct ecryptfs_file_info *file_info;
 
 	/* Released in ecryptfs_release or end of function if failure */
@@ -225,6 +223,7 @@ static int ecryptfs_open(struct inode *inode, struct file *file)
 		rc = -ENOMEM;
 		goto out;
 	}
+	lower_dentry = ecryptfs_dentry_to_lower(ecryptfs_dentry);
 	crypt_stat = &ecryptfs_inode_to_private(inode)->crypt_stat;
 	mutex_lock(&crypt_stat->cs_mutex);
 	if (!(crypt_stat->flags & ECRYPTFS_POLICY_APPLIED)) {
@@ -298,12 +297,6 @@ static int ecryptfs_release(struct inode *inode, struct file *file)
 static int
 ecryptfs_fsync(struct file *file, loff_t start, loff_t end, int datasync)
 {
-	int rc;
-
-	rc = filemap_write_and_wait(file->f_mapping);
-	if (rc)
-		return rc;
-
 	return vfs_fsync(ecryptfs_file_to_lower(file), datasync);
 }
 
@@ -326,9 +319,22 @@ ecryptfs_unlocked_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 
 	if (ecryptfs_file_to_private(file))
 		lower_file = ecryptfs_file_to_lower(file);
-	if (lower_file && lower_file->f_op && lower_file->f_op->unlocked_ioctl)
+	if (!(lower_file && lower_file->f_op && lower_file->f_op->unlocked_ioctl))
+		return rc;
+
+	switch (cmd) {
+	case FITRIM:
+	case FS_IOC_GETFLAGS:
+	case FS_IOC_SETFLAGS:
+	case FS_IOC_GETVERSION:
+	case FS_IOC_SETVERSION:
 		rc = lower_file->f_op->unlocked_ioctl(lower_file, cmd, arg);
-	return rc;
+		fsstack_copy_attr_all(file->f_path.dentry->d_inode,
+				      lower_file->f_path.dentry->d_inode);
+		return rc;
+	default:
+		return rc;
+	}
 }
 
 #ifdef CONFIG_COMPAT
@@ -340,9 +346,22 @@ ecryptfs_compat_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 
 	if (ecryptfs_file_to_private(file))
 		lower_file = ecryptfs_file_to_lower(file);
-	if (lower_file && lower_file->f_op && lower_file->f_op->compat_ioctl)
+	if (!(lower_file && lower_file->f_op && lower_file->f_op->compat_ioctl))
+		return rc;
+
+	switch (cmd) {
+	case FITRIM:
+	case FS_IOC32_GETFLAGS:
+	case FS_IOC32_SETFLAGS:
+	case FS_IOC32_GETVERSION:
+	case FS_IOC32_SETVERSION:
 		rc = lower_file->f_op->compat_ioctl(lower_file, cmd, arg);
-	return rc;
+		fsstack_copy_attr_all(file->f_path.dentry->d_inode,
+				      lower_file->f_path.dentry->d_inode);
+		return rc;
+	default:
+		return rc;
+	}
 }
 #endif
 

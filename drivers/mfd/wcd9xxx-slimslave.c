@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2013, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -62,10 +62,6 @@ int wcd9xxx_init_slimslave(struct wcd9xxx *wcd9xxx, u8 wcd9xxx_pgd_la,
 		goto err;
 	}
 
-	if (!rx_num || rx_num > wcd9xxx->num_rx_port) {
-		pr_err("%s: invalid rx num %d\n", __func__, rx_num);
-		return -EINVAL;
-	}
 	if (wcd9xxx->rx_chs) {
 		wcd9xxx->num_rx_port = rx_num;
 		for (i = 0; i < rx_num; i++) {
@@ -88,10 +84,6 @@ int wcd9xxx_init_slimslave(struct wcd9xxx *wcd9xxx, u8 wcd9xxx_pgd_la,
 			wcd9xxx->num_rx_port);
 	}
 
-	if (!tx_num || tx_num > wcd9xxx->num_tx_port) {
-		pr_err("%s: invalid tx num %d\n", __func__, tx_num);
-		return -EINVAL;
-	}
 	if (wcd9xxx->tx_chs) {
 		wcd9xxx->num_tx_port = tx_num;
 		for (i = 0; i < tx_num; i++) {
@@ -113,6 +105,7 @@ int wcd9xxx_init_slimslave(struct wcd9xxx *wcd9xxx, u8 wcd9xxx_pgd_la,
 		pr_err("Not able to allocate memory for %d slimbus tx ports\n",
 			wcd9xxx->num_tx_port);
 	}
+
 	return 0;
 err:
 	return ret;
@@ -205,38 +198,23 @@ int wcd9xxx_cfg_slim_sch_rx(struct wcd9xxx *wcd9xxx,
 	int ret;
 	struct slim_ch prop;
 	struct wcd9xxx_ch *rx;
-	int size = ARRAY_SIZE(ch_h);
 
 	/* Configure slave interface device */
 
 	list_for_each_entry(rx, wcd9xxx_ch_list, list) {
 		payload |= 1 << rx->shift;
-		if (ch_cnt < size) {
-			ch_h[ch_cnt] = rx->ch_h;
-			ch_cnt++;
-			pr_debug("list ch->ch_h %d ch->sph %d\n",
-				 rx->ch_h, rx->sph);
-		} else {
-			pr_err("%s: allocated channel number %u is out of max rangae %d\n",
-			       __func__, ch_cnt,
-			       size);
-			ret = EINVAL;
-			goto err;
-		}
+		ch_h[ch_cnt] = rx->ch_h;
+		ch_cnt++;
+		pr_debug("list ch->ch_h %d ch->sph %d\n", rx->ch_h, rx->sph);
 	}
 	pr_debug("%s: ch_cnt[%d] rate=%d WATER_MARK_VAL %d\n",
 		 __func__, ch_cnt, rate, WATER_MARK_VAL);
 	/* slim_define_ch api */
 	prop.prot = SLIM_AUTO_ISO;
-	if (rate == 44100) {
-		prop.baser = SLIM_RATE_11025HZ;
-		prop.ratem = (rate/11025);
-	} else {
-		prop.baser = SLIM_RATE_4000HZ;
-		prop.ratem = (rate/4000);
-	}
+	prop.baser = SLIM_RATE_4000HZ;
 	prop.dataf = SLIM_CH_DATAF_NOT_DEFINED;
 	prop.auxf = SLIM_CH_AUXF_NOT_APPLICABLE;
+	prop.ratem = (rate/4000);
 	prop.sampleszbits = bit_width;
 
 	pr_debug("Before slim_define_ch:\n"
@@ -252,10 +230,10 @@ int wcd9xxx_cfg_slim_sch_rx(struct wcd9xxx *wcd9xxx,
 
 	list_for_each_entry(rx, wcd9xxx_ch_list, list) {
 		codec_port = rx->port;
-		pr_debug("%s: codec_port %d rx 0x%pK, payload %d\n"
+		pr_debug("%s: codec_port %d rx 0x%x, payload %d\n"
 			 "sh_ch.rx_port_ch_reg_base0 0x%x\n"
 			 "sh_ch.port_rx_cfg_reg_base 0x%x\n",
-			 __func__, codec_port, rx, payload,
+			 __func__, codec_port, (u32)rx, payload,
 			 sh_ch.rx_port_ch_reg_base,
 			sh_ch.port_rx_cfg_reg_base);
 
@@ -323,22 +301,13 @@ int wcd9xxx_cfg_slim_sch_tx(struct wcd9xxx *wcd9xxx,
 	u16 codec_port;
 	int ret = 0;
 	struct wcd9xxx_ch *tx;
-	int size = ARRAY_SIZE(ch_h);
 
 	struct slim_ch prop;
 
 	list_for_each_entry(tx, wcd9xxx_ch_list, list) {
 		payload |= 1 << tx->shift;
-		if (ch_cnt < size) {
-			ch_h[ch_cnt] = tx->ch_h;
-			ch_cnt++;
-		} else {
-			pr_err("%s: allocated channel number %u is out of max rangae %d\n",
-			       __func__, ch_cnt,
-			       size);
-			ret = EINVAL;
-			goto err;
-		}
+		ch_h[ch_cnt] = tx->ch_h;
+		ch_cnt++;
 	}
 
 	/* slim_define_ch api */
@@ -359,8 +328,8 @@ int wcd9xxx_cfg_slim_sch_tx(struct wcd9xxx *wcd9xxx,
 	pr_debug("%s: ch_cnt[%d] rate[%d]\n", __func__, ch_cnt, rate);
 	list_for_each_entry(tx, wcd9xxx_ch_list, list) {
 		codec_port = tx->port;
-		pr_debug("%s: codec_port %d tx 0x%pK, payload 0x%x\n",
-			 __func__, codec_port, tx, payload);
+		pr_debug("%s: codec_port %d rx 0x%x, payload 0x%x\n",
+			 __func__, codec_port, (u32)tx, payload);
 		/* write to interface device */
 		ret = wcd9xxx_interface_reg_write(wcd9xxx,
 				SB_PGD_TX_PORT_MULTI_CHANNEL_0(codec_port),
@@ -529,24 +498,22 @@ EXPORT_SYMBOL_GPL(wcd9xxx_rx_vport_validation);
 
 
 /* This function is called with mutex acquired */
-int wcd9xxx_tx_vport_validation(u32 table, u32 port_id,
+int wcd9xxx_tx_vport_validation(u32 vtable, u32 port_id,
 				struct wcd9xxx_codec_dai_data *codec_dai,
 				u32 num_codec_dais)
 {
 	struct wcd9xxx_ch *ch;
 	int ret = 0;
 	u32 index;
-	unsigned long vtable = table;
-	u32 size = sizeof(table) * BITS_PER_BYTE;
-
-	pr_debug("%s: vtable 0x%lx port_id %u size %d\n", __func__,
+	u32 size = sizeof(vtable) * 8;
+	pr_debug("%s: vtable 0x%x port_id %u size %d\n", __func__,
 		 vtable, port_id, size);
-	for_each_set_bit(index, &vtable, size) {
+	for_each_set_bit(index, (unsigned long *)&vtable, size) {
 		if (index < num_codec_dais) {
 			list_for_each_entry(ch,
 					&codec_dai[index].wcd9xxx_ch_list,
 					list) {
-				pr_debug("%s: index %u ch->port %u vtable 0x%lx\n",
+				pr_debug("%s: index %u ch->port %u vtable 0x%x\n",
 						__func__, index, ch->port,
 						vtable);
 				if (ch->port == port_id) {

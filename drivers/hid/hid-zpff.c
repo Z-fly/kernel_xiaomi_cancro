@@ -2,6 +2,7 @@
  *  Force feedback support for Zeroplus based devices
  *
  *  Copyright (c) 2005, 2006 Anssi Hannula <anssi.hannula@gmail.com>
+ *  Copyright (C) 2017 XiaoMi, Inc.
  */
 
 /*

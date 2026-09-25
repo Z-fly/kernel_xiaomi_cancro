@@ -3,6 +3,7 @@
  *
  * Copyright (c) 2012 Benjamin Tissoires <benjamin.tissoires@gmail.com>
  * Copyright (c) 2012 Ecole Nationale de l'Aviation Civile, France
+ * Copyright (C) 2017 XiaoMi, Inc.
  *
  * This file is subject to the terms and conditions of the GNU General Public
  * License.  See the file COPYING in the main directory of this archive for
@@ -30,6 +31,13 @@
  */
 struct i2c_hid_platform_data {
 	u16 hid_descriptor_address;
+	int wake_pin;
+	unsigned long wake_rising_delay_min;
+	unsigned long wake_rising_delay_max;
+	unsigned long wake_falling_delay_min;
+	unsigned long wake_falling_delay_max;
+	bool enable_i2c_limit_workaroud;
+	bool enable_wakeup_host;
 };
 
 #endif /* __LINUX_I2C_HID_H */

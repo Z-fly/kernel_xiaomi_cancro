@@ -1,4 +1,4 @@
-/* Copyright (c) 2013-2015, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2013-2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -31,12 +31,11 @@
 #include "mdss_mdp.h"
 
 #define STATUS_CHECK_INTERVAL_MS 5000
-#define STATUS_CHECK_INTERVAL_MIN_MS 50
-#define DSI_STATUS_CHECK_INIT -1
-#define DSI_STATUS_CHECK_DISABLE 1
+#define STATUS_CHECK_INTERVAL_MIN_MS 200
+#define DSI_STATUS_CHECK_DISABLE 0
 
 static uint32_t interval = STATUS_CHECK_INTERVAL_MS;
-static int32_t dsi_status_disable = DSI_STATUS_CHECK_INIT;
+static uint32_t dsi_status_disable = DSI_STATUS_CHECK_DISABLE;
 struct dsi_status_data *pstatus_data;
 
 /*
@@ -61,43 +60,7 @@ static void check_dsi_ctrl_status(struct work_struct *work)
 		return;
 	}
 
-	if (mdss_panel_is_power_off(pdsi_status->mfd->panel_power_state) ||
-			pdsi_status->mfd->shutdown_pending) {
-		pr_err("%s: panel off\n", __func__);
-		return;
-	}
-
 	pdsi_status->mfd->mdp.check_dsi_status(work, interval);
-}
-
-/*
- * hw_vsync_handler() - Interrupt handler for HW VSYNC signal.
- * @irq		: irq line number
- * @data	: Pointer to the device structure.
- *
- * This function is called whenever a HW vsync signal is received from the
- * panel. This resets the timer of ESD delayed workqueue back to initial
- * value.
- */
-irqreturn_t hw_vsync_handler(int irq, void *data)
-{
-	struct mdss_dsi_ctrl_pdata *ctrl_pdata =
-			(struct mdss_dsi_ctrl_pdata *)data;
-	if (!ctrl_pdata) {
-		pr_err("%s: DSI ctrl not available\n", __func__);
-		return IRQ_HANDLED;
-	}
-
-	if (pstatus_data)
-		mod_delayed_work(system_wq, &pstatus_data->check_status,
-			msecs_to_jiffies(interval));
-	else
-		pr_err("Pstatus data is NULL\n");
-
-	if (!atomic_read(&ctrl_pdata->te_irq_ready))
-		atomic_inc(&ctrl_pdata->te_irq_ready);
-
-	return IRQ_HANDLED;
 }
 
 /*
@@ -136,11 +99,13 @@ static int fb_event_callback(struct notifier_block *self,
 
 	pinfo = &ctrl_pdata->panel_data.panel_info;
 
-	if ((!(pinfo->esd_check_enabled) &&
-			dsi_status_disable) ||
-			(dsi_status_disable == DSI_STATUS_CHECK_DISABLE)) {
-		pr_debug("ESD check is disabled.\n");
-		cancel_delayed_work(&pdata->check_status);
+	if (!(pinfo->esd_check_enabled)) {
+		pr_debug("ESD check is not enaled in panel dtsi\n");
+		return NOTIFY_DONE;
+	}
+
+	if (dsi_status_disable) {
+		pr_debug("%s: DSI status disabled\n", __func__);
 		return NOTIFY_DONE;
 	}
 

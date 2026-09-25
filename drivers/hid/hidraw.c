@@ -6,7 +6,8 @@
  * to work on raw hid events as they want to, and avoids a need to
  * use a transport-specific userspace libhid/libusb libraries.
  *
- *  Copyright (c) 2007 Jiri Kosina
+ * Copyright (c) 2007 Jiri Kosina
+ * Copyright (C) 2017 XiaoMi, Inc.
  */
 
 /*
@@ -517,7 +518,6 @@ int hidraw_connect(struct hid_device *hid)
 		goto out;
 	}
 
-	mutex_unlock(&minors_lock);
 	init_waitqueue_head(&dev->wait);
 	INIT_LIST_HEAD(&dev->list);
 
@@ -527,6 +527,7 @@ int hidraw_connect(struct hid_device *hid)
 	dev->exist = 1;
 	hid->hidraw = dev;
 
+	mutex_unlock(&minors_lock);
 out:
 	return result;
 

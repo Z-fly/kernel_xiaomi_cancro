@@ -2,6 +2,7 @@
  * AD9523 SPI Low Jitter Clock Generator
  *
  * Copyright 2012 Analog Devices Inc.
+ * Copyright (C) 2017 XiaoMi, Inc.
  *
  * Licensed under the GPL-2.
  */

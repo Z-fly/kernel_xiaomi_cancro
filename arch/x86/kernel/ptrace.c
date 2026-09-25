@@ -21,9 +21,7 @@
 #include <linux/signal.h>
 #include <linux/perf_event.h>
 #include <linux/hw_breakpoint.h>
-#include <linux/rcupdate.h>
-#include <linux/export.h>
-#include <linux/context_tracking.h>
+#include <linux/module.h>
 
 #include <asm/uaccess.h>
 #include <asm/pgtable.h>
@@ -1364,6 +1362,9 @@ static const struct user_regset_view user_x86_64_view = {
 #define genregs32_get		genregs_get
 #define genregs32_set		genregs_set
 
+#define user_i387_ia32_struct	user_i387_struct
+#define user32_fxsr_struct	user_fxsr_struct
+
 #endif	/* CONFIG_X86_64 */
 
 #if defined CONFIG_X86_32 || defined CONFIG_IA32_EMULATION
@@ -1475,6 +1476,15 @@ void send_sigtrap(struct task_struct *tsk, struct pt_regs *regs,
 	force_sig_info(SIGTRAP, &info, tsk);
 }
 
+
+#ifdef CONFIG_X86_32
+# define IS_IA32	1
+#elif defined CONFIG_IA32_EMULATION
+# define IS_IA32	is_compat_task()
+#else
+# define IS_IA32	0
+#endif
+
 /*
  * We must return the syscall number to actually look up in the table.
  * This can be -1L to skip running any syscall at all.
@@ -1482,8 +1492,6 @@ void send_sigtrap(struct task_struct *tsk, struct pt_regs *regs,
 long syscall_trace_enter(struct pt_regs *regs)
 {
 	long ret = 0;
-
-	user_exit();
 
 	/*
 	 * If we stepped into a sysenter/syscall insn, it trapped in
@@ -1512,7 +1520,7 @@ long syscall_trace_enter(struct pt_regs *regs)
 	if (unlikely(test_thread_flag(TIF_SYSCALL_TRACEPOINT)))
 		trace_sys_enter(regs, regs->orig_ax);
 
-	if (is_ia32_task())
+	if (IS_IA32)
 		audit_syscall_entry(AUDIT_ARCH_I386,
 				    regs->orig_ax,
 				    regs->bx, regs->cx,
@@ -1533,13 +1541,6 @@ void syscall_trace_leave(struct pt_regs *regs)
 {
 	bool step;
 
-	/*
-	 * We may come here right after calling schedule_user()
-	 * or do_notify_resume(), in which case we can be in RCU
-	 * user mode.
-	 */
-	user_exit();
-
 	audit_syscall_exit(regs);
 
 	if (unlikely(test_thread_flag(TIF_SYSCALL_TRACEPOINT)))
@@ -1555,6 +1556,4 @@ void syscall_trace_leave(struct pt_regs *regs)
 			!test_thread_flag(TIF_SYSCALL_EMU);
 	if (step || test_thread_flag(TIF_SYSCALL_TRACE))
 		tracehook_report_syscall_exit(regs, step);
-
-	user_enter();
 }

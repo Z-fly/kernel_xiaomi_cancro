@@ -88,7 +88,7 @@ static int create_strip_zones(struct mddev *mddev, struct r0conf **private_conf)
 	char b[BDEVNAME_SIZE];
 	char b2[BDEVNAME_SIZE];
 	struct r0conf *conf = kzalloc(sizeof(*conf), GFP_KERNEL);
-	bool discard_supported = false;
+	unsigned short blksize = 512;
 
 	if (!conf)
 		return -ENOMEM;
@@ -102,6 +102,9 @@ static int create_strip_zones(struct mddev *mddev, struct r0conf **private_conf)
 		sectors = rdev1->sectors;
 		sector_div(sectors, mddev->chunk_sectors);
 		rdev1->sectors = sectors * mddev->chunk_sectors;
+
+		blksize = max(blksize, queue_logical_block_size(
+				      rdev1->bdev->bd_disk->queue));
 
 		rdev_for_each(rdev2, mddev) {
 			pr_debug("md/raid0:%s:   comparing %s(%llu)"
@@ -139,6 +142,18 @@ static int create_strip_zones(struct mddev *mddev, struct r0conf **private_conf)
 	}
 	pr_debug("md/raid0:%s: FINAL %d zones\n",
 		 mdname(mddev), conf->nr_strip_zones);
+	/*
+	 * now since we have the hard sector sizes, we can make sure
+	 * chunk size is a multiple of that sector size
+	 */
+	if ((mddev->chunk_sectors << 9) % blksize) {
+		printk(KERN_ERR "md/raid0:%s: chunk_size of %d not multiple of block size %d\n",
+		       mdname(mddev),
+		       mddev->chunk_sectors << 9, blksize);
+		err = -EINVAL;
+		goto abort;
+	}
+
 	err = -ENOMEM;
 	conf->strip_zone = kzalloc(sizeof(struct strip_zone)*
 				conf->nr_strip_zones, GFP_KERNEL);
@@ -175,13 +190,7 @@ static int create_strip_zones(struct mddev *mddev, struct r0conf **private_conf)
 			rdev1->new_raid_disk = j;
 		}
 
-		if (j < 0) {
-			printk(KERN_ERR
-			       "md/raid0:%s: remove inactive devices before converting to RAID0\n",
-			       mdname(mddev));
-			goto abort;
-		}
-		if (j >= mddev->raid_disks) {
+		if (j < 0 || j >= mddev->raid_disks) {
 			printk(KERN_ERR "md/raid0:%s: bad disk number %d - "
 			       "aborting!\n", mdname(mddev), j);
 			goto abort;
@@ -193,18 +202,12 @@ static int create_strip_zones(struct mddev *mddev, struct r0conf **private_conf)
 		}
 		dev[j] = rdev1;
 
-		disk_stack_limits(mddev->gendisk, rdev1->bdev,
-				  rdev1->data_offset << 9);
-
 		if (rdev1->bdev->bd_disk->queue->merge_bvec_fn)
 			conf->has_merge_bvec = 1;
 
 		if (!smallest || (rdev1->sectors < smallest->sectors))
 			smallest = rdev1;
 		cnt++;
-
-		if (blk_queue_discard(bdev_get_queue(rdev1->bdev)))
-			discard_supported = true;
 	}
 	if (cnt != mddev->raid_disks) {
 		printk(KERN_ERR "md/raid0:%s: too few disks (%d of %d) - "
@@ -266,26 +269,6 @@ static int create_strip_zones(struct mddev *mddev, struct r0conf **private_conf)
 	}
 	mddev->queue->backing_dev_info.congested_fn = raid0_congested;
 	mddev->queue->backing_dev_info.congested_data = mddev;
-
-	/*
-	 * now since we have the hard sector sizes, we can make sure
-	 * chunk size is a multiple of that sector size
-	 */
-	if ((mddev->chunk_sectors << 9) % queue_logical_block_size(mddev->queue)) {
-		printk(KERN_ERR "md/raid0:%s: chunk_size of %d not valid\n",
-		       mdname(mddev),
-		       mddev->chunk_sectors << 9);
-		goto abort;
-	}
-
-	blk_queue_io_min(mddev->queue, mddev->chunk_sectors << 9);
-	blk_queue_io_opt(mddev->queue,
-			 (mddev->chunk_sectors << 9) * mddev->raid_disks);
-
-	if (!discard_supported)
-		queue_flag_clear_unlocked(QUEUE_FLAG_DISCARD, mddev->queue);
-	else
-		queue_flag_set_unlocked(QUEUE_FLAG_DISCARD, mddev->queue);
 
 	pr_debug("md/raid0:%s: done.\n", mdname(mddev));
 	*private_conf = conf;
@@ -438,8 +421,6 @@ static int raid0_run(struct mddev *mddev)
 	if (md_check_no_bitmap(mddev))
 		return -EINVAL;
 	blk_queue_max_hw_sectors(mddev->queue, mddev->chunk_sectors);
-	blk_queue_max_write_same_sectors(mddev->queue, mddev->chunk_sectors);
-	blk_queue_max_discard_sectors(mddev->queue, mddev->chunk_sectors);
 
 	/* if private is not null, we are here after takeover */
 	if (mddev->private == NULL) {
@@ -449,6 +430,27 @@ static int raid0_run(struct mddev *mddev)
 		mddev->private = conf;
 	}
 	conf = mddev->private;
+	if (mddev->queue) {
+		struct md_rdev *rdev;
+		bool discard_supported = false;
+
+		blk_queue_max_hw_sectors(mddev->queue, mddev->chunk_sectors);
+
+		blk_queue_io_min(mddev->queue, mddev->chunk_sectors << 9);
+		blk_queue_io_opt(mddev->queue,
+				 (mddev->chunk_sectors << 9) * mddev->raid_disks);
+
+		rdev_for_each(rdev, mddev) {
+			disk_stack_limits(mddev->gendisk, rdev->bdev,
+					  rdev->data_offset << 9);
+			if (blk_queue_discard(bdev_get_queue(rdev->bdev)))
+				discard_supported = true;
+		}
+		if (!discard_supported)
+			queue_flag_clear_unlocked(QUEUE_FLAG_DISCARD, mddev->queue);
+		else
+			queue_flag_set_unlocked(QUEUE_FLAG_DISCARD, mddev->queue);
+	}
 
 	/* calculate array device size */
 	md_set_array_sectors(mddev, raid0_size(mddev, 0, 0));
@@ -502,11 +504,11 @@ static inline int is_io_in_chunk_boundary(struct mddev *mddev,
 {
 	if (likely(is_power_of_2(chunk_sects))) {
 		return chunk_sects >= ((bio->bi_sector & (chunk_sects-1))
-					+ bio_sectors(bio));
+					+ (bio->bi_size >> 9));
 	} else{
 		sector_t sector = bio->bi_sector;
 		return chunk_sects >= (sector_div(sector, chunk_sects)
-						+ bio_sectors(bio));
+						+ (bio->bi_size >> 9));
 	}
 }
 
@@ -527,7 +529,8 @@ static void raid0_make_request(struct mddev *mddev, struct bio *bio)
 		sector_t sector = bio->bi_sector;
 		struct bio_pair *bp;
 		/* Sanity check -- queue functions should prevent this happening */
-		if (bio_segments(bio) > 1)
+		if (bio->bi_vcnt != 1 ||
+		    bio->bi_idx != 0)
 			goto bad_map;
 		/* This is a one page bio that upper layers
 		 * refuse to split for us, so we need to split it.
@@ -552,13 +555,6 @@ static void raid0_make_request(struct mddev *mddev, struct bio *bio)
 	bio->bi_sector = sector_offset + zone->dev_start +
 		tmp_dev->data_offset;
 
-	if (unlikely((bio->bi_rw & REQ_DISCARD) &&
-		     !blk_queue_discard(bdev_get_queue(bio->bi_bdev)))) {
-		/* Just ignore it */
-		bio_endio(bio, 0);
-		return;
-	}
-
 	generic_make_request(bio);
 	return;
 
@@ -566,7 +562,7 @@ bad_map:
 	printk("md/raid0:%s: make_request bug: can't convert block across chunks"
 	       " or bigger than %dk %llu %d\n",
 	       mdname(mddev), chunk_sects / 2,
-	       (unsigned long long)bio->bi_sector, bio_sectors(bio) / 2);
+	       (unsigned long long)bio->bi_sector, bio->bi_size >> 10);
 
 	bio_io_error(bio);
 	return;

@@ -2,6 +2,7 @@
  * STMicroelectronics magnetometers driver
  *
  * Copyright 2012-2013 STMicroelectronics Inc.
+ * Copyright (C) 2017 XiaoMi, Inc.
  *
  * Denis Ciocca <denis.ciocca@st.com>
  * v. 1.0.0

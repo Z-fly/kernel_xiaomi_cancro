@@ -94,7 +94,7 @@ static int powernow_k6_get_cpu_multiplier(void)
 
 	local_irq_enable();
 
-	return clock_ratio[register_to_index[(invalue >> 5)&7]].driver_data;
+	return clock_ratio[register_to_index[(invalue >> 5)&7]].index;
 }
 
 static void powernow_k6_set_cpu_multiplier(unsigned int best_i)
@@ -135,24 +135,24 @@ static void powernow_k6_set_cpu_multiplier(unsigned int best_i)
  *
  *   Tries to change the PowerNow! multiplier
  */
-static void powernow_k6_set_state(struct cpufreq_policy *policy,
-		unsigned int best_i)
+static void powernow_k6_set_state(unsigned int best_i)
 {
 	struct cpufreq_freqs freqs;
 
-	if (clock_ratio[best_i].driver_data > max_multiplier) {
+	if (clock_ratio[best_i].index > max_multiplier) {
 		printk(KERN_ERR PFX "invalid target frequency\n");
 		return;
 	}
 
 	freqs.old = busfreq * powernow_k6_get_cpu_multiplier();
-	freqs.new = busfreq * clock_ratio[best_i].driver_data;
+	freqs.new = busfreq * clock_ratio[best_i].index;
+	freqs.cpu = 0; /* powernow-k6.c is UP only driver */
 
-	cpufreq_notify_transition(policy, &freqs, CPUFREQ_PRECHANGE);
+	cpufreq_notify_transition(&freqs, CPUFREQ_PRECHANGE);
 
 	powernow_k6_set_cpu_multiplier(best_i);
 
-	cpufreq_notify_transition(policy, &freqs, CPUFREQ_POSTCHANGE);
+	cpufreq_notify_transition(&freqs, CPUFREQ_POSTCHANGE);
 
 	return;
 }
@@ -190,7 +190,7 @@ static int powernow_k6_target(struct cpufreq_policy *policy,
 				target_freq, relation, &newstate))
 		return -EINVAL;
 
-	powernow_k6_set_state(policy, newstate);
+	powernow_k6_set_state(newstate);
 
 	return 0;
 }
@@ -216,7 +216,7 @@ static int powernow_k6_cpu_init(struct cpufreq_policy *policy)
 	}
 	if (param_max_multiplier) {
 		for (i = 0; (clock_ratio[i].frequency != CPUFREQ_TABLE_END); i++) {
-			if (clock_ratio[i].driver_data == param_max_multiplier) {
+			if (clock_ratio[i].index == param_max_multiplier) {
 				max_multiplier = param_max_multiplier;
 				goto have_max_multiplier;
 			}
@@ -249,7 +249,7 @@ have_busfreq:
 
 	/* table init */
 	for (i = 0; (clock_ratio[i].frequency != CPUFREQ_TABLE_END); i++) {
-		f = clock_ratio[i].driver_data;
+		f = clock_ratio[i].index;
 		if (f > max_multiplier)
 			clock_ratio[i].frequency = CPUFREQ_ENTRY_INVALID;
 		else
@@ -275,7 +275,7 @@ static int powernow_k6_cpu_exit(struct cpufreq_policy *policy)
 	unsigned int i;
 	for (i = 0; i < 8; i++) {
 		if (i == max_multiplier)
-			powernow_k6_set_state(policy, i);
+			powernow_k6_set_state(i);
 	}
 	cpufreq_frequency_table_put_attr(policy->cpu);
 	return 0;
@@ -300,6 +300,7 @@ static struct cpufreq_driver powernow_k6_driver = {
 	.exit		= powernow_k6_cpu_exit,
 	.get		= powernow_k6_get,
 	.name		= "powernow-k6",
+	.owner		= THIS_MODULE,
 	.attr		= powernow_k6_attr,
 };
 

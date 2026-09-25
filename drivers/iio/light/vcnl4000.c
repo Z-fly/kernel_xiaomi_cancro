@@ -3,6 +3,7 @@
  * proximity sensor
  *
  * Copyright 2012 Peter Meerwald <pmeerw@pmeerw.net>
+ * Copyright (C) 2017 XiaoMi, Inc.
  *
  * This file is subject to the terms and conditions of version 2 of
  * the GNU General Public License.  See the file COPYING in the main
@@ -53,14 +54,14 @@ static const struct i2c_device_id vcnl4000_id[] = {
 MODULE_DEVICE_TABLE(i2c, vcnl4000_id);
 
 static int vcnl4000_measure(struct vcnl4000_data *data, u8 req_mask,
-				u8 rdy_mask, u8 data_reg, int *val)
+			u8 rdy_mask, u8 data_reg, int *val)
 {
 	int tries = 20;
 	u16 buf;
 	int ret;
 
 	ret = i2c_smbus_write_byte_data(data->client, VCNL4000_COMMAND,
-					req_mask);
+			req_mask);
 	if (ret < 0)
 		return ret;
 
@@ -102,8 +103,8 @@ static const struct iio_chan_spec vcnl4000_channels[] = {
 };
 
 static int vcnl4000_read_raw(struct iio_dev *indio_dev,
-				struct iio_chan_spec const *chan,
-				int *val, int *val2, long mask)
+			struct iio_chan_spec const *chan,
+			int *val, int *val2, long mask)
 {
 	int ret = -EINVAL;
 	struct vcnl4000_data *data = iio_priv(indio_dev);
@@ -151,7 +152,7 @@ static const struct iio_info vcnl4000_info = {
 };
 
 static int vcnl4000_probe(struct i2c_client *client,
-			  const struct i2c_device_id *id)
+			const struct i2c_device_id *id)
 {
 	struct vcnl4000_data *data;
 	struct iio_dev *indio_dev;

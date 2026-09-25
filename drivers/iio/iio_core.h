@@ -1,6 +1,7 @@
 /* The industrial I/O core function defs.
  *
  * Copyright (c) 2008 Jonathan Cameron
+ * Copyright (C) 2017 XiaoMi, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License version 2 as published by
@@ -21,18 +22,18 @@ struct iio_dev;
 extern struct device_type iio_device_type;
 
 int __iio_add_chan_devattr(const char *postfix,
-			   struct iio_chan_spec const *chan,
-			   ssize_t (*func)(struct device *dev,
-					   struct device_attribute *attr,
-					   char *buf),
-			   ssize_t (*writefunc)(struct device *dev,
-						struct device_attribute *attr,
-						const char *buf,
-						size_t len),
-			   u64 mask,
-			   bool generic,
-			   struct device *dev,
-			   struct list_head *attr_list);
+		struct iio_chan_spec const *chan,
+		ssize_t (*func)(struct device *dev,
+				struct device_attribute *attr,
+				char *buf),
+		ssize_t (*writefunc)(struct device *dev,
+				struct device_attribute *attr,
+				const char *buf,
+				size_t len),
+		u64 mask,
+		bool generic,
+		struct device *dev,
+		struct list_head *attr_list);
 
 /* Event interface flags */
 #define IIO_BUSY_BIT_POS 1
@@ -41,9 +42,9 @@ int __iio_add_chan_devattr(const char *postfix,
 struct poll_table_struct;
 
 unsigned int iio_buffer_poll(struct file *filp,
-			     struct poll_table_struct *wait);
+		struct poll_table_struct *wait);
 ssize_t iio_buffer_read_first_n_outer(struct file *filp, char __user *buf,
-				      size_t n, loff_t *f_ps);
+		size_t n, loff_t *f_ps);
 
 
 #define iio_buffer_poll_addr (&iio_buffer_poll)

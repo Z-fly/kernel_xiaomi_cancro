@@ -3,10 +3,11 @@
  *
  *  Copyright (C) 2004 Greg Kroah-Hartman <greg@kroah.com>
  *  Copyright (C) 2004 IBM Inc.
+ *  Copyright (C) 2017 XiaoMi, Inc.
  *
- *	This program is free software; you can redistribute it and/or
- *	modify it under the terms of the GNU General Public License version
- *	2 as published by the Free Software Foundation.
+ *  This program is free software; you can redistribute it and/or
+ *  modify it under the terms of the GNU General Public License version
+ *  2 as published by the Free Software Foundation.
  *
  *  debugfs is for people to use instead of /proc or /sys.
  *  See Documentation/DocBook/filesystems for more details.
@@ -20,26 +21,154 @@
 #include <linux/namei.h>
 #include <linux/debugfs.h>
 #include <linux/io.h>
-#include <linux/slab.h>
-#include <linux/atomic.h>
 
-static ssize_t default_read_file(struct file *file, char __user *buf,
-				 size_t count, loff_t *ppos)
+static bool debugfs_can_access(struct super_block *sb, char *path)
 {
-	return 0;
+	struct debugfs_fs_info *fsi = sb->s_fs_info;
+	struct debugfs_mount_opts *opts = &fsi->mount_opts;
+
+	if (!opts->privilege) {
+#ifdef CONFIG_DEBUG_FS_WHITE_LIST
+		int len = strlen(path);
+		while (len != 0) {
+			char *match = strnstr(CONFIG_DEBUG_FS_WHITE_LIST, path, strlen(CONFIG_DEBUG_FS_WHITE_LIST));
+			if (match && match[len] == ':' && *--match == ':')
+				return true; /* always pass white list */
+
+			while (--len != 0) { /* move to parent */
+				if (path[len] == '/') {
+					path[len] = '\0';
+					break;
+				}
+			}
+		}
+#endif
+		return false;
+	}
+
+	return true;
 }
 
-static ssize_t default_write_file(struct file *file, const char __user *buf,
+struct debugfs_filter {
+	struct super_block *sb;
+	const char *path;
+
+	filldir_t filldir;
+	void *dirent;
+};
+
+static int debugfs_dir_filldir(void *arg, const char *name,
+		int namelen, loff_t offset, u64 ino, unsigned int d_type)
+{
+	struct debugfs_filter *filter = arg;
+	char buf[256];
+
+	strlcpy(buf, filter->path, sizeof(buf));
+	if (strlen(filter->path) != 1) /* not root */
+		strlcat(buf, "/", sizeof(buf));
+	strlcat(buf, name, sizeof(buf));
+
+	if (debugfs_can_access(filter->sb, buf)) {
+		return filter->filldir(filter->dirent,
+				name, namelen, offset, ino, d_type);
+	} else
+		return 0;
+}
+
+static int debugfs_dir_readdir(struct file *file, void *dirent, filldir_t filldir)
+{
+	struct debugfs_filter filter;
+	char buf[256];
+
+	filter.sb   = file->f_dentry->d_sb;
+	filter.path = dentry_path(file->f_dentry, buf, sizeof(buf));
+
+	filter.filldir = filldir;
+	filter.dirent  = dirent;
+
+	return dcache_readdir(file, &filter, debugfs_dir_filldir);
+}
+
+const struct file_operations debugfs_dir_operations = {
+	.open		= dcache_dir_open,
+	.release	= dcache_dir_close,
+	.readdir	= debugfs_dir_readdir,
+};
+
+static int debugfs_open_file(struct inode *inode, struct file *file)
+{
+	struct debugfs_inode *dinode = (struct debugfs_inode *)inode;
+	const struct file_operations *fop = (struct file_operations *)dinode->pfops;
+
+	char *path, buf[256];
+	int rc = -EPERM;
+
+	path = dentry_path(file->f_dentry, buf, sizeof(buf));
+	if (debugfs_can_access(file->f_dentry->d_sb, path)) {
+		if (fop && fop->open)
+			rc = fop->open(inode, file);
+		else
+			rc = simple_open(inode, file);
+	}
+
+	return rc;
+}
+
+static int debugfs_release_file(struct inode *inode, struct file *file)
+{
+	struct debugfs_inode *dinode = (struct debugfs_inode *)inode;
+	const struct file_operations *fop = (struct file_operations *)dinode->pfops;
+
+	if (fop && fop->release)
+		return fop->release(inode, file);
+	else
+		return 0;
+}
+
+static loff_t debugfs_llseek_file(struct file *file, loff_t offset, int origin)
+{
+	struct inode *inode = file->f_dentry->d_inode;
+	struct debugfs_inode *dinode = (struct debugfs_inode *)inode;
+	const struct file_operations *fop = (struct file_operations *)dinode->pfops;
+
+	if (fop && fop->llseek)
+		return fop->llseek(file, offset, origin);
+	else
+		return noop_llseek(file, offset, origin);
+}
+
+static ssize_t debugfs_read_file(struct file *file, char __user *buf,
+				 size_t count, loff_t *ppos)
+{
+	struct inode *inode = file->f_dentry->d_inode;
+	struct debugfs_inode *dinode = (struct debugfs_inode *)inode;
+	const struct file_operations *fop = (struct file_operations *)dinode->pfops;
+
+	if (fop && fop->read)
+		return fop->read(file, buf, count, ppos);
+	else
+		return 0;
+}
+
+static ssize_t debugfs_write_file(struct file *file, const char __user *buf,
 				   size_t count, loff_t *ppos)
 {
-	return count;
+	struct inode *inode = file->f_dentry->d_inode;
+	struct debugfs_inode *dinode = (struct debugfs_inode *)inode;
+	const struct file_operations *fop = (struct file_operations *)dinode->pfops;
+
+	if (fop && fop->write)
+		return fop->write(file, buf, count, ppos);
+	else
+		return count;
 }
 
 const struct file_operations debugfs_file_operations = {
-	.read =		default_read_file,
-	.write =	default_write_file,
-	.open =		simple_open,
-	.llseek =	noop_llseek,
+	.read =		debugfs_read_file,
+	.write =	debugfs_write_file,
+	.open =		debugfs_open_file,
+	.release =	debugfs_release_file,
+	.llseek =	debugfs_llseek_file,
 };
 
 static void *debugfs_follow_link(struct dentry *dentry, struct nameidata *nd)
@@ -404,47 +533,6 @@ struct dentry *debugfs_create_size_t(const char *name, umode_t mode,
 }
 EXPORT_SYMBOL_GPL(debugfs_create_size_t);
 
-static int debugfs_atomic_t_set(void *data, u64 val)
-{
-	atomic_set((atomic_t *)data, val);
-	return 0;
-}
-static int debugfs_atomic_t_get(void *data, u64 *val)
-{
-	*val = atomic_read((atomic_t *)data);
-	return 0;
-}
-DEFINE_SIMPLE_ATTRIBUTE(fops_atomic_t, debugfs_atomic_t_get,
-			debugfs_atomic_t_set, "%lld\n");
-DEFINE_SIMPLE_ATTRIBUTE(fops_atomic_t_ro, debugfs_atomic_t_get, NULL, "%lld\n");
-DEFINE_SIMPLE_ATTRIBUTE(fops_atomic_t_wo, NULL, debugfs_atomic_t_set, "%lld\n");
-
-/**
- * debugfs_create_atomic_t - create a debugfs file that is used to read and
- * write an atomic_t value
- * @name: a pointer to a string containing the name of the file to create.
- * @mode: the permission that the file should have
- * @parent: a pointer to the parent dentry for this file.  This should be a
- *          directory dentry if set.  If this parameter is %NULL, then the
- *          file will be created in the root of the debugfs filesystem.
- * @value: a pointer to the variable that the file should read to and write
- *         from.
- */
-struct dentry *debugfs_create_atomic_t(const char *name, umode_t mode,
-				 struct dentry *parent, atomic_t *value)
-{
-	/* if there are no write bits set, make read only */
-	if (!(mode & S_IWUGO))
-		return debugfs_create_file(name, mode, parent, value,
-					&fops_atomic_t_ro);
-	/* if there are no read bits set, make write only */
-	if (!(mode & S_IRUGO))
-		return debugfs_create_file(name, mode, parent, value,
-					&fops_atomic_t_wo);
-
-	return debugfs_create_file(name, mode, parent, value, &fops_atomic_t);
-}
-EXPORT_SYMBOL_GPL(debugfs_create_atomic_t);
 
 static ssize_t read_file_bool(struct file *file, char __user *user_buf,
 			      size_t count, loff_t *ppos)
@@ -562,111 +650,6 @@ struct dentry *debugfs_create_blob(const char *name, umode_t mode,
 	return debugfs_create_file(name, mode, parent, blob, &fops_blob);
 }
 EXPORT_SYMBOL_GPL(debugfs_create_blob);
-
-struct array_data {
-	void *array;
-	u32 elements;
-};
-
-static size_t u32_format_array(char *buf, size_t bufsize,
-			       u32 *array, int array_size)
-{
-	size_t ret = 0;
-
-	while (--array_size >= 0) {
-		size_t len;
-		char term = array_size ? ' ' : '\n';
-
-		len = snprintf(buf, bufsize, "%u%c", *array++, term);
-		ret += len;
-
-		buf += len;
-		bufsize -= len;
-	}
-	return ret;
-}
-
-static int u32_array_open(struct inode *inode, struct file *file)
-{
-	struct array_data *data = inode->i_private;
-	int size, elements = data->elements;
-	char *buf;
-
-	/*
-	 * Max size:
-	 *  - 10 digits + ' '/'\n' = 11 bytes per number
-	 *  - terminating NUL character
-	 */
-	size = elements*11;
-	buf = kmalloc(size+1, GFP_KERNEL);
-	if (!buf)
-		return -ENOMEM;
-	buf[size] = 0;
-
-	file->private_data = buf;
-	u32_format_array(buf, size, data->array, data->elements);
-
-	return nonseekable_open(inode, file);
-}
-
-static ssize_t u32_array_read(struct file *file, char __user *buf, size_t len,
-			      loff_t *ppos)
-{
-	size_t size = strlen(file->private_data);
-
-	return simple_read_from_buffer(buf, len, ppos,
-					file->private_data, size);
-}
-
-static int u32_array_release(struct inode *inode, struct file *file)
-{
-	kfree(file->private_data);
-
-	return 0;
-}
-
-static const struct file_operations u32_array_fops = {
-	.owner	 = THIS_MODULE,
-	.open	 = u32_array_open,
-	.release = u32_array_release,
-	.read	 = u32_array_read,
-	.llseek  = no_llseek,
-};
-
-/**
- * debugfs_create_u32_array - create a debugfs file that is used to read u32
- * array.
- * @name: a pointer to a string containing the name of the file to create.
- * @mode: the permission that the file should have.
- * @parent: a pointer to the parent dentry for this file.  This should be a
- *          directory dentry if set.  If this parameter is %NULL, then the
- *          file will be created in the root of the debugfs filesystem.
- * @array: u32 array that provides data.
- * @elements: total number of elements in the array.
- *
- * This function creates a file in debugfs with the given name that exports
- * @array as data. If the @mode variable is so set it can be read from.
- * Writing is not supported. Seek within the file is also not supported.
- * Once array is created its size can not be changed.
- *
- * The function returns a pointer to dentry on success. If debugfs is not
- * enabled in the kernel, the value -%ENODEV will be returned.
- */
-struct dentry *debugfs_create_u32_array(const char *name, umode_t mode,
-					    struct dentry *parent,
-					    u32 *array, u32 elements)
-{
-	struct array_data *data = kmalloc(sizeof(*data), GFP_KERNEL);
-
-	if (data == NULL)
-		return NULL;
-
-	data->array = array;
-	data->elements = elements;
-
-	return debugfs_create_file(name, mode, parent, data, &u32_array_fops);
-}
-EXPORT_SYMBOL_GPL(debugfs_create_u32_array);
 
 #ifdef CONFIG_HAS_IOMEM
 

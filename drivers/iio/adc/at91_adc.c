@@ -2,6 +2,7 @@
  * Driver for the ADC present in the Atmel AT91 evaluation boards.
  *
  * Copyright 2011 Free Electrons
+ * Copyright (C) 2017 XiaoMi, Inc.
  *
  * Licensed under the GPLv2 or later.
  */
@@ -80,7 +81,7 @@ static irqreturn_t at91_adc_trigger_handler(int irq, void *p)
 
 	if (idev->scan_timestamp) {
 		s64 *timestamp = (s64 *)((u8 *)st->buffer +
-					ALIGN(j, sizeof(s64)));
+				ALIGN(j, sizeof(s64)));
 		*timestamp = pf->timestamp;
 	}
 
@@ -124,12 +125,12 @@ static int at91_adc_channel_init(struct iio_dev *idev)
 	int bit, idx = 0;
 
 	idev->num_channels = bitmap_weight(&st->channels_mask,
-					   st->num_channels) + 1;
+			st->num_channels) + 1;
 
 	chan_array = devm_kzalloc(&idev->dev,
-				  ((idev->num_channels + 1) *
-					sizeof(struct iio_chan_spec)),
-				  GFP_KERNEL);
+			((idev->num_channels + 1) *
+			sizeof(struct iio_chan_spec)),
+			  GFP_KERNEL);
 
 	if (!chan_array)
 		return -ENOMEM;
@@ -161,11 +162,12 @@ static int at91_adc_channel_init(struct iio_dev *idev)
 	return idev->num_channels;
 }
 
-static int at91_adc_get_trigger_value_by_name(struct iio_dev *idev,
-					     struct at91_adc_trigger *triggers,
-					     const char *trigger_name)
+static u8 at91_adc_get_trigger_value_by_name(struct iio_dev *idev,
+		struct at91_adc_trigger *triggers,
+		const char *trigger_name)
 {
 	struct at91_adc_state *st = iio_priv(idev);
+	u8 value = 0;
 	int i;
 
 	for (i = 0; i < st->trigger_number; i++) {
@@ -178,16 +180,15 @@ static int at91_adc_get_trigger_value_by_name(struct iio_dev *idev,
 			return -ENOMEM;
 
 		if (strcmp(trigger_name, name) == 0) {
+			value = triggers[i].value;
 			kfree(name);
-			if (triggers[i].value == 0)
-				return -EINVAL;
-			return triggers[i].value;
+			break;
 		}
 
 		kfree(name);
 	}
 
-	return -EINVAL;
+	return value;
 }
 
 static int at91_adc_configure_trigger(struct iio_trigger *trig, bool state)
@@ -197,14 +198,14 @@ static int at91_adc_configure_trigger(struct iio_trigger *trig, bool state)
 	struct iio_buffer *buffer = idev->buffer;
 	struct at91_adc_reg_desc *reg = st->registers;
 	u32 status = at91_adc_readl(st, reg->trigger_register);
-	int value;
+	u8 value;
 	u8 bit;
 
 	value = at91_adc_get_trigger_value_by_name(idev,
-						   st->trigger_list,
-						   idev->trig->name);
-	if (value < 0)
-		return value;
+			st->trigger_list,
+			idev->trig->name);
+	if (value == 0)
+		return -EINVAL;
 
 	if (state) {
 		st->buffer = kmalloc(idev->scan_bytes, GFP_KERNEL);
@@ -247,13 +248,13 @@ static const struct iio_trigger_ops at91_adc_trigger_ops = {
 };
 
 static struct iio_trigger *at91_adc_allocate_trigger(struct iio_dev *idev,
-						     struct at91_adc_trigger *trigger)
+		struct at91_adc_trigger *trigger)
 {
 	struct iio_trigger *trig;
 	int ret;
 
 	trig = iio_trigger_alloc("%s-dev%d-%s", idev->name,
-				 idev->id, trigger->name);
+			idev->id, trigger->name);
 	if (trig == NULL)
 		return NULL;
 
@@ -274,8 +275,8 @@ static int at91_adc_trigger_init(struct iio_dev *idev)
 	int i, ret;
 
 	st->trig = devm_kzalloc(&idev->dev,
-				st->trigger_number * sizeof(st->trig),
-				GFP_KERNEL);
+			st->trigger_number * sizeof(st->trig),
+			GFP_KERNEL);
 
 	if (st->trig == NULL) {
 		ret = -ENOMEM;
@@ -287,7 +288,7 @@ static int at91_adc_trigger_init(struct iio_dev *idev)
 			continue;
 
 		st->trig[i] = at91_adc_allocate_trigger(idev,
-							st->trigger_list + i);
+				st->trigger_list + i);
 		if (st->trig[i] == NULL) {
 			dev_err(&idev->dev,
 				"Could not allocate trigger %d\n", i);
@@ -330,8 +331,8 @@ static void at91_adc_buffer_remove(struct iio_dev *idev)
 }
 
 static int at91_adc_read_raw(struct iio_dev *idev,
-			     struct iio_chan_spec const *chan,
-			     int *val, int *val2, long mask)
+		struct iio_chan_spec const *chan,
+		int *val, int *val2, long mask)
 {
 	struct at91_adc_state *st = iio_priv(idev);
 	int ret;
@@ -346,8 +347,8 @@ static int at91_adc_read_raw(struct iio_dev *idev,
 		at91_adc_writel(st, AT91_ADC_CR, AT91_ADC_START);
 
 		ret = wait_event_interruptible_timeout(st->wq_data_avail,
-						       st->done,
-						       msecs_to_jiffies(1000));
+				st->done,
+				msecs_to_jiffies(1000));
 		if (ret == 0)
 			ret = -ETIMEDOUT;
 		if (ret < 0) {
@@ -377,7 +378,7 @@ static int at91_adc_read_raw(struct iio_dev *idev,
 }
 
 static int at91_adc_of_get_resolution(struct at91_adc_state *st,
-				      struct platform_device *pdev)
+		struct platform_device *pdev)
 {
 	struct iio_dev *idev = iio_priv_to_dev(st);
 	struct device_node *np = pdev->dev.of_node;
@@ -430,7 +431,7 @@ ret:
 }
 
 static int at91_adc_probe_dt(struct at91_adc_state *st,
-			     struct platform_device *pdev)
+		struct platform_device *pdev)
 {
 	struct iio_dev *idev = iio_priv_to_dev(st);
 	struct device_node *node = pdev->dev.of_node;
@@ -482,8 +483,8 @@ static int at91_adc_probe_dt(struct at91_adc_state *st,
 		goto error_ret;
 
 	st->registers = devm_kzalloc(&idev->dev,
-				     sizeof(struct at91_adc_reg_desc),
-				     GFP_KERNEL);
+			sizeof(struct at91_adc_reg_desc),
+			GFP_KERNEL);
 	if (!st->registers) {
 		dev_err(&idev->dev, "Could not allocate register memory.\n");
 		ret = -ENOMEM;
@@ -520,8 +521,8 @@ static int at91_adc_probe_dt(struct at91_adc_state *st,
 
 	st->trigger_number = of_get_child_count(node);
 	st->trigger_list = devm_kzalloc(&idev->dev, st->trigger_number *
-					sizeof(struct at91_adc_trigger),
-					GFP_KERNEL);
+			sizeof(struct at91_adc_trigger),
+			GFP_KERNEL);
 	if (!st->trigger_list) {
 		dev_err(&idev->dev, "Could not allocate trigger list memory.\n");
 		ret = -ENOMEM;
@@ -537,14 +538,14 @@ static int at91_adc_probe_dt(struct at91_adc_state *st,
 			ret = -EINVAL;
 			goto error_ret;
 		}
-	        trig->name = name;
+		trig->name = name;
 
 		if (of_property_read_u32(trig_node, "trigger-value", &prop)) {
 			dev_err(&idev->dev, "Missing trigger-value property in the DT.\n");
 			ret = -EINVAL;
 			goto error_ret;
 		}
-	        trig->value = prop;
+		trig->value = prop;
 		trig->is_external = of_property_read_bool(trig_node, "trigger-external");
 		i++;
 	}
@@ -556,7 +557,7 @@ error_ret:
 }
 
 static int at91_adc_probe_pdata(struct at91_adc_state *st,
-				struct platform_device *pdev)
+		struct platform_device *pdev)
 {
 	struct at91_adc_data *pdata = pdev->dev.platform_data;
 
@@ -774,11 +775,13 @@ static int at91_adc_remove(struct platform_device *pdev)
 	return 0;
 }
 
+#ifdef CONFIG_OF
 static const struct of_device_id at91_adc_dt_ids[] = {
 	{ .compatible = "atmel,at91sam9260-adc" },
 	{},
 };
 MODULE_DEVICE_TABLE(of, at91_adc_dt_ids);
+#endif
 
 static struct platform_driver at91_adc_driver = {
 	.probe = at91_adc_probe,

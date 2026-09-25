@@ -1,7 +1,7 @@
 /*
  *  Linux MegaRAID driver for SAS based RAID controllers
  *
- *  Copyright (c) 2003-2012  LSI Corporation.
+ *  Copyright (c) 2009-2011  LSI Corporation.
  *
  *  This program is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU General Public License
@@ -33,9 +33,9 @@
 /*
  * MegaRAID SAS Driver meta data
  */
-#define MEGASAS_VERSION				"06.506.00.00-rc1"
-#define MEGASAS_RELDATE				"Feb. 9, 2013"
-#define MEGASAS_EXT_VERSION			"Sat. Feb. 9 17:00:00 PDT 2013"
+#define MEGASAS_VERSION				"00.00.06.14-rc1"
+#define MEGASAS_RELDATE				"Jan. 6, 2012"
+#define MEGASAS_EXT_VERSION			"Fri. Jan. 6 17:00:00 PDT 2012"
 
 /*
  * Device IDs
@@ -300,6 +300,8 @@ enum MR_EVT_ARGS {
 	MR_EVT_ARGS_GENERIC,
 };
 
+
+#define SGE_BUFFER_SIZE	4096
 /*
  * define constants for device list query options
  */
@@ -747,7 +749,6 @@ struct megasas_ctrl_info {
 #define	MEGASAS_RESET_NOTICE_INTERVAL		5
 #define MEGASAS_IOCTL_CMD			0
 #define MEGASAS_DEFAULT_CMD_TIMEOUT		90
-#define MEGASAS_THROTTLE_QUEUE_DEPTH		16
 
 /*
  * FW reports the maximum of number of commands that it can accept (maximum
@@ -1276,7 +1277,7 @@ struct megasas_evt_detail {
 } __attribute__ ((packed));
 
 struct megasas_aen_event {
-	struct delayed_work hotplug_work;
+	struct work_struct hotplug_work;
 	struct megasas_instance *instance;
 };
 
@@ -1364,7 +1365,6 @@ struct megasas_instance {
 	unsigned long bar;
 	long reset_flags;
 	struct mutex reset_mutex;
-	int throttlequeuedepth;
 };
 
 enum {
@@ -1486,5 +1486,8 @@ struct megasas_mgmt_info {
 	struct megasas_instance *instance[MAX_MGMT_ADAPTERS];
 	int max_index;
 };
+
+#define msi_control_reg(base) (base + PCI_MSI_FLAGS)
+#define PCI_MSIX_FLAGS_ENABLE (1 << 15)
 
 #endif				/*LSI_MEGARAID_SAS_H */

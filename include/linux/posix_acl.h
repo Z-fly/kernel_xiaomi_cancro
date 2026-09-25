@@ -36,13 +36,7 @@
 struct posix_acl_entry {
 	short			e_tag;
 	unsigned short		e_perm;
-	union {
-		kuid_t		e_uid;
-		kgid_t		e_gid;
-#ifndef CONFIG_UIDGID_STRICT_TYPE_CHECKS
-		unsigned int	e_id;
-#endif
-	};
+	unsigned int		e_id;
 };
 
 struct posix_acl {
@@ -96,9 +90,6 @@ extern struct posix_acl *get_posix_acl(struct inode *, int);
 extern int set_posix_acl(struct inode *, int, struct posix_acl *);
 
 #ifdef CONFIG_FS_POSIX_ACL
-extern int posix_acl_update_mode(struct inode *, umode_t *,
-		struct posix_acl **);
-
 static inline struct posix_acl **acl_by_type(struct inode *inode, int type)
 {
 	switch (type) {

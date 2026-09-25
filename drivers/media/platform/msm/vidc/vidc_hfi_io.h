@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2014, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2013, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -77,12 +77,6 @@
 #define VIDC_WRAPPER_BASE_OFFS		0x000E0000
 
 #define VIDC_WRAPPER_HW_VERSION		(VIDC_WRAPPER_BASE_OFFS + 0x00)
-#define VIDC_WRAPPER_HW_VERSION_MAJOR_VERSION_MASK  0x78000000
-#define VIDC_WRAPPER_HW_VERSION_MAJOR_VERSION_SHIFT 28
-#define VIDC_WRAPPER_HW_VERSION_MINOR_VERSION_MASK  0xFFF0000
-#define VIDC_WRAPPER_HW_VERSION_MINOR_VERSION_SHIFT 16
-#define VIDC_WRAPPER_HW_VERSION_STEP_VERSION_MASK   0xFFFF
-
 #define VIDC_WRAPPER_CLOCK_CONFIG	(VIDC_WRAPPER_BASE_OFFS + 0x04)
 
 #define VIDC_WRAPPER_INTR_STATUS	(VIDC_WRAPPER_BASE_OFFS + 0x0C)
@@ -145,6 +139,9 @@
 #define VENUS_VBIF_AXI_HALT_CTRL0_HALT_REQ		BIT(0)
 #define VENUS_VBIF_AXI_HALT_CTRL1_HALT_ACK		BIT(0)
 #define VENUS_VBIF_AXI_HALT_ACK_TIMEOUT_US		500000
+/* Poll interval in uS */
+#define POLL_INTERVAL_US                                50
+
 
 #define VIDC_VENUS0_WRAPPER_VBIF_REQ_PRIORITY \
 	(VIDC_WRAPPER_BASE_OFFS + 0x20)

@@ -71,8 +71,7 @@ config IP_NF_MATCH_ECN
 
 config IP_NF_MATCH_RPFILTER
 	tristate '"rpfilter" reverse path filter match support'
-	depends on NETFILTER_ADVANCED
-	depends on IP_NF_MANGLE || IP_NF_RAW
+	depends on NETFILTER_ADVANCED && (IP_NF_MANGLE || IP_NF_RAW)
 	---help---
 	  This option allows you to match packets whose replies would
 	  go out via the interface the packet came in.
@@ -171,20 +170,23 @@ config IP_NF_TARGET_NATTYPE_MODULE
 config IP_NF_TARGET_NETMAP
 	tristate "NETMAP target support"
 	depends on NETFILTER_ADVANCED
-	select NETFILTER_XT_TARGET_NETMAP
-	---help---
-	This is a backwards-compat option for the user's convenience
-	(e.g. when running oldconfig). It selects
-	CONFIG_NETFILTER_XT_TARGET_NETMAP.
+	help
+	  NETMAP is an implementation of static 1:1 NAT mapping of network
+	  addresses. It maps the network address part, while keeping the host
+	  address part intact.
+
+	  To compile it as a module, choose M here.  If unsure, say N.
 
 config IP_NF_TARGET_REDIRECT
 	tristate "REDIRECT target support"
 	depends on NETFILTER_ADVANCED
-	select NETFILTER_XT_TARGET_REDIRECT
-	---help---
-	This is a backwards-compat option for the user's convenience
-	(e.g. when running oldconfig). It selects
-	CONFIG_NETFILTER_XT_TARGET_REDIRECT.
+	help
+	  REDIRECT is a special case of NAT: all incoming connections are
+	  mapped onto the incoming interface's address, causing the packets to
+	  come to the local machine instead of passing through.  This is
+	  useful for transparent proxies.
+
+	  To compile it as a module, choose M here.  If unsure, say N.
 
 endif
 
@@ -240,8 +242,8 @@ config IP_NF_MANGLE
 	  To compile it as a module, choose M here.  If unsure, say N.
 
 config IP_NF_TARGET_CLUSTERIP
-	tristate "CLUSTERIP target support"
-	depends on IP_NF_MANGLE
+	tristate "CLUSTERIP target support (EXPERIMENTAL)"
+	depends on IP_NF_MANGLE && EXPERIMENTAL
 	depends on NF_CONNTRACK_IPV4
 	depends on NETFILTER_ADVANCED
 	select NF_CONNTRACK_MARK

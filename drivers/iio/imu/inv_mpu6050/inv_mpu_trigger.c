@@ -1,5 +1,6 @@
 /*
 * Copyright (C) 2012 Invensense, Inc.
+* Copyright (C) 2017 XiaoMi, Inc.
 *
 * This software is licensed under the terms of the GNU General Public
 * License version 2, as published by the Free Software Foundation, and
@@ -101,7 +102,7 @@ static int inv_mpu6050_set_enable(struct iio_dev *indio_dev, bool enable)
  * @state: Desired trigger state
  */
 static int inv_mpu_data_rdy_trigger_set_state(struct iio_trigger *trig,
-						bool state)
+		bool state)
 {
 	return inv_mpu6050_set_enable(iio_trigger_get_drvdata(trig), state);
 }
@@ -117,16 +118,16 @@ int inv_mpu6050_probe_trigger(struct iio_dev *indio_dev)
 	struct inv_mpu6050_state *st = iio_priv(indio_dev);
 
 	st->trig = iio_trigger_alloc("%s-dev%d",
-					indio_dev->name,
-					indio_dev->id);
+			indio_dev->name,
+			indio_dev->id);
 	if (st->trig == NULL) {
 		ret = -ENOMEM;
 		goto error_ret;
 	}
 	ret = request_irq(st->client->irq, &iio_trigger_generic_data_rdy_poll,
-				IRQF_TRIGGER_RISING,
-				"inv_mpu",
-				st->trig);
+			IRQF_TRIGGER_RISING,
+			"inv_mpu",
+			st->trig);
 	if (ret)
 		goto error_free_trig;
 	st->trig->dev.parent = &st->client->dev;
@@ -135,7 +136,7 @@ int inv_mpu6050_probe_trigger(struct iio_dev *indio_dev)
 	ret = iio_trigger_register(st->trig);
 	if (ret)
 		goto error_free_irq;
-	indio_dev->trig = iio_trigger_get(st->trig);
+	indio_dev->trig = st->trig;
 
 	return 0;
 

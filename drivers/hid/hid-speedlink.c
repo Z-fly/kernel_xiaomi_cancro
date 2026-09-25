@@ -4,6 +4,7 @@
  *  the HID descriptor.
  *
  *  Copyright (c) 2011, 2013 Stefan Kriwanek <dev@stefankriwanek.de>
+ *  Copyright (C) 2017 XiaoMi, Inc.
  */
 
 /*

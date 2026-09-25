@@ -45,22 +45,24 @@
 static int ecryptfs_d_revalidate(struct dentry *dentry, unsigned int flags)
 {
 	struct dentry *lower_dentry;
+	struct vfsmount *lower_mnt;
 	int rc = 1;
 
 	if (flags & LOOKUP_RCU)
 		return -ECHILD;
 
 	lower_dentry = ecryptfs_dentry_to_lower(dentry);
-	if (!lower_dentry->d_op || !lower_dentry->d_op->d_revalidate)
-		goto out;
-	rc = lower_dentry->d_op->d_revalidate(lower_dentry, flags);
-	if (dentry->d_inode) {
-		struct inode *lower_inode =
-			ecryptfs_inode_to_lower(dentry->d_inode);
-
-		fsstack_copy_attr_all(dentry->d_inode, lower_inode);
+	lower_mnt = ecryptfs_dentry_to_lower_mnt(dentry);
+	if (lower_dentry->d_op && lower_dentry->d_op->d_revalidate) {
+		rc = lower_dentry->d_op->d_revalidate(lower_dentry, flags);
 	}
-out:
+	if (dentry->d_inode) {
+		struct inode *inode = dentry->d_inode;
+
+		fsstack_copy_attr_all(inode, ecryptfs_inode_to_lower(inode));
+		if (!inode->i_nlink)
+			return 0;
+	}
 	return rc;
 }
 

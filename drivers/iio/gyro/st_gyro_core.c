@@ -2,6 +2,7 @@
  * STMicroelectronics gyroscopes driver
  *
  * Copyright 2012-2013 STMicroelectronics Inc.
+ * Copyright (C) 2017 XiaoMi, Inc.
  *
  * Denis Ciocca <denis.ciocca@st.com>
  *
@@ -26,6 +27,8 @@
 
 #include <linux/iio/common/st_sensors.h>
 #include "st_gyro.h"
+
+#define ST_GYRO_NUMBER_DATA_CHANNELS		3
 
 /* DEFAULT VALUE FOR SENSORS */
 #define ST_GYRO_DEFAULT_OUT_X_L_ADDR		0x28
@@ -86,15 +89,18 @@
 #define ST_GYRO_2_MULTIREAD_BIT			true
 
 static const struct iio_chan_spec st_gyro_16bit_channels[] = {
-	ST_SENSORS_LSM_CHANNELS(IIO_ANGL_VEL, ST_SENSORS_SCAN_X,
-		IIO_MOD_X, IIO_LE, ST_SENSORS_DEFAULT_16_REALBITS,
-						ST_GYRO_DEFAULT_OUT_X_L_ADDR),
-	ST_SENSORS_LSM_CHANNELS(IIO_ANGL_VEL, ST_SENSORS_SCAN_Y,
-		IIO_MOD_Y, IIO_LE, ST_SENSORS_DEFAULT_16_REALBITS,
-						ST_GYRO_DEFAULT_OUT_Y_L_ADDR),
-	ST_SENSORS_LSM_CHANNELS(IIO_ANGL_VEL, ST_SENSORS_SCAN_Z,
-		IIO_MOD_Z, IIO_LE, ST_SENSORS_DEFAULT_16_REALBITS,
-						ST_GYRO_DEFAULT_OUT_Z_L_ADDR),
+	ST_SENSORS_LSM_CHANNELS(IIO_ANGL_VEL,
+			BIT(IIO_CHAN_INFO_RAW) | BIT(IIO_CHAN_INFO_SCALE),
+			ST_SENSORS_SCAN_X, 1, IIO_MOD_X, 's', IIO_LE, 16, 16,
+			ST_GYRO_DEFAULT_OUT_X_L_ADDR),
+	ST_SENSORS_LSM_CHANNELS(IIO_ANGL_VEL,
+			BIT(IIO_CHAN_INFO_RAW) | BIT(IIO_CHAN_INFO_SCALE),
+			ST_SENSORS_SCAN_Y, 1, IIO_MOD_Y, 's', IIO_LE, 16, 16,
+			ST_GYRO_DEFAULT_OUT_Y_L_ADDR),
+	ST_SENSORS_LSM_CHANNELS(IIO_ANGL_VEL,
+			BIT(IIO_CHAN_INFO_RAW) | BIT(IIO_CHAN_INFO_SCALE),
+			ST_SENSORS_SCAN_Z, 1, IIO_MOD_Z, 's', IIO_LE, 16, 16,
+			ST_GYRO_DEFAULT_OUT_Z_L_ADDR),
 	IIO_CHAN_SOFT_TIMESTAMP(3)
 };
 
@@ -162,10 +168,11 @@ static const struct st_sensors st_gyro_sensors[] = {
 		.wai = ST_GYRO_2_WAI_EXP,
 		.sensors_supported = {
 			[0] = L3GD20_GYRO_DEV_NAME,
-			[1] = LSM330D_GYRO_DEV_NAME,
-			[2] = LSM330DLC_GYRO_DEV_NAME,
-			[3] = L3G4IS_GYRO_DEV_NAME,
-			[4] = LSM330_GYRO_DEV_NAME,
+			[1] = L3GD20H_GYRO_DEV_NAME,
+			[2] = LSM330D_GYRO_DEV_NAME,
+			[3] = LSM330DLC_GYRO_DEV_NAME,
+			[4] = L3G4IS_GYRO_DEV_NAME,
+			[5] = LSM330_GYRO_DEV_NAME,
 		},
 		.ch = (struct iio_chan_spec *)st_gyro_16bit_channels,
 		.odr = {
@@ -223,8 +230,8 @@ static const struct st_sensors st_gyro_sensors[] = {
 };
 
 static int st_gyro_read_raw(struct iio_dev *indio_dev,
-			struct iio_chan_spec const *ch, int *val,
-							int *val2, long mask)
+		struct iio_chan_spec const *ch, int *val,
+		int *val2, long mask)
 {
 	int err;
 	struct st_sensor_data *gdata = iio_priv(indio_dev);
@@ -305,16 +312,17 @@ int st_gyro_common_probe(struct iio_dev *indio_dev)
 	indio_dev->info = &gyro_info;
 
 	err = st_sensors_check_device_support(indio_dev,
-				ARRAY_SIZE(st_gyro_sensors), st_gyro_sensors);
+			ARRAY_SIZE(st_gyro_sensors), st_gyro_sensors);
 	if (err < 0)
 		goto st_gyro_common_probe_error;
 
+	gdata->num_data_channels = ST_GYRO_NUMBER_DATA_CHANNELS;
 	gdata->multiread_bit = gdata->sensor->multi_read_bit;
 	indio_dev->channels = gdata->sensor->ch;
 	indio_dev->num_channels = ST_SENSORS_NUMBER_ALL_CHANNELS;
 
 	gdata->current_fullscale = (struct st_sensor_fullscale_avl *)
-						&gdata->sensor->fs.fs_avl[0];
+			&gdata->sensor->fs.fs_avl[0];
 	gdata->odr = gdata->sensor->odr.odr_avl[0].hz;
 
 	err = st_sensors_init_sensor(indio_dev);
@@ -327,7 +335,7 @@ int st_gyro_common_probe(struct iio_dev *indio_dev)
 			goto st_gyro_common_probe_error;
 
 		err = st_sensors_allocate_trigger(indio_dev,
-						  ST_GYRO_TRIGGER_OPS);
+				ST_GYRO_TRIGGER_OPS);
 		if (err < 0)
 			goto st_gyro_probe_trigger_error;
 	}

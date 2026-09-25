@@ -301,6 +301,8 @@ isdn_ppp_open(int min, struct file *file)
 	is->compflags = 0;
 
 	is->reset = isdn_ppp_ccp_reset_alloc(is);
+	if (!is->reset)
+		return -ENOMEM;
 
 	is->lp = NULL;
 	is->mp_seqno = 0;       /* MP sequence number */
@@ -320,6 +322,10 @@ isdn_ppp_open(int min, struct file *file)
 	 * VJ header compression init
 	 */
 	is->slcomp = slhc_init(16, 16);	/* not necessary for 2. link in bundle */
+	if (IS_ERR(is->slcomp)) {
+		isdn_ppp_ccp_reset_free(is);
+		return PTR_ERR(is->slcomp);
+	}
 #endif
 #ifdef CONFIG_IPPP_FILTER
 	is->pass_filter = NULL;
@@ -568,10 +574,8 @@ isdn_ppp_ioctl(int min, struct file *file, unsigned int cmd, unsigned long arg)
 			is->maxcid = val;
 #ifdef CONFIG_ISDN_PPP_VJ
 			sltmp = slhc_init(16, val);
-			if (!sltmp) {
-				printk(KERN_ERR "ippp, can't realloc slhc struct\n");
-				return -ENOMEM;
-			}
+			if (IS_ERR(sltmp))
+				return PTR_ERR(sltmp);
 			if (is->slcomp)
 				slhc_free(is->slcomp);
 			is->slcomp = sltmp;
@@ -595,7 +599,7 @@ isdn_ppp_ioctl(int min, struct file *file, unsigned int cmd, unsigned long arg)
 			j = ipc->num / (sizeof(long) * 8);
 			i = ipc->num % (sizeof(long) * 8);
 			if (j < 8)
-				protos[j] |= (1UL << i);
+				protos[j] |= (0x1 << i);
 			ipc = ipc->next;
 		}
 		if ((r = set_arg(argp, protos, 8 * sizeof(long))))
@@ -668,7 +672,7 @@ isdn_ppp_poll(struct file *file, poll_table *wait)
 
 	if (is->debug & 0x2)
 		printk(KERN_DEBUG "isdn_ppp_poll: minor: %d\n",
-		       iminor(file_inode(file)));
+		       iminor(file->f_path.dentry->d_inode));
 
 	/* just registers wait_queue hook. This doesn't really wait. */
 	poll_wait(file, &is->wq, wait);

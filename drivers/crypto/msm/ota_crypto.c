@@ -1,4 +1,5 @@
 /* Copyright (c) 2010-2017, The Linux Foundation. All rights reserved.
+ * Copyright (C) 2017 XiaoMi, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -26,7 +27,6 @@
 #include <linux/miscdevice.h>
 #include <linux/uaccess.h>
 #include <linux/debugfs.h>
-#include <linux/cache.h>
 
 
 #include <linux/qcota.h>
@@ -37,7 +37,6 @@ enum qce_ota_oper_enum {
 	QCE_OTA_F8_OPER   = 0,
 	QCE_OTA_MPKT_F8_OPER = 1,
 	QCE_OTA_F9_OPER  = 2,
-	QCE_OTA_VAR_MPKT_F8_OPER = 3,
 	QCE_OTA_OPER_LAST
 };
 
@@ -52,9 +51,8 @@ struct ota_async_req {
 		struct qce_f9_req f9_req;
 		struct qce_f8_req f8_req;
 		struct qce_f8_multi_pkt_req f8_mp_req;
-		struct qce_f8_varible_multi_pkt_req f8_v_mp_req;
 	} req;
-	unsigned int steps;
+
 	struct ota_qce_dev  *pqce;
 };
 
@@ -92,8 +90,8 @@ struct ota_qce_dev {
 	struct tasklet_struct done_tasklet;
 	struct ota_dev_control *podev;
 	uint32_t unit;
-	u64 total_req;
-	u64 err_req;
+	u32 totalReq;
+	u32 errReq;
 };
 
 #define OTA_MAGIC 0x4f544143
@@ -103,7 +101,6 @@ static long qcota_ioctl(struct file *file,
 static int qcota_open(struct inode *inode, struct file *file);
 static int qcota_release(struct inode *inode, struct file *file);
 static int start_req(struct ota_qce_dev *pqce, struct ota_async_req *areq);
-static void f8_cb(void *cookie, unsigned char *icv, unsigned char *iv, int ret);
 
 static const struct file_operations qcota_fops = {
 	.owner = THIS_MODULE,
@@ -125,18 +122,15 @@ static struct ota_dev_control qcota_dev = {
 #define DEBUG_MAX_RW_BUF 1024
 
 struct qcota_stat {
-	u64 f8_req;
-	u64 f8_mp_req;
-	u64 f8_v_mp_req;
-	u64 f9_req;
-	u64 f8_op_success;
-	u64 f8_op_fail;
-	u64 f8_mp_op_success;
-	u64 f8_mp_op_fail;
-	u64 f8_v_mp_op_success;
-	u64 f8_v_mp_op_fail;
-	u64 f9_op_success;
-	u64 f9_op_fail;
+	u32 f8_req;
+	u32 f8_mp_req;
+	u32 f9_req;
+	u32 f8_op_success;
+	u32 f8_op_fail;
+	u32 f8_mp_op_success;
+	u32 f8_mp_op_fail;
+	u32 f9_op_success;
+	u32 f9_op_fail;
 };
 static struct qcota_stat _qcota_stat;
 static struct dentry *_debug_dent;
@@ -172,35 +166,13 @@ static int qcota_release(struct inode *inode, struct file *file)
 	podev =  file->private_data;
 
 	if (podev != NULL && podev->magic != OTA_MAGIC) {
-		pr_err("%s: invalid handle %pK\n",
+		pr_err("%s: invalid handle %p\n",
 			__func__, podev);
 	}
 
 	file->private_data = NULL;
 
 	return 0;
-}
-
-static bool  _next_v_mp_req(struct ota_async_req *areq)
-{
-	unsigned char *p;
-
-	if (areq->err)
-		return false;
-	if (++areq->steps >= areq->req.f8_v_mp_req.num_pkt)
-		return false;
-
-	p = areq->req.f8_v_mp_req.qce_f8_req.data_in;
-	p += areq->req.f8_v_mp_req.qce_f8_req.data_len;
-	p = (uint8_t *) ALIGN(((unsigned int)p), L1_CACHE_BYTES);
-
-	areq->req.f8_v_mp_req.qce_f8_req.data_out = p;
-	areq->req.f8_v_mp_req.qce_f8_req.data_in = p;
-	areq->req.f8_v_mp_req.qce_f8_req.data_len =
-		areq->req.f8_v_mp_req.cipher_iov[areq->steps].size;
-
-	areq->req.f8_v_mp_req.qce_f8_req.count_c++;
-	return true;
 }
 
 static void req_done(unsigned long data)
@@ -211,58 +183,49 @@ static void req_done(unsigned long data)
 	unsigned long flags;
 	struct ota_async_req *new_req = NULL;
 	int ret = 0;
-	bool schedule = true;
+
 
 	spin_lock_irqsave(&podev->lock, flags);
+
 	areq = pqce->active_command;
 	if (unlikely(areq == NULL))
 		pr_err("ota_crypto: req_done, no active request\n");
-	else if (areq->op == QCE_OTA_VAR_MPKT_F8_OPER) {
-		if (_next_v_mp_req(areq)) {
-			/* execute next subcommand */
-			spin_unlock_irqrestore(&podev->lock, flags);
-			ret = start_req(pqce, areq);
-			if (unlikely(ret)) {
-				areq->err = ret;
-				schedule = true;
-				spin_lock_irqsave(&podev->lock, flags);
-			} else {
-				areq = NULL;
-				schedule = false;
-			}
-		} else {
-			/* done with this variable mp req */
-			schedule = true;
-		}
-	}
-	while (schedule) {
-		if (!list_empty(&podev->ready_commands)) {
-			new_req = container_of(podev->ready_commands.next,
-						struct ota_async_req, rlist);
-			list_del(&new_req->rlist);
-			pqce->active_command = new_req;
-			spin_unlock_irqrestore(&podev->lock, flags);
+	pqce->active_command = NULL;
 
-			new_req->err = 0;
-			/* start a new request */
-			ret = start_req(pqce, new_req);
-			if (unlikely(new_req && ret)) {
-				new_req->err = ret;
-				complete(&new_req->complete);
-				ret = 0;
-				new_req = NULL;
-				spin_lock_irqsave(&podev->lock, flags);
-			} else {
-				schedule = false;
-			}
-		} else {
-			pqce->active_command = NULL;
-			spin_unlock_irqrestore(&podev->lock, flags);
-			schedule = false;
-		};
-	}
-	if (areq)
+again:
+	if (!list_empty(&podev->ready_commands)) {
+		new_req = container_of(podev->ready_commands.next,
+						struct ota_async_req, rlist);
+		list_del(&new_req->rlist);
+		pqce->active_command = new_req;
+		spin_unlock_irqrestore(&podev->lock, flags);
+
+		new_req->err = 0;
+		ret = start_req(pqce, new_req); /* start a new request */
+
+	} else {
+		spin_unlock_irqrestore(&podev->lock, flags);
+	};
+
+	if (areq) {
 		complete(&areq->complete);
+		areq = NULL;
+	};
+
+	/* if error from issuing request  */
+	if (unlikely(new_req && ret)) {
+		new_req->err = ret;
+		complete(&new_req->complete);
+		ret = 0;
+		new_req = NULL;
+
+		spin_lock_irqsave(&podev->lock, flags);
+		pqce->active_command = NULL;
+
+		/* try to get next new request */
+		goto again;
+	}
+
 	return;
 }
 
@@ -273,10 +236,10 @@ static void f9_cb(void *cookie, unsigned char *icv, unsigned char *iv,
 	struct ota_qce_dev *pqce;
 
 	pqce = areq->pqce;
-	areq->req.f9_req.mac_i  = *((uint32_t *)icv);
+	areq->req.f9_req.mac_i  = (uint32_t) icv;
 
 	if (ret) {
-		pqce->err_req++;
+		pqce->errReq++;
 		areq->err = -ENXIO;
 	} else
 		areq->err = 0;
@@ -293,7 +256,7 @@ static void f8_cb(void *cookie, unsigned char *icv, unsigned char *iv,
 	pqce = areq->pqce;
 
 	if (ret) {
-		pqce->err_req++;
+		pqce->errReq++;
 		areq->err = -ENXIO;
 	} else {
 		areq->err = 0;
@@ -327,19 +290,14 @@ static int start_req(struct ota_qce_dev *pqce, struct ota_async_req *areq)
 		ret =  qce_f9_req(pqce->qce, pf9, areq, f9_cb);
 		break;
 
-	case QCE_OTA_VAR_MPKT_F8_OPER:
-		pf8 = &areq->req.f8_v_mp_req.qce_f8_req;
-		ret = qce_f8_req(pqce->qce, pf8, areq, f8_cb);
-		break;
-
 	default:
 		ret = -ENOTSUPP;
 		break;
 	};
 	areq->err = ret;
-	pqce->total_req++;
+	pqce->totalReq++;
 	if (ret)
-		pqce->err_req++;
+		pqce->errReq++;
 	return ret;
 }
 
@@ -408,17 +366,11 @@ static int submit_req(struct ota_async_req *areq, struct ota_dev_control *podev)
 		break;
 
 	case QCE_OTA_F9_OPER:
+	default:
 		if (areq->err)
 			pstat->f9_op_fail++;
 		else
 			pstat->f9_op_success++;
-		break;
-	case QCE_OTA_VAR_MPKT_F8_OPER:
-	default:
-		if (areq->err)
-			pstat->f8_v_mp_op_fail++;
-		else
-			pstat->f8_v_mp_op_success++;
 		break;
 	};
 
@@ -434,14 +386,12 @@ static long qcota_ioctl(struct file *file,
 	uint8_t *user_dst;
 	uint8_t *k_buf = NULL;
 	struct ota_async_req areq;
-	uint32_t total, temp;
+	uint32_t total;
 	struct qcota_stat *pstat;
-	int i;
-	uint8_t *p = NULL;
 
 	podev =  file->private_data;
 	if (podev == NULL || podev->magic != OTA_MAGIC) {
-		pr_err("%s: invalid handle %pK\n",
+		pr_err("%s: invalid handle %p\n",
 			__func__, podev);
 		return -ENOENT;
 	}
@@ -468,8 +418,6 @@ static long qcota_ioctl(struct file *file,
 			       areq.req.f9_req.msize))
 			return -EFAULT;
 
-		if (areq.req.f9_req.msize == 0)
-			return 0;
 		k_buf = kmalloc(areq.req.f9_req.msize, GFP_KERNEL);
 		if (k_buf == NULL)
 			return -ENOMEM;
@@ -515,8 +463,6 @@ static long qcota_ioctl(struct file *file,
 				user_dst, total))
 			return -EFAULT;
 
-		if (!total)
-			return 0;
 		k_buf = kmalloc(total, GFP_KERNEL);
 		if (k_buf == NULL)
 			return -ENOMEM;
@@ -552,11 +498,8 @@ static long qcota_ioctl(struct file *file,
 		if (__copy_from_user(&areq.req.f8_mp_req, (void __user *)arg,
 				     sizeof(struct qce_f8_multi_pkt_req)))
 			return -EFAULT;
-		temp = areq.req.f8_mp_req.qce_f8_req.data_len;
-		if (temp < (uint32_t) areq.req.f8_mp_req.cipher_start +
-				 areq.req.f8_mp_req.cipher_size)
-			return -EINVAL;
-		total = (uint32_t) areq.req.f8_mp_req.num_pkt *
+
+		total = areq.req.f8_mp_req.num_pkt *
 				areq.req.f8_mp_req.qce_f8_req.data_len;
 
 		user_src = areq.req.f8_mp_req.qce_f8_req.data_in;
@@ -569,8 +512,6 @@ static long qcota_ioctl(struct file *file,
 				user_dst, total))
 			return -EFAULT;
 
-		if (!total)
-			return 0;
 		k_buf = kmalloc(total, GFP_KERNEL);
 		if (k_buf == NULL)
 			return -ENOMEM;
@@ -594,72 +535,6 @@ static long qcota_ioctl(struct file *file,
 		kfree(k_buf);
 		break;
 
-	case QCOTA_F8_V_MPKT_REQ:
-		if (!access_ok(VERIFY_WRITE, (void __user *)arg,
-				sizeof(struct qce_f8_varible_multi_pkt_req)))
-			return -EFAULT;
-		if (__copy_from_user(&areq.req.f8_v_mp_req, (void __user *)arg,
-				sizeof(struct qce_f8_varible_multi_pkt_req)))
-			return -EFAULT;
-
-		if (areq.req.f8_v_mp_req.num_pkt > MAX_NUM_V_MULTI_PKT)
-			return -EINVAL;
-
-		for (i = 0, total = 0; i < areq.req.f8_v_mp_req.num_pkt; i++) {
-			if (!access_ok(VERIFY_WRITE, (void __user *)
-				areq.req.f8_v_mp_req.cipher_iov[i].addr,
-				areq.req.f8_v_mp_req.cipher_iov[i].size))
-				return -EFAULT;
-			total += areq.req.f8_v_mp_req.cipher_iov[i].size;
-			total = ALIGN(total, L1_CACHE_BYTES);
-		}
-
-		if (!total)
-			return 0;
-		k_buf = kmalloc(total, GFP_KERNEL);
-		if (k_buf == NULL)
-			return -ENOMEM;
-
-		for (i = 0, p = k_buf; i < areq.req.f8_v_mp_req.num_pkt; i++) {
-			user_src =  areq.req.f8_v_mp_req.cipher_iov[i].addr;
-			if (__copy_from_user(p, (void __user *)user_src,
-				areq.req.f8_v_mp_req.cipher_iov[i].size)) {
-				kfree(k_buf);
-				return -EFAULT;
-			}
-			p += areq.req.f8_v_mp_req.cipher_iov[i].size;
-			p = (uint8_t *) ALIGN(((unsigned int)p),
-							L1_CACHE_BYTES);
-		}
-
-		areq.req.f8_v_mp_req.qce_f8_req.data_out = k_buf;
-		areq.req.f8_v_mp_req.qce_f8_req.data_in = k_buf;
-		areq.req.f8_v_mp_req.qce_f8_req.data_len =
-			areq.req.f8_v_mp_req.cipher_iov[0].size;
-		areq.steps = 0;
-		areq.op = QCE_OTA_VAR_MPKT_F8_OPER;
-
-		pstat->f8_v_mp_req++;
-		err = submit_req(&areq, podev);
-
-		if (err != 0) {
-			kfree(k_buf);
-			return err;
-		}
-
-		for (i = 0, p = k_buf; i < areq.req.f8_v_mp_req.num_pkt; i++) {
-			user_dst =  areq.req.f8_v_mp_req.cipher_iov[i].addr;
-			if (__copy_to_user(user_dst, p,
-				areq.req.f8_v_mp_req.cipher_iov[i].size)) {
-				kfree(k_buf);
-				return -EFAULT;
-			}
-			p += areq.req.f8_v_mp_req.cipher_iov[i].size;
-			p = (uint8_t *) ALIGN(((unsigned int)p),
-							L1_CACHE_BYTES);
-		}
-		kfree(k_buf);
-		break;
 	default:
 		return -ENOTTY;
 	}
@@ -703,8 +578,8 @@ static int qcota_probe(struct platform_device *pdev)
 	}
 	pqce->qce = handle;
 	pqce->pdev = pdev;
-	pqce->total_req = 0;
-	pqce->err_req = 0;
+	pqce->totalReq = 0;
+	pqce->errReq = 0;
 	platform_set_drvdata(pdev, pqce);
 
 	mutex_lock(&podev->register_lock);
@@ -804,43 +679,33 @@ static int _disp_stats(void)
 			"\nQualcomm OTA crypto accelerator Statistics:\n");
 
 	len += scnprintf(_debug_read_buf + len, DEBUG_MAX_RW_BUF - len - 1,
-			"   F8 request                      : %llu\n",
+			"   F8 request             : %d\n",
 					pstat->f8_req);
 	len += scnprintf(_debug_read_buf + len, DEBUG_MAX_RW_BUF - len - 1,
-			"   F8 operation success            : %llu\n",
+			"   F8 operation success   : %d\n",
 					pstat->f8_op_success);
 	len += scnprintf(_debug_read_buf + len, DEBUG_MAX_RW_BUF - len - 1,
-			"   F8 operation fail               : %llu\n",
+			"   F8 operation fail      : %d\n",
 					pstat->f8_op_fail);
 
 	len += scnprintf(_debug_read_buf + len, DEBUG_MAX_RW_BUF - len - 1,
-			"   F8 MP request                   : %llu\n",
+			"   F8 MP request          : %d\n",
 					pstat->f8_mp_req);
 	len += scnprintf(_debug_read_buf + len, DEBUG_MAX_RW_BUF - len - 1,
-			"   F8 MP operation success         : %llu\n",
+			"   F8 MP operation success: %d\n",
 					pstat->f8_mp_op_success);
 	len += scnprintf(_debug_read_buf + len, DEBUG_MAX_RW_BUF - len - 1,
-			"   F8 MP operation fail            : %llu\n",
+			"   F8 MP operation fail   : %d\n",
 					pstat->f8_mp_op_fail);
 
 	len += scnprintf(_debug_read_buf + len, DEBUG_MAX_RW_BUF - len - 1,
-			"   F8 Variable MP request          : %llu\n",
-					pstat->f8_v_mp_req);
-	len += scnprintf(_debug_read_buf + len, DEBUG_MAX_RW_BUF - len - 1,
-			"   F8 Variable MP operation success: %llu\n",
-					pstat->f8_v_mp_op_success);
-	len += scnprintf(_debug_read_buf + len, DEBUG_MAX_RW_BUF - len - 1,
-			"   F8 Variable MP operation fail   : %llu\n",
-					pstat->f8_v_mp_op_fail);
-
-	len += scnprintf(_debug_read_buf + len, DEBUG_MAX_RW_BUF - len - 1,
-			"   F9 request                      : %llu\n",
+			"   F9 request             : %d\n",
 					pstat->f9_req);
 	len += scnprintf(_debug_read_buf + len, DEBUG_MAX_RW_BUF - len - 1,
-			"   F9 operation success            : %llu\n",
+			"   F9 operation success   : %d\n",
 					pstat->f9_op_success);
 	len += scnprintf(_debug_read_buf + len, DEBUG_MAX_RW_BUF - len - 1,
-			"   F9 operation fail               : %llu\n",
+			"   F9 operation fail      : %d\n",
 					pstat->f9_op_fail);
 
 	spin_lock_irqsave(&podev->lock, flags);
@@ -849,16 +714,16 @@ static int _disp_stats(void)
 		len += scnprintf(
 			_debug_read_buf + len,
 			DEBUG_MAX_RW_BUF - len - 1,
-			"   Engine %4d Req                 : %llu\n",
+			"   Engine %d Req          : %d\n",
 			p->unit,
-			p->total_req
+			p->totalReq
 		);
 		len += scnprintf(
 			_debug_read_buf + len,
 			DEBUG_MAX_RW_BUF - len - 1,
-			"   Engine %4d Req Error           : %llu\n",
+			"   Engine %d Req Error    : %d\n",
 			p->unit,
-			p->err_req
+			p->errReq
 		);
 	}
 
@@ -899,8 +764,8 @@ static ssize_t _debug_stats_write(struct file *file, const char __user *buf,
 	spin_lock_irqsave(&podev->lock, flags);
 
 	list_for_each_entry(p, &podev->qce_dev, qlist) {
-		p->total_req = 0;
-		p->err_req = 0;
+		p->totalReq = 0;
+		p->errReq = 0;
 	}
 
 	spin_unlock_irqrestore(&podev->lock, flags);

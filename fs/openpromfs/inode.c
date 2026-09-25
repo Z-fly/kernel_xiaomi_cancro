@@ -262,7 +262,7 @@ found:
 
 static int openpromfs_readdir(struct file * filp, void * dirent, filldir_t filldir)
 {
-	struct inode *inode = file_inode(filp);
+	struct inode *inode = filp->f_path.dentry->d_inode;
 	struct op_inode_info *oi = OP_I(inode);
 	struct device_node *dp = oi->u.node;
 	struct device_node *child;
@@ -465,11 +465,6 @@ static int __init init_openprom_fs(void)
 static void __exit exit_openprom_fs(void)
 {
 	unregister_filesystem(&openprom_fs_type);
-	/*
-	 * Make sure all delayed rcu free inodes are flushed before we
-	 * destroy cache.
-	 */
-	rcu_barrier();
 	kmem_cache_destroy(op_inode_cachep);
 }
 

@@ -7,6 +7,7 @@
  *  Copyright (c) 2007-2008 Oliver Neukum
  *  Copyright (c) 2006-2012 Jiri Kosina
  *  Copyright (c) 2012 Henrik Rydberg
+ *  Copyright (C) 2017 XiaoMi, Inc.
  */
 
 /*

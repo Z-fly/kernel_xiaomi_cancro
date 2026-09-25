@@ -1,5 +1,6 @@
 /*
  *  Copyright (c) 2007 Jiri Kosina
+ *  Copyright (C) 2017 XiaoMi, Inc.
  */
 /*
  * This program is free software; you can redistribute it and/or modify it

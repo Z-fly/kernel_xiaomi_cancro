@@ -126,7 +126,6 @@ struct linux_binprm;
  * Note that this algorithm is imperfect: the distribution of the vdso
  * start address within a PMD is biased toward the end.
  *
- * Only used for the 64-bit and x32 vdsos.
  */
 static unsigned long vdso_addr(unsigned long start, unsigned len)
 {
@@ -153,10 +152,12 @@ static unsigned long vdso_addr(unsigned long start, unsigned len)
 	}
 
 	/*
-	 * Forcibly align the final address in case we have a hardware
-	 * issue that requires alignment for performance reasons.
+	 * page-align it here so that get_unmapped_area doesn't
+	 * align it wrongfully again to the next page. addr can come in 4K
+	 * unaligned here as a result of stack start randomization.
 	 */
-	addr = align_vdso_addr(addr);
+	addr = PAGE_ALIGN(addr);
+	addr = align_addr(addr, NULL, ALIGN_VDSO);
 
 	return addr;
 }

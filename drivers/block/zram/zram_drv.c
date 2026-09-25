@@ -32,7 +32,6 @@
 #include <linux/string.h>
 #include <linux/vmalloc.h>
 #include <linux/ratelimit.h>
-#include <linux/show_mem_notifier.h>
 #include <linux/err.h>
 
 #include "zram_drv.h"
@@ -77,45 +76,6 @@ static inline bool init_done(struct zram *zram)
 {
 	return zram->disksize;
 }
-
-static int zram_show_mem_notifier(struct notifier_block *nb,
-				unsigned long action,
-				void *data)
-{
-	int i;
-
-	if (!zram_devices)
-		return 0;
-
-	for (i = 0; i < num_devices; i++) {
-		struct zram *zram = &zram_devices[i];
-		struct zram_meta *meta = zram->meta;
-
-		if (!down_read_trylock(&zram->init_lock))
-			continue;
-
-		if (init_done(zram)) {
-			u64 val;
-			u64 data_size;
-
-			val = zs_get_total_pages(meta->mem_pool);
-			data_size = atomic64_read(&zram->stats.compr_data_size);
-			pr_info("Zram[%d] mem_used_total = %llu\n", i, val);
-			pr_info("Zram[%d] compr_data_size = %llu\n", i,
-				(unsigned long long)data_size);
-			pr_info("Zram[%d] orig_data_size = %u\n", i,
-				atomic_read(&zram->stats.pages_stored));
-		}
-
-		up_read(&zram->init_lock);
-	}
-
-	return 0;
-}
-
-static struct notifier_block zram_show_mem_notifier_block = {
-	.notifier_call = zram_show_mem_notifier
-};
 
 static inline struct zram *dev_to_zram(struct device *dev)
 {
@@ -330,7 +290,6 @@ static ssize_t comp_algorithm_store(struct device *dev,
 	return len;
 }
 
-/* flag operations needs meta->tb_lock */
 static int zram_test_flag(struct zram_meta *meta, u32 index,
 			enum zram_pageflags flag)
 {
@@ -538,8 +497,8 @@ static int zram_decompress_page(struct zram *zram, char *mem, u32 index)
 	size = zram_get_obj_size(meta, index);
 
 	if (!handle || zram_test_flag(meta, index, ZRAM_ZERO)) {
-		clear_page(mem);
 		bit_spin_unlock(ZRAM_ACCESS, &meta->table[index].value);
+		clear_page(mem);
 		return 0;
 	}
 
@@ -634,8 +593,8 @@ static int zram_bvec_write(struct zram *zram, struct bio_vec *bvec, u32 index,
 	struct page *page;
 	unsigned char *user_mem, *cmem, *src, *uncmem = NULL;
 	struct zram_meta *meta = zram->meta;
-	static unsigned long zram_rs_time;
 	struct zcomp_strm *zstrm;
+	static unsigned long zram_rs_time;
 	bool locked = false;
 	unsigned long alloced_pages;
 
@@ -681,14 +640,6 @@ static int zram_bvec_write(struct zram *zram, struct bio_vec *bvec, u32 index,
 		ret = 0;
 		goto out;
 	}
-
-	/*
-	 * zram_slot_free_notify could miss free so that let's
-	 * double check.
-	 */
-	if (unlikely(meta->table[index].handle ||
-			zram_test_flag(meta, index, ZRAM_ZERO)))
-		zram_free_page(zram, index);
 
 	ret = zcomp_compress(zram->comp, zstrm, uncmem, &clen);
 	if (!is_partial_io(bvec)) {
@@ -1205,7 +1156,6 @@ static int create_device(struct zram *zram, int device_id)
 	zram->disk->private_data = zram;
 	snprintf(zram->disk->disk_name, 16, "zram%d", device_id);
 
-	__set_bit(QUEUE_FLAG_FAST, &zram->disk->queue->queue_flags);
 	/* Actual capacity set using syfs (/sys/block/zram<id>/disksize */
 	set_capacity(zram->disk, 0);
 	/* zram devices sort of resembles non-rotational disks */
@@ -1313,7 +1263,6 @@ static int __init zram_init(void)
 			goto out_error;
 	}
 
-	show_mem_notifier_register(&zram_show_mem_notifier_block);
 	pr_info("Created %u device(s)\n", num_devices);
 	return 0;
 

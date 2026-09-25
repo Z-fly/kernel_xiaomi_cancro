@@ -3,6 +3,7 @@
  * multi-channel Digital to Analog Converters driver
  *
  * Copyright 2011 Analog Devices Inc.
+ * Copyright (C) 2017 XiaoMi, Inc.
  *
  * Licensed under the GPL-2.
  */
@@ -242,13 +243,13 @@ static int ad5360_read(struct iio_dev *indio_dev, unsigned int type,
 }
 
 static ssize_t ad5360_read_dac_powerdown(struct device *dev,
-					   struct device_attribute *attr,
-					   char *buf)
+		struct device_attribute *attr,
+		char *buf)
 {
 	struct iio_dev *indio_dev = dev_to_iio_dev(dev);
 	struct ad5360_state *st = iio_priv(indio_dev);
 
-	return sprintf(buf, "%d\n", (bool)(st->ctrl & AD5360_SF_CTRL_PWR_DOWN));
+	return snprintf(buf, "%d\n", (bool)(st->ctrl & AD5360_SF_CTRL_PWR_DOWN));
 }
 
 static int ad5360_update_ctrl(struct iio_dev *indio_dev, unsigned int set,
@@ -290,9 +291,9 @@ static ssize_t ad5360_write_dac_powerdown(struct device *dev,
 }
 
 static IIO_DEVICE_ATTR(out_voltage_powerdown,
-			S_IRUGO | S_IWUSR,
-			ad5360_read_dac_powerdown,
-			ad5360_write_dac_powerdown, 0);
+		S_IRUGO | S_IWUSR,
+		ad5360_read_dac_powerdown,
+		ad5360_write_dac_powerdown, 0);
 
 static struct attribute *ad5360_attributes[] = {
 	&iio_dev_attr_out_voltage_powerdown.dev_attr.attr,
@@ -304,10 +305,10 @@ static const struct attribute_group ad5360_attribute_group = {
 };
 
 static int ad5360_write_raw(struct iio_dev *indio_dev,
-			       struct iio_chan_spec const *chan,
-			       int val,
-			       int val2,
-			       long mask)
+		struct iio_chan_spec const *chan,
+		int val,
+		int val2,
+		long mask)
 {
 	struct ad5360_state *st = iio_priv(indio_dev);
 	int max_val = (1 << chan->scan_type.realbits);
@@ -360,10 +361,10 @@ static int ad5360_write_raw(struct iio_dev *indio_dev,
 }
 
 static int ad5360_read_raw(struct iio_dev *indio_dev,
-			   struct iio_chan_spec const *chan,
-			   int *val,
-			   int *val2,
-			   long m)
+		struct iio_chan_spec const *chan,
+		int *val,
+		int *val2,
+		long m)
 {
 	struct ad5360_state *st = iio_priv(indio_dev);
 	unsigned int ofs_index;

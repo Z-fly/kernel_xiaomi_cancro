@@ -44,10 +44,10 @@
 #include <linux/signal.h>
 #include <linux/poll.h>
 #include <linux/mm.h>
+#include <linux/eventpoll.h>
 #include <linux/fs_struct.h>
 #include <linux/slab.h>
 #include <linux/pagemap.h>
-#include <linux/aio.h>
 
 #include <asm/uaccess.h>
 #include <asm/mmu_context.h>
@@ -67,6 +67,8 @@ int compat_printk(const char *fmt, ...)
 	va_end(ap);
 	return ret;
 }
+
+#include "read_write.h"
 
 /*
  * Not all architectures have sys_utime, so implement this in terms
@@ -142,8 +144,8 @@ static int cp_compat_stat(struct kstat *stat, struct compat_stat __user *ubuf)
 	tmp.st_nlink = stat->nlink;
 	if (tmp.st_nlink != stat->nlink)
 		return -EOVERFLOW;
-	SET_UID(tmp.st_uid, from_kuid_munged(current_user_ns(), stat->uid));
-	SET_GID(tmp.st_gid, from_kgid_munged(current_user_ns(), stat->gid));
+	SET_UID(tmp.st_uid, stat->uid);
+	SET_GID(tmp.st_gid, stat->gid);
 	tmp.st_rdev = old_encode_dev(stat->rdev);
 	if ((u64) stat->size > MAX_NON_LFS)
 		return -EOVERFLOW;
@@ -399,12 +401,28 @@ static int put_compat_flock64(struct flock *kfl, struct compat_flock64 __user *u
 }
 #endif
 
+static unsigned int
+convert_fcntl_cmd(unsigned int cmd)
+{
+	switch (cmd) {
+	case F_GETLK64:
+		return F_GETLK;
+	case F_SETLK64:
+		return F_SETLK;
+	case F_SETLKW64:
+		return F_SETLKW;
+	}
+
+	return cmd;
+}
+
 asmlinkage long compat_sys_fcntl64(unsigned int fd, unsigned int cmd,
 		unsigned long arg)
 {
 	mm_segment_t old_fs;
 	struct flock f;
 	long ret;
+	unsigned int conv_cmd;
 
 	switch (cmd) {
 	case F_GETLK:
@@ -441,16 +459,18 @@ asmlinkage long compat_sys_fcntl64(unsigned int fd, unsigned int cmd,
 	case F_GETLK64:
 	case F_SETLK64:
 	case F_SETLKW64:
+	case F_OFD_GETLK:
+	case F_OFD_SETLK:
+	case F_OFD_SETLKW:
 		ret = get_compat_flock64(&f, compat_ptr(arg));
 		if (ret != 0)
 			break;
 		old_fs = get_fs();
 		set_fs(KERNEL_DS);
-		ret = sys_fcntl(fd, (cmd == F_GETLK64) ? F_GETLK :
-				((cmd == F_SETLK64) ? F_SETLK : F_SETLKW),
-				(unsigned long)&f);
+		conv_cmd = convert_fcntl_cmd(cmd);
+		ret = sys_fcntl(fd, conv_cmd, (unsigned long)&f);
 		set_fs(old_fs);
-		if (cmd == F_GETLK64 && ret == 0) {
+		if ((conv_cmd == F_GETLK || conv_cmd == F_OFD_GETLK) && ret == 0) {
 			/* need to return lock information - see above for commentary */
 			if (f.l_start > COMPAT_LOFF_T_MAX)
 				ret = -EOVERFLOW;
@@ -471,8 +491,15 @@ asmlinkage long compat_sys_fcntl64(unsigned int fd, unsigned int cmd,
 asmlinkage long compat_sys_fcntl(unsigned int fd, unsigned int cmd,
 		unsigned long arg)
 {
-	if ((cmd == F_GETLK64) || (cmd == F_SETLK64) || (cmd == F_SETLKW64))
+	switch (cmd) {
+	case F_GETLK64:
+	case F_SETLK64:
+	case F_SETLKW64:
+	case F_OFD_GETLK:
+	case F_OFD_SETLK:
+	case F_OFD_SETLKW:
 		return -EINVAL;
+	}
 	return compat_sys_fcntl64(fd, cmd, arg);
 }
 
@@ -530,7 +557,7 @@ out:
 ssize_t compat_rw_copy_check_uvector(int type,
 		const struct compat_iovec __user *uvector, unsigned long nr_segs,
 		unsigned long fast_segs, struct iovec *fast_pointer,
-		struct iovec **ret_pointer)
+		struct iovec **ret_pointer, int check_access)
 {
 	compat_ssize_t tot_len;
 	struct iovec *iov = *ret_pointer = fast_pointer;
@@ -581,7 +608,7 @@ ssize_t compat_rw_copy_check_uvector(int type,
 		}
 		if (len < 0)	/* size_t not fitting in compat_ssize_t .. */
 			goto out;
-		if (type >= 0 &&
+		if (check_access &&
 		    !access_ok(vrfy_dir(type), compat_ptr(buf), len)) {
 			ret = -EFAULT;
 			goto out;
@@ -832,7 +859,6 @@ struct compat_old_linux_dirent {
 };
 
 struct compat_readdir_callback {
-	struct dir_context ctx;
 	struct compat_old_linux_dirent __user *dirent;
 	int result;
 };
@@ -873,20 +899,23 @@ asmlinkage long compat_sys_old_readdir(unsigned int fd,
 	struct compat_old_linux_dirent __user *dirent, unsigned int count)
 {
 	int error;
-	struct fd f = fdget(fd);
-	struct compat_readdir_callback buf = {
-		.ctx.actor = compat_fillonedir,
-		.dirent = dirent
-	};
+	struct file *file;
+	struct compat_readdir_callback buf;
 
-	if (!f.file)
-		return -EBADF;
+	error = -EBADF;
+	file = fget(fd);
+	if (!file)
+		goto out;
 
-	error = iterate_dir(f.file, &buf.ctx);
+	buf.result = 0;
+	buf.dirent = dirent;
+
+	error = vfs_readdir(file, compat_fillonedir, &buf);
 	if (buf.result)
 		error = buf.result;
 
-	fdput(f);
+	fput(file);
+out:
 	return error;
 }
 
@@ -898,7 +927,6 @@ struct compat_linux_dirent {
 };
 
 struct compat_getdents_callback {
-	struct dir_context ctx;
 	struct compat_linux_dirent __user *current_dir;
 	struct compat_linux_dirent __user *previous;
 	int count;
@@ -951,40 +979,43 @@ efault:
 asmlinkage long compat_sys_getdents(unsigned int fd,
 		struct compat_linux_dirent __user *dirent, unsigned int count)
 {
-	struct fd f;
+	struct file * file;
 	struct compat_linux_dirent __user * lastdirent;
-	struct compat_getdents_callback buf = {
-		.ctx.actor = compat_filldir,
-		.current_dir = dirent,
-		.count = count
-	};
+	struct compat_getdents_callback buf;
 	int error;
 
+	error = -EFAULT;
 	if (!access_ok(VERIFY_WRITE, dirent, count))
-		return -EFAULT;
+		goto out;
 
-	f = fdget(fd);
-	if (!f.file)
-		return -EBADF;
+	error = -EBADF;
+	file = fget(fd);
+	if (!file)
+		goto out;
 
-	error = iterate_dir(f.file, &buf.ctx);
+	buf.current_dir = dirent;
+	buf.previous = NULL;
+	buf.count = count;
+	buf.error = 0;
+
+	error = vfs_readdir(file, compat_filldir, &buf);
 	if (error >= 0)
 		error = buf.error;
 	lastdirent = buf.previous;
 	if (lastdirent) {
-		if (put_user(buf.ctx.pos, &lastdirent->d_off))
+		if (put_user(file->f_pos, &lastdirent->d_off))
 			error = -EFAULT;
 		else
 			error = count - buf.count;
 	}
-	fdput(f);
+	fput(file);
+out:
 	return error;
 }
 
-#ifdef __ARCH_WANT_COMPAT_SYS_GETDENTS64
+#ifndef __ARCH_OMIT_COMPAT_SYS_GETDENTS64
 
 struct compat_getdents_callback64 {
-	struct dir_context ctx;
 	struct linux_dirent64 __user *current_dir;
 	struct linux_dirent64 __user *previous;
 	int count;
@@ -1036,43 +1067,258 @@ efault:
 asmlinkage long compat_sys_getdents64(unsigned int fd,
 		struct linux_dirent64 __user * dirent, unsigned int count)
 {
-	struct fd f;
+	struct file * file;
 	struct linux_dirent64 __user * lastdirent;
-	struct compat_getdents_callback64 buf = {
-		.ctx.actor = compat_filldir64,
-		.current_dir = dirent,
-		.count = count
-	};
+	struct compat_getdents_callback64 buf;
 	int error;
 
+	error = -EFAULT;
 	if (!access_ok(VERIFY_WRITE, dirent, count))
-		return -EFAULT;
+		goto out;
 
-	f = fdget(fd);
-	if (!f.file)
-		return -EBADF;
+	error = -EBADF;
+	file = fget(fd);
+	if (!file)
+		goto out;
 
-	error = iterate_dir(f.file, &buf.ctx);
+	buf.current_dir = dirent;
+	buf.previous = NULL;
+	buf.count = count;
+	buf.error = 0;
+
+	error = vfs_readdir(file, compat_filldir64, &buf);
 	if (error >= 0)
 		error = buf.error;
 	lastdirent = buf.previous;
 	if (lastdirent) {
-		typeof(lastdirent->d_off) d_off = buf.ctx.pos;
+		typeof(lastdirent->d_off) d_off = file->f_pos;
 		if (__put_user_unaligned(d_off, &lastdirent->d_off))
 			error = -EFAULT;
 		else
 			error = count - buf.count;
 	}
-	fdput(f);
+	fput(file);
+out:
 	return error;
 }
-#endif /* __ARCH_WANT_COMPAT_SYS_GETDENTS64 */
+#endif /* ! __ARCH_OMIT_COMPAT_SYS_GETDENTS64 */
+
+static ssize_t compat_do_readv_writev(int type, struct file *file,
+			       const struct compat_iovec __user *uvector,
+			       unsigned long nr_segs, loff_t *pos)
+{
+	compat_ssize_t tot_len;
+	struct iovec iovstack[UIO_FASTIOV];
+	struct iovec *iov = iovstack;
+	ssize_t ret;
+	io_fn_t fn;
+	iov_fn_t fnv;
+
+	ret = -EINVAL;
+	if (!file->f_op)
+		goto out;
+
+	ret = compat_rw_copy_check_uvector(type, uvector, nr_segs,
+					       UIO_FASTIOV, iovstack, &iov, 1);
+	if (ret <= 0)
+		goto out;
+
+	tot_len = ret;
+	ret = rw_verify_area(type, file, pos, tot_len);
+	if (ret < 0)
+		goto out;
+
+	fnv = NULL;
+	if (type == READ) {
+		fn = file->f_op->read;
+		fnv = file->f_op->aio_read;
+	} else {
+		fn = (io_fn_t)file->f_op->write;
+		fnv = file->f_op->aio_write;
+	}
+
+	if (fnv)
+		ret = do_sync_readv_writev(file, iov, nr_segs, tot_len,
+						pos, fnv);
+	else
+		ret = do_loop_readv_writev(file, iov, nr_segs, pos, fn);
+
+out:
+	if (iov != iovstack)
+		kfree(iov);
+	if ((ret + (type == READ)) > 0) {
+		if (type == READ)
+			fsnotify_access(file);
+		else
+			fsnotify_modify(file);
+	}
+	return ret;
+}
+
+static size_t compat_readv(struct file *file,
+			   const struct compat_iovec __user *vec,
+			   unsigned long vlen, loff_t *pos)
+{
+	ssize_t ret = -EBADF;
+
+	if (!(file->f_mode & FMODE_READ))
+		goto out;
+
+	ret = -EINVAL;
+	if (!file->f_op || (!file->f_op->aio_read && !file->f_op->read))
+		goto out;
+
+	ret = compat_do_readv_writev(READ, file, vec, vlen, pos);
+
+out:
+	if (ret > 0)
+		add_rchar(current, ret);
+	inc_syscr(current);
+	return ret;
+}
+
+asmlinkage ssize_t
+compat_sys_readv(unsigned long fd, const struct compat_iovec __user *vec,
+		 unsigned long vlen)
+{
+	struct file *file;
+	int fput_needed;
+	ssize_t ret;
+	loff_t pos;
+
+	file = fget_light(fd, &fput_needed);
+	if (!file)
+		return -EBADF;
+	pos = file->f_pos;
+	ret = compat_readv(file, vec, vlen, &pos);
+	file->f_pos = pos;
+	fput_light(file, fput_needed);
+	return ret;
+}
+
+asmlinkage ssize_t
+compat_sys_preadv64(unsigned long fd, const struct compat_iovec __user *vec,
+		    unsigned long vlen, loff_t pos)
+{
+	struct file *file;
+	int fput_needed;
+	ssize_t ret;
+
+	if (pos < 0)
+		return -EINVAL;
+	file = fget_light(fd, &fput_needed);
+	if (!file)
+		return -EBADF;
+	ret = -ESPIPE;
+	if (file->f_mode & FMODE_PREAD)
+		ret = compat_readv(file, vec, vlen, &pos);
+	fput_light(file, fput_needed);
+	return ret;
+}
+
+asmlinkage ssize_t
+compat_sys_preadv(unsigned long fd, const struct compat_iovec __user *vec,
+		  unsigned long vlen, u32 pos_low, u32 pos_high)
+{
+	loff_t pos = ((loff_t)pos_high << 32) | pos_low;
+	return compat_sys_preadv64(fd, vec, vlen, pos);
+}
+
+static size_t compat_writev(struct file *file,
+			    const struct compat_iovec __user *vec,
+			    unsigned long vlen, loff_t *pos)
+{
+	ssize_t ret = -EBADF;
+
+	if (!(file->f_mode & FMODE_WRITE))
+		goto out;
+
+	ret = -EINVAL;
+	if (!file->f_op || (!file->f_op->aio_write && !file->f_op->write))
+		goto out;
+
+	ret = compat_do_readv_writev(WRITE, file, vec, vlen, pos);
+
+out:
+	if (ret > 0)
+		add_wchar(current, ret);
+	inc_syscw(current);
+	return ret;
+}
+
+asmlinkage ssize_t
+compat_sys_writev(unsigned long fd, const struct compat_iovec __user *vec,
+		  unsigned long vlen)
+{
+	struct file *file;
+	int fput_needed;
+	ssize_t ret;
+	loff_t pos;
+
+	file = fget_light(fd, &fput_needed);
+	if (!file)
+		return -EBADF;
+	pos = file->f_pos;
+	ret = compat_writev(file, vec, vlen, &pos);
+	file->f_pos = pos;
+	fput_light(file, fput_needed);
+	return ret;
+}
+
+asmlinkage ssize_t
+compat_sys_pwritev64(unsigned long fd, const struct compat_iovec __user *vec,
+		     unsigned long vlen, loff_t pos)
+{
+	struct file *file;
+	int fput_needed;
+	ssize_t ret;
+
+	if (pos < 0)
+		return -EINVAL;
+	file = fget_light(fd, &fput_needed);
+	if (!file)
+		return -EBADF;
+	ret = -ESPIPE;
+	if (file->f_mode & FMODE_PWRITE)
+		ret = compat_writev(file, vec, vlen, &pos);
+	fput_light(file, fput_needed);
+	return ret;
+}
+
+asmlinkage ssize_t
+compat_sys_pwritev(unsigned long fd, const struct compat_iovec __user *vec,
+		   unsigned long vlen, u32 pos_low, u32 pos_high)
+{
+	loff_t pos = ((loff_t)pos_high << 32) | pos_low;
+	return compat_sys_pwritev64(fd, vec, vlen, pos);
+}
+
+asmlinkage long
+compat_sys_vmsplice(int fd, const struct compat_iovec __user *iov32,
+		    unsigned int nr_segs, unsigned int flags)
+{
+	unsigned i;
+	struct iovec __user *iov;
+	if (nr_segs > UIO_MAXIOV)
+		return -EINVAL;
+	iov = compat_alloc_user_space(nr_segs * sizeof(struct iovec));
+	for (i = 0; i < nr_segs; i++) {
+		struct compat_iovec v;
+		if (get_user(v.iov_base, &iov32[i].iov_base) ||
+		    get_user(v.iov_len, &iov32[i].iov_len) ||
+		    put_user(compat_ptr(v.iov_base), &iov[i].iov_base) ||
+		    put_user(v.iov_len, &iov[i].iov_len))
+			return -EFAULT;
+	}
+	return sys_vmsplice(fd, iov, nr_segs, flags);
+}
 
 /*
  * Exactly like fs/open.c:sys_open(), except that it doesn't set the
  * O_LARGEFILE flag.
  */
-COMPAT_SYSCALL_DEFINE3(open, const char __user *, filename, int, flags, umode_t, mode)
+asmlinkage long
+compat_sys_open(const char __user *filename, int flags, umode_t mode)
 {
 	return do_sys_open(AT_FDCWD, filename, flags, mode);
 }
@@ -1081,7 +1327,8 @@ COMPAT_SYSCALL_DEFINE3(open, const char __user *, filename, int, flags, umode_t,
  * Exactly like fs/open.c:sys_openat(), except that it doesn't set the
  * O_LARGEFILE flag.
  */
-COMPAT_SYSCALL_DEFINE4(openat, int, dfd, const char __user *, filename, int, flags, umode_t, mode)
+asmlinkage long
+compat_sys_openat(unsigned int dfd, const char __user *filename, int flags, umode_t mode)
 {
 	return do_sys_open(dfd, filename, flags, mode);
 }
@@ -1330,6 +1577,7 @@ asmlinkage long compat_sys_old_select(struct compat_sel_arg_struct __user *arg)
 				 compat_ptr(a.exp), compat_ptr(a.tvp));
 }
 
+#ifdef HAVE_SET_RESTORE_SIGMASK
 static long do_compat_pselect(int n, compat_ulong_t __user *inp,
 	compat_ulong_t __user *outp, compat_ulong_t __user *exp,
 	struct compat_timespec __user *tsp, compat_sigset_t __user *sigmask,
@@ -1452,14 +1700,137 @@ asmlinkage long compat_sys_ppoll(struct pollfd __user *ufds,
 
 	return ret;
 }
+#endif /* HAVE_SET_RESTORE_SIGMASK */
+
+#ifdef CONFIG_EPOLL
+
+#ifdef HAVE_SET_RESTORE_SIGMASK
+asmlinkage long compat_sys_epoll_pwait(int epfd,
+			struct compat_epoll_event __user *events,
+			int maxevents, int timeout,
+			const compat_sigset_t __user *sigmask,
+			compat_size_t sigsetsize)
+{
+	long err;
+	compat_sigset_t csigmask;
+	sigset_t ksigmask, sigsaved;
+
+	/*
+	 * If the caller wants a certain signal mask to be set during the wait,
+	 * we apply it here.
+	 */
+	if (sigmask) {
+		if (sigsetsize != sizeof(compat_sigset_t))
+			return -EINVAL;
+		if (copy_from_user(&csigmask, sigmask, sizeof(csigmask)))
+			return -EFAULT;
+		sigset_from_compat(&ksigmask, &csigmask);
+		sigdelsetmask(&ksigmask, sigmask(SIGKILL) | sigmask(SIGSTOP));
+		sigprocmask(SIG_SETMASK, &ksigmask, &sigsaved);
+	}
+
+	err = sys_epoll_wait(epfd, events, maxevents, timeout);
+
+	/*
+	 * If we changed the signal mask, we need to restore the original one.
+	 * In case we've got a signal while waiting, we do not restore the
+	 * signal mask yet, and we allow do_signal() to deliver the signal on
+	 * the way back to userspace, before the signal mask is restored.
+	 */
+	if (sigmask) {
+		if (err == -EINTR) {
+			memcpy(&current->saved_sigmask, &sigsaved,
+			       sizeof(sigsaved));
+			set_restore_sigmask();
+		} else
+			sigprocmask(SIG_SETMASK, &sigsaved, NULL);
+	}
+
+	return err;
+}
+#endif /* HAVE_SET_RESTORE_SIGMASK */
+
+#endif /* CONFIG_EPOLL */
+
+#ifdef CONFIG_SIGNALFD
+
+asmlinkage long compat_sys_signalfd4(int ufd,
+				     const compat_sigset_t __user *sigmask,
+				     compat_size_t sigsetsize, int flags)
+{
+	compat_sigset_t ss32;
+	sigset_t tmp;
+	sigset_t __user *ksigmask;
+
+	if (sigsetsize != sizeof(compat_sigset_t))
+		return -EINVAL;
+	if (copy_from_user(&ss32, sigmask, sizeof(ss32)))
+		return -EFAULT;
+	sigset_from_compat(&tmp, &ss32);
+	ksigmask = compat_alloc_user_space(sizeof(sigset_t));
+	if (copy_to_user(ksigmask, &tmp, sizeof(sigset_t)))
+		return -EFAULT;
+
+	return sys_signalfd4(ufd, ksigmask, sizeof(sigset_t), flags);
+}
+
+asmlinkage long compat_sys_signalfd(int ufd,
+				    const compat_sigset_t __user *sigmask,
+				    compat_size_t sigsetsize)
+{
+	return compat_sys_signalfd4(ufd, sigmask, sigsetsize, 0);
+}
+#endif /* CONFIG_SIGNALFD */
+
+#ifdef CONFIG_TIMERFD
+
+asmlinkage long compat_sys_timerfd_settime(int ufd, int flags,
+				   const struct compat_itimerspec __user *utmr,
+				   struct compat_itimerspec __user *otmr)
+{
+	int error;
+	struct itimerspec t;
+	struct itimerspec __user *ut;
+
+	if (get_compat_itimerspec(&t, utmr))
+		return -EFAULT;
+	ut = compat_alloc_user_space(2 * sizeof(struct itimerspec));
+	if (copy_to_user(&ut[0], &t, sizeof(t)))
+		return -EFAULT;
+	error = sys_timerfd_settime(ufd, flags, &ut[0], &ut[1]);
+	if (!error && otmr)
+		error = (copy_from_user(&t, &ut[1], sizeof(struct itimerspec)) ||
+			 put_compat_itimerspec(otmr, &t)) ? -EFAULT: 0;
+
+	return error;
+}
+
+asmlinkage long compat_sys_timerfd_gettime(int ufd,
+				   struct compat_itimerspec __user *otmr)
+{
+	int error;
+	struct itimerspec t;
+	struct itimerspec __user *ut;
+
+	ut = compat_alloc_user_space(sizeof(struct itimerspec));
+	error = sys_timerfd_gettime(ufd, ut);
+	if (!error)
+		error = (copy_from_user(&t, ut, sizeof(struct itimerspec)) ||
+			 put_compat_itimerspec(otmr, &t)) ? -EFAULT: 0;
+
+	return error;
+}
+
+#endif /* CONFIG_TIMERFD */
 
 #ifdef CONFIG_FHANDLE
 /*
  * Exactly like fs/open.c:sys_open_by_handle_at(), except that it
  * doesn't set the O_LARGEFILE flag.
  */
-COMPAT_SYSCALL_DEFINE3(open_by_handle_at, int, mountdirfd,
-			     struct file_handle __user *, handle, int, flags)
+asmlinkage long
+compat_sys_open_by_handle_at(int mountdirfd,
+			     struct file_handle __user *handle, int flags)
 {
 	return do_handle_open(mountdirfd, handle, flags);
 }

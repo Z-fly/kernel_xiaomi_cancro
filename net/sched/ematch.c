@@ -227,7 +227,6 @@ static int tcf_em_validate(struct tcf_proto *tp,
 				 * to replay the request.
 				 */
 				module_put(em->ops->owner);
-				em->ops = NULL;
 				err = -EAGAIN;
 			}
 #endif
@@ -241,6 +240,9 @@ static int tcf_em_validate(struct tcf_proto *tp,
 			goto errout;
 
 		if (em->ops->change) {
+			err = -EINVAL;
+			if (em_hdr->flags & TCF_EM_SIMPLE)
+				goto errout;
 			err = em->ops->change(tp, data, data_len, em);
 			if (err < 0)
 				goto errout;
@@ -442,8 +444,7 @@ int tcf_em_tree_dump(struct sk_buff *skb, struct tcf_ematch_tree *tree, int tlv)
 	if (top_start == NULL)
 		goto nla_put_failure;
 
-	if (nla_put(skb, TCA_EMATCH_TREE_HDR, sizeof(tree->hdr), &tree->hdr))
-		goto nla_put_failure;
+	NLA_PUT(skb, TCA_EMATCH_TREE_HDR, sizeof(tree->hdr), &tree->hdr);
 
 	list_start = nla_nest_start(skb, TCA_EMATCH_TREE_LIST);
 	if (list_start == NULL)
@@ -459,8 +460,7 @@ int tcf_em_tree_dump(struct sk_buff *skb, struct tcf_ematch_tree *tree, int tlv)
 			.flags = em->flags
 		};
 
-		if (nla_put(skb, i + 1, sizeof(em_hdr), &em_hdr))
-			goto nla_put_failure;
+		NLA_PUT(skb, i + 1, sizeof(em_hdr), &em_hdr);
 
 		if (em->ops && em->ops->dump) {
 			if (em->ops->dump(skb, em) < 0)
@@ -538,7 +538,9 @@ pop_stack:
 	return res;
 
 stack_overflow:
-	net_warn_ratelimited("tc ematch: local stack overflow, increase NET_EMATCH_STACK\n");
+	if (net_ratelimit())
+		pr_warning("tc ematch: local stack overflow,"
+			   " increase NET_EMATCH_STACK\n");
 	return -1;
 }
 EXPORT_SYMBOL(__tcf_em_tree_match);

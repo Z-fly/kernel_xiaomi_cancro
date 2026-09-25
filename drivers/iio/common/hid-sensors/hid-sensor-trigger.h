@@ -1,6 +1,8 @@
 /*
  * HID Sensors Driver
  * Copyright (c) 2012, Intel Corporation.
+ * Copyright (c) 2013, Movea SA, Jean-Baptiste Maneyrol <jbmaneyrol@movea.com>
+ * Copyright (C) 2017 XiaoMi, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms and conditions of the GNU General Public License,

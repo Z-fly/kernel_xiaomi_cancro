@@ -3,8 +3,8 @@
  * Converter driver.
  *
  * Copyright 2012 Analog Devices Inc.
- *  Author: Lars-Peter Clausen <lars@metafoo.de>
- *
+ * Author: Lars-Peter Clausen <lars@metafoo.de>
+ * Copyright (C) 2017 XiaoMi, Inc.
  * Licensed under the GPL-2.
  */
 
@@ -27,9 +27,9 @@
 #define AD5449_MAX_VREFS		2
 
 #define AD5449_CMD_NOOP			0x0
-#define AD5449_CMD_LOAD_AND_UPDATE(x)	(0x1 + (x) * 3)
-#define AD5449_CMD_READ(x)		(0x2 + (x) * 3)
-#define AD5449_CMD_LOAD(x)		(0x3 + (x) * 3)
+#define AD5449_CMD_LOAD_AND_UPDATE(x)	(0x1 + (x) *3)
+#define AD5449_CMD_READ(x)		(0x2 + (x) *3)
+#define AD5449_CMD_LOAD(x)		(0x3 + (x) *3)
 #define AD5449_CMD_CTRL			13
 
 #define AD5449_CTRL_SDO_OFFSET		10
@@ -289,7 +289,7 @@ static int ad5449_spi_probe(struct spi_device *spi)
 		st->vref_reg[i].supply = ad5449_vref_name(st, i);
 
 	ret = regulator_bulk_get(&spi->dev, st->chip_info->num_channels,
-				st->vref_reg);
+			st->vref_reg);
 	if (ret)
 		goto error_free;
 

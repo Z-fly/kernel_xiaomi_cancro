@@ -3,6 +3,7 @@
  *
  * Copyright 2011 Analog Devices Inc (from AD7923 Driver)
  * Copyright 2012 CS Systemes d'Information
+ * Copyright (C) 2017 XiaoMi, Inc.
  *
  * Licensed under the GPL-2.
  */
@@ -229,10 +230,10 @@ static int ad7923_get_range(struct ad7923_state *st)
 }
 
 static int ad7923_read_raw(struct iio_dev *indio_dev,
-			   struct iio_chan_spec const *chan,
-			   int *val,
-			   int *val2,
-			   long m)
+		struct iio_chan_spec const *chan,
+		int *val,
+		int *val2,
+		long m)
 {
 	int ret;
 	struct ad7923_state *st = iio_priv(indio_dev);

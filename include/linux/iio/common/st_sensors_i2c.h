@@ -2,6 +2,7 @@
  * STMicroelectronics sensors i2c library driver
  *
  * Copyright 2012-2013 STMicroelectronics Inc.
+ * Copyright (C) 2017 XiaoMi, Inc.
  *
  * Denis Ciocca <denis.ciocca@st.com>
  *

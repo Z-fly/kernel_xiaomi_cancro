@@ -17,7 +17,6 @@
 #include <linux/module.h>
 #include <linux/jiffies.h>
 #include <linux/kernel.h>
-#include <linux/ctype.h>
 #include <linux/inet.h>
 #include <linux/mm.h>
 #include <linux/net.h>
@@ -59,11 +58,14 @@ __be32 in_aton(const char *str)
 	int i;
 
 	l = 0;
-	for (i = 0; i < 4; i++)	{
+	for (i = 0; i < 4; i++)
+	{
 		l <<= 8;
-		if (*str != '\0') {
+		if (*str != '\0')
+		{
 			val = 0;
-			while (*str != '\0' && *str != '.' && *str != '\n') {
+			while (*str != '\0' && *str != '.' && *str != '\n')
+			{
 				val *= 10;
 				val += *str - '0';
 				str++;
@@ -108,18 +110,6 @@ static inline int xdigit2bin(char c, int delim)
 	return IN6PTON_UNKNOWN;
 }
 
-/**
- * in4_pton - convert an IPv4 address from literal to binary representation
- * @src: the start of the IPv4 address string
- * @srclen: the length of the string, -1 means strlen(src)
- * @dst: the binary (u8[4] array) representation of the IPv4 address
- * @delim: the delimiter of the IPv4 address in @src, -1 means no delimiter
- * @end: A pointer to the end of the parsed string will be placed here
- *
- * Return one on success, return zero when any error occurs
- * and @end will point to the end of the parsed string.
- *
- */
 int in4_pton(const char *src, int srclen,
 	     u8 *dst,
 	     int delim, const char **end)
@@ -174,18 +164,6 @@ out:
 }
 EXPORT_SYMBOL(in4_pton);
 
-/**
- * in6_pton - convert an IPv6 address from literal to binary representation
- * @src: the start of the IPv6 address string
- * @srclen: the length of the string, -1 means strlen(src)
- * @dst: the binary (u8[16] array) representation of the IPv6 address
- * @delim: the delimiter of the IPv6 address in @src, -1 means no delimiter
- * @end: A pointer to the end of the parsed string will be placed here
- *
- * Return one on success, return zero when any error occurs
- * and @end will point to the end of the parsed string.
- *
- */
 int in6_pton(const char *src, int srclen,
 	     u8 *dst,
 	     int delim, const char **end)
@@ -349,7 +327,9 @@ int mac_pton(const char *s, u8 *mac)
 
 	/* Don't dirty result unless string is valid MAC. */
 	for (i = 0; i < ETH_ALEN; i++) {
-		if (!isxdigit(s[i * 3]) || !isxdigit(s[i * 3 + 1]))
+		if (!strchr("0123456789abcdefABCDEF", s[i * 3]))
+			return 0;
+		if (!strchr("0123456789abcdefABCDEF", s[i * 3 + 1]))
 			return 0;
 		if (i != ETH_ALEN - 1 && s[i * 3 + 2] != ':')
 			return 0;

@@ -15,7 +15,6 @@ Required properties
 - vdda-supply :				Phandle for vdd regulator device node.
 - gpio-panel-en	:			GPIO for supplying power to panel and backlight
 							driver.
-- gpio-lvl-en	:			GPIO to enable HPD be received by host.
 - status :				A string that has to be set to "okay/ok" to enable
 						the driver. By default this property will be set to
 						"disable". Will be set to "ok/okay" status for
@@ -24,12 +23,9 @@ Required properties
 					interface is mapped.
 - gpio-panel-hpd :			gpio pin use for edp hpd
 
-Optional properties
-- qcom,panel-lpg-channel :		LPG channel for backlight.
-- qcom,panel-pwm-period :		PWM period in microseconds.
-
 
 Optional properties:
+- qcom,cont-splash-enabled:             Boolean used to enable continuous splash mode.
 - qcom,mdss-brightness-max-level:	Specifies the max brightness level supported.
 					255 = default value.
 
@@ -41,12 +37,15 @@ Example:
 		reg-names = "edp_base", "mmss_cc_base";
 		vdda-supply = <&pm8941_l12>;
 		gpio-panel-en = <&msmgpio 58 0>;
-		gpio-lvl-en = <&msmgpio 91 0>;
 		qcom,panel-lpg-channel = <7>; /* LPG Channel 8 */
 		qcom,panel-pwm-period = <53>;
 		status = "disable";
 		qcom,mdss-fb-map = <&mdss_fb0>;
 		gpio-panel-hpd = <&msmgpio 102 0>;
 	};
+
+Optional properties
+- qcom,panel-lpg-channel :		LPG channel for backlight.
+- qcom,panel-pwm-period :		PWM period in microseconds.
 
 

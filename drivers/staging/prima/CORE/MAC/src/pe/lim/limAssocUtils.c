@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011-2016 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2011-2015 The Linux Foundation. All rights reserved.
  *
  * Previously licensed under the ISC license by Qualcomm Atheros, Inc.
  *
@@ -743,12 +743,15 @@ limCleanupRxPath(tpAniSirGlobal pMac, tpDphHashNode pStaDs,tpPESession psessionE
     pMac->lim.gLimNumRxCleanup++;
 #endif
 
-    if (psessionEntry->limSmeState == eLIM_SME_JOIN_FAILURE_STATE) {
-        retCode = limDelBss( pMac, pStaDs, psessionEntry->bssIdx, psessionEntry);
+    /* Do DEL BSS or DEL STA only if ADD BSS was success */
+    if (!psessionEntry->addBssfailed)
+    {
+        if (psessionEntry->limSmeState == eLIM_SME_JOIN_FAILURE_STATE)
+           retCode = limDelBss( pMac, pStaDs,
+                          psessionEntry->bssIdx, psessionEntry);
+        else
+           retCode = limDelSta( pMac, pStaDs, true, psessionEntry);
     }
-    else
-        retCode = limDelSta( pMac, pStaDs, true, psessionEntry);
-
     return retCode;
 
 } /*** end limCleanupRxPath() ***/
@@ -819,6 +822,7 @@ limSendDelStaCnf(tpAniSirGlobal pMac, tSirMacAddr staDsAddr,
         }
 
         psessionEntry->limAID = 0;
+
 
     }
 
@@ -2516,14 +2520,8 @@ limAddSta(
         }
         else
         {
-            if (psessionEntry->txLdpcIniFeatureEnabled & 0x1)
-                pAddStaParams->htLdpcCapable = pStaDs->htLdpcCapable;
-            else
-                pAddStaParams->htLdpcCapable = 0;
-            if (psessionEntry->txLdpcIniFeatureEnabled & 0x2)
-                pAddStaParams->vhtLdpcCapable = pStaDs->vhtLdpcCapable;
-            else
-                pAddStaParams->vhtLdpcCapable = 0;
+            pAddStaParams->htLdpcCapable = pStaDs->htLdpcCapable;
+            pAddStaParams->vhtLdpcCapable = pStaDs->vhtLdpcCapable;
         }
     }
     else if( STA_ENTRY_SELF == pStaDs->staType)
@@ -3839,16 +3837,8 @@ tSirRetStatus limStaSendAddBss( tpAniSirGlobal pMac, tpSirAssocRsp pAssocRsp,
             }
             else
             {
-                if (psessionEntry->txLdpcIniFeatureEnabled & 0x1)
-                    pAddBssParams->staContext.htLdpcCapable =
-                            (tANI_U8)pAssocRsp->HTCaps.advCodingCap;
-                else
-                    pAddBssParams->staContext.htLdpcCapable = 0;
-                if (psessionEntry->txLdpcIniFeatureEnabled & 0x2)
-                    pAddBssParams->staContext.vhtLdpcCapable =
-                        (tANI_U8)pAssocRsp->VHTCaps.ldpcCodingCap;
-                else
-                    pAddBssParams->staContext.vhtLdpcCapable = 0;
+                pAddBssParams->staContext.htLdpcCapable = (tANI_U8)pAssocRsp->HTCaps.advCodingCap;
+                pAddBssParams->staContext.vhtLdpcCapable = (tANI_U8)pAssocRsp->VHTCaps.ldpcCodingCap;
             }
 
             if( pBeaconStruct->HTInfo.present )
@@ -3944,7 +3934,6 @@ tSirRetStatus limStaSendAddBss( tpAniSirGlobal pMac, tpSirAssocRsp pAssocRsp,
         psessionEntry->limMlmState = eLIM_MLM_WT_ADD_BSS_RSP_ASSOC_STATE;
     else
         psessionEntry->limMlmState = eLIM_MLM_WT_ADD_BSS_RSP_REASSOC_STATE;
-
     MTRACE(macTrace(pMac, TRACE_CODE_MLM_STATE, psessionEntry->peSessionId, psessionEntry->limMlmState));
 
     limLog(pMac, LOG1, FL("staContext wmmEnabled: %d encryptType: %d "
@@ -4293,16 +4282,8 @@ tSirRetStatus limStaSendAddBssPreAssoc( tpAniSirGlobal pMac, tANI_U8 updateEntry
             }
             else
             {
-                if (psessionEntry->txLdpcIniFeatureEnabled & 0x1)
-                    pAddBssParams->staContext.htLdpcCapable =
-                            (tANI_U8)pBeaconStruct->HTCaps.advCodingCap;
-                else
-                    pAddBssParams->staContext.htLdpcCapable = 0;
-                if (psessionEntry->txLdpcIniFeatureEnabled & 0x2)
-                    pAddBssParams->staContext.vhtLdpcCapable =
-                        (tANI_U8)pBeaconStruct->VHTCaps.ldpcCodingCap;
-                else
-                    pAddBssParams->staContext.vhtLdpcCapable = 0;
+                pAddBssParams->staContext.htLdpcCapable = (tANI_U8)pBeaconStruct->HTCaps.advCodingCap;
+                pAddBssParams->staContext.vhtLdpcCapable = (tANI_U8)pBeaconStruct->VHTCaps.ldpcCodingCap;
             }
             
             if( pBeaconStruct->HTInfo.present )

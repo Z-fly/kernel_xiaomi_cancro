@@ -1,6 +1,7 @@
 /* The industrial I/O core
  *
  * Copyright (c) 2008 Jonathan Cameron
+ * Copyright (C) 2017 XiaoMi, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License version 2 as published by
@@ -66,12 +67,16 @@ static const char * const iio_chan_type_name_spec[] = {
 	[IIO_ALTVOLTAGE] = "altvoltage",
 	[IIO_CCT] = "cct",
 	[IIO_PRESSURE] = "pressure",
+	[IIO_HUMIDITY] = "humidity",
+	[IIO_CUSTOM] = "custom",
+	[IIO_EVENT] = "event",
 };
 
 static const char * const iio_modifier_names[] = {
 	[IIO_MOD_X] = "x",
 	[IIO_MOD_Y] = "y",
 	[IIO_MOD_Z] = "z",
+	[IIO_MOD_W] = "w",
 	[IIO_MOD_ROOT_SUM_SQUARED_X_Y] = "sqrt(x^2+y^2)",
 	[IIO_MOD_SUM_SQUARED_X_Y_Z] = "x^2+y^2+z^2",
 	[IIO_MOD_LIGHT_BOTH] = "both",
@@ -116,8 +121,8 @@ const struct iio_chan_spec
 
 /* This turns up an awful lot */
 ssize_t iio_read_const_attr(struct device *dev,
-			    struct device_attribute *attr,
-			    char *buf)
+		struct device_attribute *attr,
+		char *buf)
 {
 	return sprintf(buf, "%s\n", to_iio_const_attr(attr)->string);
 }
@@ -163,7 +168,7 @@ static void __exit iio_exit(void)
 
 #if defined(CONFIG_DEBUG_FS)
 static ssize_t iio_debugfs_read_reg(struct file *file, char __user *userbuf,
-			      size_t count, loff_t *ppos)
+		size_t count, loff_t *ppos)
 {
 	struct iio_dev *indio_dev = file->private_data;
 	char buf[20];
@@ -172,8 +177,8 @@ static ssize_t iio_debugfs_read_reg(struct file *file, char __user *userbuf,
 	int ret;
 
 	ret = indio_dev->info->debugfs_reg_access(indio_dev,
-						  indio_dev->cached_reg_addr,
-						  0, &val);
+			indio_dev->cached_reg_addr,
+			0, &val);
 	if (ret)
 		dev_err(indio_dev->dev.parent, "%s: read failed\n", __func__);
 
@@ -205,7 +210,7 @@ static ssize_t iio_debugfs_write_reg(struct file *file,
 	case 2:
 		indio_dev->cached_reg_addr = reg;
 		ret = indio_dev->info->debugfs_reg_access(indio_dev, reg,
-							  val, NULL);
+				val, NULL);
 		if (ret) {
 			dev_err(indio_dev->dev.parent, "%s: write failed\n",
 				__func__);
@@ -250,8 +255,8 @@ static int iio_device_register_debugfs(struct iio_dev *indio_dev)
 	}
 
 	d = debugfs_create_file("direct_reg_access", 0644,
-				indio_dev->debugfs_dentry,
-				indio_dev, &iio_debugfs_reg_fops);
+			indio_dev->debugfs_dentry,
+			indio_dev, &iio_debugfs_reg_fops);
 	if (!d) {
 		iio_device_unregister_debugfs(indio_dev);
 		return -ENOMEM;
@@ -271,8 +276,8 @@ static void iio_device_unregister_debugfs(struct iio_dev *indio_dev)
 #endif /* CONFIG_DEBUG_FS */
 
 static ssize_t iio_read_channel_ext_info(struct device *dev,
-				     struct device_attribute *attr,
-				     char *buf)
+		struct device_attribute *attr,
+		char *buf)
 {
 	struct iio_dev *indio_dev = dev_to_iio_dev(dev);
 	struct iio_dev_attr *this_attr = to_iio_dev_attr(attr);
@@ -284,9 +289,9 @@ static ssize_t iio_read_channel_ext_info(struct device *dev,
 }
 
 static ssize_t iio_write_channel_ext_info(struct device *dev,
-				     struct device_attribute *attr,
-				     const char *buf,
-					 size_t len)
+		struct device_attribute *attr,
+		const char *buf,
+		size_t len)
 {
 	struct iio_dev *indio_dev = dev_to_iio_dev(dev);
 	struct iio_dev_attr *this_attr = to_iio_dev_attr(attr);
@@ -362,8 +367,8 @@ ssize_t iio_enum_write(struct iio_dev *indio_dev,
 EXPORT_SYMBOL_GPL(iio_enum_write);
 
 static ssize_t iio_read_channel_info(struct device *dev,
-				     struct device_attribute *attr,
-				     char *buf)
+		struct device_attribute *attr,
+		char *buf)
 {
 	struct iio_dev *indio_dev = dev_to_iio_dev(dev);
 	struct iio_dev_attr *this_attr = to_iio_dev_attr(attr);
@@ -371,7 +376,7 @@ static ssize_t iio_read_channel_info(struct device *dev,
 	int val, val2;
 	bool scale_db = false;
 	int ret = indio_dev->info->read_raw(indio_dev, this_attr->c,
-					    &val, &val2, this_attr->address);
+			&val, &val2, this_attr->address);
 
 	if (ret < 0)
 		return ret;
@@ -384,10 +389,10 @@ static ssize_t iio_read_channel_info(struct device *dev,
 	case IIO_VAL_INT_PLUS_MICRO:
 		if (val2 < 0)
 			return sprintf(buf, "-%d.%06u%s\n", val, -val2,
-				scale_db ? " dB" : "");
+					scale_db ? " dB" : "");
 		else
 			return sprintf(buf, "%d.%06u%s\n", val, val2,
-				scale_db ? " dB" : "");
+					scale_db ? " dB" : "");
 	case IIO_VAL_INT_PLUS_NANO:
 		if (val2 < 0)
 			return sprintf(buf, "-%d.%09u\n", val, -val2);
@@ -467,9 +472,9 @@ int iio_str_to_fixpoint(const char *str, int fract_mult,
 EXPORT_SYMBOL_GPL(iio_str_to_fixpoint);
 
 static ssize_t iio_write_channel_info(struct device *dev,
-				      struct device_attribute *attr,
-				      const char *buf,
-				      size_t len)
+		struct device_attribute *attr,
+		const char *buf,
+		size_t len)
 {
 	struct iio_dev *indio_dev = dev_to_iio_dev(dev);
 	struct iio_dev_attr *this_attr = to_iio_dev_attr(attr);
@@ -633,18 +638,18 @@ static void __iio_device_attr_deinit(struct device_attribute *dev_attr)
 }
 
 int __iio_add_chan_devattr(const char *postfix,
-			   struct iio_chan_spec const *chan,
-			   ssize_t (*readfunc)(struct device *dev,
-					       struct device_attribute *attr,
-					       char *buf),
-			   ssize_t (*writefunc)(struct device *dev,
-						struct device_attribute *attr,
-						const char *buf,
-						size_t len),
-			   u64 mask,
-			   bool generic,
-			   struct device *dev,
-			   struct list_head *attr_list)
+		struct iio_chan_spec const *chan,
+		ssize_t (*readfunc)(struct device *dev,
+				struct device_attribute *attr,
+				char *buf),
+		ssize_t (*writefunc)(struct device *dev,
+				struct device_attribute *attr,
+				const char *buf,
+				size_t len),
+		u64 mask,
+		bool generic,
+		struct device *dev,
+		struct list_head *attr_list)
 {
 	int ret;
 	struct iio_dev_attr *iio_attr, *t;
@@ -683,7 +688,7 @@ error_ret:
 }
 
 static int iio_device_add_channel_sysfs(struct iio_dev *indio_dev,
-					struct iio_chan_spec const *chan)
+		struct iio_chan_spec const *chan)
 {
 	int ret, attrcount = 0;
 	int i;
@@ -752,15 +757,15 @@ error_ret:
 }
 
 static void iio_device_remove_and_free_read_attr(struct iio_dev *indio_dev,
-						 struct iio_dev_attr *p)
+		 struct iio_dev_attr *p)
 {
 	kfree(p->dev_attr.attr.name);
 	kfree(p);
 }
 
 static ssize_t iio_show_dev_name(struct device *dev,
-				 struct device_attribute *attr,
-				 char *buf)
+		struct device_attribute *attr,
+		char *buf)
 {
 	struct iio_dev *indio_dev = dev_to_iio_dev(dev);
 	return sprintf(buf, "%s\n", indio_dev->name);
@@ -918,7 +923,7 @@ EXPORT_SYMBOL(iio_device_free);
 static int iio_chrdev_open(struct inode *inode, struct file *filp)
 {
 	struct iio_dev *indio_dev = container_of(inode->i_cdev,
-						struct iio_dev, chrdev);
+			struct iio_dev, chrdev);
 
 	if (test_and_set_bit(IIO_BUSY_BIT_POS, &indio_dev->flags))
 		return -EBUSY;
@@ -934,7 +939,7 @@ static int iio_chrdev_open(struct inode *inode, struct file *filp)
 static int iio_chrdev_release(struct inode *inode, struct file *filp)
 {
 	struct iio_dev *indio_dev = container_of(inode->i_cdev,
-						struct iio_dev, chrdev);
+			struct iio_dev, chrdev);
 	clear_bit(IIO_BUSY_BIT_POS, &indio_dev->flags);
 	return 0;
 }

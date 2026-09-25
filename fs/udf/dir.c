@@ -165,8 +165,6 @@ static int do_udf_readdir(struct inode *dir, struct file *filp,
 			iblock = udf_get_lb_pblock(dir->i_sb, &tloc, 0);
 			flen = udf_get_filename(dir->i_sb, nameptr, lfi, fname,
 						UDF_NAME_LEN);
-			if (!flen)
-				continue;
 			dt_type = DT_UNKNOWN;
 		}
 
@@ -189,7 +187,7 @@ out:
 
 static int udf_readdir(struct file *filp, void *dirent, filldir_t filldir)
 {
-	struct inode *dir = file_inode(filp);
+	struct inode *dir = filp->f_path.dentry->d_inode;
 	int result;
 
 	if (filp->f_pos == 0) {

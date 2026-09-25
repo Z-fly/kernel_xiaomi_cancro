@@ -2,7 +2,8 @@
  *   Copyright (C) 2010-2012 by Bruno Prémont <bonbons@linux-vserver.org>  *
  *                                                                         *
  *   Based on Logitech G13 driver (v0.4)                                   *
- *     Copyright (C) 2009 by Rick L. Vinyard, Jr. <rvinyard@cs.nmsu.edu>   *
+ *   Copyright (C) 2009 by Rick L. Vinyard, Jr. <rvinyard@cs.nmsu.edu>     *
+ *   Copyright (C) 2017 XiaoMi, Inc.                                       *
  *                                                                         *
  *   This program is free software: you can redistribute it and/or modify  *
  *   it under the terms of the GNU General Public License as published by  *
@@ -206,10 +207,10 @@ static int picolcd_check_version(struct hid_device *hdev)
 		data->version[1] = verinfo->raw_data[0];
 		if (data->status & PICOLCD_BOOTLOADER) {
 			hid_info(hdev, "PicoLCD, bootloader version %d.%d\n",
-				 verinfo->raw_data[1], verinfo->raw_data[0]);
+					verinfo->raw_data[1], verinfo->raw_data[0]);
 		} else {
 			hid_info(hdev, "PicoLCD, firmware version %d.%d\n",
-				 verinfo->raw_data[1], verinfo->raw_data[0]);
+					verinfo->raw_data[1], verinfo->raw_data[0]);
 		}
 	} else {
 		hid_err(hdev, "confused, got unexpected version response from PicoLCD\n");
@@ -349,12 +350,6 @@ static int picolcd_raw_event(struct hid_device *hdev,
 
 	if (!data)
 		return 1;
-
-	if (size > 64) {
-		hid_warn(hdev, "invalid size value (%d) for picolcd raw event\n",
-				size);
-		return 0;
-	}
 
 	if (report->id == REPORT_KEY_STATE) {
 		if (data->input_keys)

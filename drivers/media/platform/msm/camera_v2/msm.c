@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2015, 2017 The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -24,17 +24,15 @@
 #include <linux/msm_ion.h>
 #include <linux/iommu.h>
 #include <linux/platform_device.h>
-#include <linux/debugfs.h>
 #include <media/v4l2-fh.h>
 #include "msm.h"
 #include "msm_vb2.h"
 #include "msm_sd.h"
 #include <media/msmb_generic_buf_mgr.h>
 
+
 static struct v4l2_device *msm_v4l2_dev;
 static struct list_head    ordered_sd_list;
-
-static struct pm_qos_request msm_v4l2_pm_qos_request;
 
 static struct msm_queue_head *msm_session_q;
 
@@ -44,12 +42,6 @@ spinlock_t msm_eventq_lock;
 
 static struct pid *msm_pid;
 spinlock_t msm_pid_lock;
-
-/*
- * It takes 20 bytes + NULL character to write the
- * largest decimal value of an uint64_t
- */
-#define LOGSYNC_PACKET_SIZE 21
 
 #define msm_dequeue(queue, type, member) ({				\
 	unsigned long flags;					\
@@ -139,7 +131,7 @@ typedef int (*msm_queue_find_func)(void *d1, void *d2);
 #define msm_queue_find(queue, type, member, func, data) ({\
 	unsigned long flags;					\
 	struct msm_queue_head *__q = (queue);			\
-	type *node = NULL; \
+	type *node = 0; \
 	typeof(node) __ret = NULL; \
 	msm_queue_find_func __f = (func); \
 	spin_lock_irqsave(&__q->lock, flags);			\
@@ -195,24 +187,6 @@ static inline int __msm_queue_find_command_ack_q(void *d1, void *d2)
 	return (ack->stream_id == *(unsigned int *)d2) ? 1 : 0;
 }
 
-static void msm_pm_qos_add_request(void)
-{
-	pr_debug("%s: add request", __func__);
-	pm_qos_add_request(&msm_v4l2_pm_qos_request, PM_QOS_CPU_DMA_LATENCY,
-		PM_QOS_DEFAULT_VALUE);
-}
-
-static void msm_pm_qos_remove_request(void)
-{
-	pr_debug("%s: remove request", __func__);
-	pm_qos_remove_request(&msm_v4l2_pm_qos_request);
-}
-
-void msm_pm_qos_update_request(int val)
-{
-	pr_debug("%s: update request %d", __func__, val);
-	pm_qos_update_request(&msm_v4l2_pm_qos_request, val);
-}
 
 struct msm_session *msm_session_find(unsigned int session_id)
 {
@@ -255,47 +229,21 @@ void msm_delete_stream(unsigned int session_id, unsigned int stream_id)
 	struct msm_session *session = NULL;
 	struct msm_stream  *stream = NULL;
 	unsigned long flags;
-	int try_count = 0;
 
 	session = msm_queue_find(msm_session_q, struct msm_session,
 		list, __msm_queue_find_session, &session_id);
-
 	if (!session)
 		return;
 
-	while (1) {
-		unsigned long wl_flags;
-		if (try_count > 5) {
-			pr_err("%s : not able to delete stream %d\n",
-				__func__, __LINE__);
-			break;
-		}
-
-		write_lock_irqsave(&session->stream_rwlock, wl_flags);
-		try_count++;
-		stream = msm_queue_find(&session->stream_q, struct msm_stream,
-			list, __msm_queue_find_stream, &stream_id);
-
-		if (!stream) {
-			write_unlock_irqrestore(&session->stream_rwlock, wl_flags);
-			return;
-		}
-
-		if (msm_vb2_get_stream_state(stream) != 1) {
-			write_unlock_irqrestore(&session->stream_rwlock, wl_flags);
-			continue;
-		}
-
-		spin_lock_irqsave(&(session->stream_q.lock), flags);
-		list_del_init(&stream->list);
-		session->stream_q.len--;
-		kfree(stream);
-		stream = NULL;
-		spin_unlock_irqrestore(&(session->stream_q.lock), flags);
-		write_unlock_irqrestore(&session->stream_rwlock, wl_flags);
-		break;
-	}
-
+	stream = msm_queue_find(&session->stream_q, struct msm_stream,
+		list, __msm_queue_find_stream, &stream_id);
+	if (!stream)
+		return;
+	spin_lock_irqsave(&(session->stream_q.lock), flags);
+	list_del_init(&stream->list);
+	session->stream_q.len--;
+	spin_unlock_irqrestore(&(session->stream_q.lock), flags);
+	kzfree(stream);
 }
 
 static void msm_sd_unregister_subdev(struct video_device *vdev)
@@ -361,11 +309,6 @@ static void msm_add_sd_in_position(struct msm_sd_subdev *msm_subdev,
 	struct msm_sd_subdev *temp_sd;
 
 	list_for_each_entry(temp_sd, sd_list, list) {
-		if (temp_sd == msm_subdev) {
-			pr_err("%s :Fail to add the same sd %d\n",
-				__func__, __LINE__);
-			return;
-		}
 		if (msm_subdev->close_seq < temp_sd->close_seq) {
 			list_add_tail(&msm_subdev->list, &temp_sd->list);
 			return;
@@ -426,8 +369,6 @@ int msm_create_session(unsigned int session_id, struct video_device *vdev)
 	msm_init_queue(&session->stream_q);
 	msm_enqueue(msm_session_q, &session->list);
 	mutex_init(&session->lock);
-	mutex_init(&session->close_lock);
-	rwlock_init(&session->stream_rwlock);
 	return 0;
 }
 
@@ -512,25 +453,11 @@ static inline int __msm_sd_close_subdevs(struct msm_sd_subdev *msm_sd,
 	return 0;
 }
 
-static inline int __msm_sd_notify_freeze_subdevs(struct msm_sd_subdev *msm_sd)
-{
-	struct v4l2_subdev *sd;
-	sd = &msm_sd->sd;
-
-	v4l2_subdev_call(sd, core, ioctl, MSM_SD_NOTIFY_FREEZE, NULL);
-
-	return 0;
-}
-
 static inline int __msm_destroy_session_streams(void *d1, void *d2)
 {
 	struct msm_stream *stream = d1;
-	unsigned long flags;
-
-	pr_err("%s: Error: Destroyed list is not empty\n", __func__);
-	spin_lock_irqsave(&stream->stream_lock, flags);
+	pr_err("%s: Destroyed here due to list is not empty\n", __func__);
 	INIT_LIST_HEAD(&stream->queued_list);
-	spin_unlock_irqrestore(&stream->stream_lock, flags);
 	return 0;
 }
 
@@ -579,7 +506,6 @@ int msm_destroy_session(unsigned int session_id)
 {
 	struct msm_session *session;
 	struct v4l2_subdev *buf_mgr_subdev;
-	struct msm_sd_close_ioctl session_info;
 
 	session = msm_queue_find(msm_session_q, struct msm_session,
 		list, __msm_queue_find_session, &session_id);
@@ -589,18 +515,14 @@ int msm_destroy_session(unsigned int session_id)
 	msm_destroy_session_streams(session);
 	msm_remove_session_cmd_ack_q(session);
 	mutex_destroy(&session->lock);
-	mutex_destroy(&session->close_lock);
 	msm_delete_entry(msm_session_q, struct msm_session,
 		list, session);
 	buf_mgr_subdev = msm_buf_mngr_get_subdev();
 	if (buf_mgr_subdev) {
-		session_info.session = session_id;
-		session_info.stream = 0;
 		v4l2_subdev_call(buf_mgr_subdev, core, ioctl,
-			MSM_SD_SHUTDOWN, &session_info);
-	} else {
+			MSM_SD_SHUTDOWN, NULL);
+	} else
 		pr_err("%s: Buff manger device node is NULL\n", __func__);
-	}
 
 	return 0;
 }
@@ -622,16 +544,17 @@ static int __msm_close_destry_session_notify_apps(void *d1, void *d2)
 }
 
 static long msm_private_ioctl(struct file *file, void *fh,
-	bool valid_prio, unsigned int cmd, void *arg)
+	bool valid_prio, int cmd, void *arg)
 {
 	int rc = 0;
-	struct msm_v4l2_event_data *event_data = arg;
-	struct v4l2_event event;
+	struct msm_v4l2_event_data *event_data;
 	struct msm_session *session;
 	unsigned int session_id;
 	unsigned int stream_id;
 	unsigned long spin_flags = 0;
-	struct msm_sd_subdev *msm_sd;
+
+	event_data = (struct msm_v4l2_event_data *)
+		((struct v4l2_event *)arg)->u.data;
 
 	session_id = event_data->session_id;
 	stream_id = event_data->stream_id;
@@ -648,12 +571,9 @@ static long msm_private_ioctl(struct file *file, void *fh,
 			rc = -EFAULT;
 			break;
 		}
-		event.type = event_data->v4l2_event_type;
-		event.id = event_data->v4l2_event_id;
-		memcpy(&event.u.data, event_data,
-			sizeof(struct msm_v4l2_event_data));
+
 		v4l2_event_queue(session->event_q.vdev,
-			&event);
+			(struct v4l2_event *)arg);
 	}
 		break;
 
@@ -679,24 +599,11 @@ static long msm_private_ioctl(struct file *file, void *fh,
 
 		spin_lock_irqsave(&(session->command_ack_q.lock),
 		   spin_flags);
-		event.type = event_data->v4l2_event_type;
-		event.id = event_data->v4l2_event_id;
-		memcpy(&event.u.data, event_data,
-			sizeof(struct msm_v4l2_event_data));
-		memcpy(&ret_cmd->event, &event, sizeof(struct v4l2_event));
+		ret_cmd->event = *(struct v4l2_event *)arg;
 		msm_enqueue(&cmd_ack->command_q, &ret_cmd->list);
 		complete(&cmd_ack->wait_complete);
 		spin_unlock_irqrestore(&(session->command_ack_q.lock),
 		   spin_flags);
-	}
-		break;
-
-	case MSM_CAM_V4L2_IOCTL_NOTIFY_DEBUG: {
-		pr_err("Notifying subdevs about potential sof freeze\n");
-		if (!list_empty(&msm_v4l2_dev->subdevs)) {
-			list_for_each_entry(msm_sd, &ordered_sd_list, list)
-				__msm_sd_notify_freeze_subdevs(msm_sd);
-		}
 	}
 		break;
 
@@ -716,15 +623,15 @@ static long msm_private_ioctl(struct file *file, void *fh,
 }
 
 static int msm_unsubscribe_event(struct v4l2_fh *fh,
-	const struct v4l2_event_subscription *sub)
+	struct v4l2_event_subscription *sub)
 {
 	return v4l2_event_unsubscribe(fh, sub);
 }
 
 static int msm_subscribe_event(struct v4l2_fh *fh,
-	const struct v4l2_event_subscription *sub)
+	struct v4l2_event_subscription *sub)
 {
-	return v4l2_event_subscribe(fh, sub, 5, NULL);
+	return v4l2_event_subscribe(fh, sub, 5);
 }
 
 static const struct v4l2_ioctl_ops g_msm_ioctl_ops = {
@@ -747,18 +654,6 @@ static unsigned int msm_poll(struct file *f,
 		rc = POLLIN | POLLRDNORM;
 
 	return rc;
-}
-
-static void msm_print_event_error(struct v4l2_event *event)
-{
-	struct msm_v4l2_event_data *event_data =
-		(struct msm_v4l2_event_data *)&event->u.data[0];
-
-	pr_err("Evt_type=%x Evt_id=%d Evt_cmd=%x\n", event->type,
-		event->id, event_data->command);
-	pr_err("Evt_session_id=%d Evt_stream_id=%d Evt_arg=%d\n",
-		event_data->session_id, event_data->stream_id,
-		event_data->arg_value);
 }
 
 /* something seriously wrong if msm_close is triggered
@@ -816,7 +711,7 @@ int msm_post_event(struct v4l2_event *event, int timeout)
 
 	if (timeout < 0) {
 		mutex_unlock(&session->lock);
-		pr_debug("%s : timeout cannot be negative Line %d\n",
+		pr_err("%s : timeout cannot be negative Line %d\n",
 				__func__, __LINE__);
 		return rc;
 	}
@@ -825,17 +720,13 @@ int msm_post_event(struct v4l2_event *event, int timeout)
 	rc = wait_for_completion_timeout(&cmd_ack->wait_complete,
 			msecs_to_jiffies(timeout));
 
-
 	if (list_empty_careful(&cmd_ack->command_q.list)) {
 		if (!rc) {
 			pr_err("%s: Timed out\n", __func__);
-			msm_print_event_error(event);
-			mutex_unlock(&session->lock);
-			return -ETIMEDOUT;
+			rc = -ETIMEDOUT;
 		} else {
 			pr_err("%s: Error: No timeout but list empty!",
 					__func__);
-			msm_print_event_error(event);
 			mutex_unlock(&session->lock);
 			return -EINVAL;
 		}
@@ -863,7 +754,6 @@ int msm_post_event(struct v4l2_event *event, int timeout)
 				cmd->event.type, cmd->event.id);
 		rc = -EINVAL;
 	}
-
 	*event = cmd->event;
 
 	kzfree(cmd);
@@ -883,9 +773,6 @@ static int msm_close(struct file *filep)
 	if (!list_empty(&msm_v4l2_dev->subdevs))
 		list_for_each_entry(msm_sd, &ordered_sd_list, list)
 			__msm_sd_close_subdevs(msm_sd, &sd_close);
-
-	/* remove msm_v4l2_pm_qos_request */
-	msm_pm_qos_remove_request();
 
 	/* send v4l2_event to HAL next*/
 	msm_queue_traverse_action(msm_session_q, struct msm_session, list,
@@ -941,9 +828,6 @@ static int msm_open(struct file *filep)
 	msm_eventq = filep->private_data;
 	spin_unlock_irqrestore(&msm_eventq_lock, flags);
 
-	/* register msm_v4l2_pm_qos_request */
-	msm_pm_qos_add_request();
-
 	return rc;
 }
 
@@ -953,29 +837,18 @@ static struct v4l2_file_operations msm_fops = {
 	.poll   = msm_poll,
 	.release = msm_close,
 	.ioctl   = video_ioctl2,
-#ifdef CONFIG_COMPAT
-	.compat_ioctl32 = video_ioctl2,
-#endif
 };
 
-struct msm_session *msm_get_session(unsigned int session_id)
+struct msm_stream *msm_get_stream(unsigned int session_id,
+	unsigned int stream_id)
 {
 	struct msm_session *session;
+	struct msm_stream *stream;
 
 	session = msm_queue_find(msm_session_q, struct msm_session,
 		list, __msm_queue_find_session, &session_id);
 	if (!session)
 		return ERR_PTR(-EINVAL);
-
-	return session;
-}
-EXPORT_SYMBOL(msm_get_session);
-
-
-struct msm_stream *msm_get_stream(struct msm_session *session,
-	unsigned int stream_id)
-{
-	struct msm_stream *stream;
 
 	stream = msm_queue_find(&session->stream_q, struct msm_stream,
 		list, __msm_queue_find_stream, &stream_id);
@@ -1029,33 +902,6 @@ struct msm_stream *msm_get_stream_from_vb2q(struct vb2_queue *q)
 	spin_unlock_irqrestore(&msm_session_q->lock, flags1);
 	return NULL;
 }
-
-struct msm_session *msm_get_session_from_vb2q(struct vb2_queue *q)
-{
-	struct msm_session *session;
-	struct msm_stream *stream;
-	unsigned long flags1;
-	unsigned long flags2;
-
-	spin_lock_irqsave(&msm_session_q->lock, flags1);
-	list_for_each_entry(session, &(msm_session_q->list), list) {
-		spin_lock_irqsave(&(session->stream_q.lock), flags2);
-		list_for_each_entry(
-			stream, &(session->stream_q.list), list) {
-			if (stream->vb2_q == q) {
-				spin_unlock_irqrestore
-					(&(session->stream_q.lock), flags2);
-				spin_unlock_irqrestore
-					(&msm_session_q->lock, flags1);
-				return session;
-			}
-		}
-		spin_unlock_irqrestore(&(session->stream_q.lock), flags2);
-	}
-	spin_unlock_irqrestore(&msm_session_q->lock, flags1);
-	return NULL;
-}
-EXPORT_SYMBOL(msm_get_session_from_vb2q);
 
 static struct v4l2_subdev *msm_sd_find(const char *name)
 {
@@ -1117,34 +963,9 @@ static void msm_sd_notify(struct v4l2_subdev *sd,
 	}
 }
 
-static ssize_t write_logsync(struct file *file, const char __user *buf,
-		size_t count, loff_t *ppos)
-{
-	char lbuf[LOGSYNC_PACKET_SIZE] = {0};
-	uint64_t seq_num = 0;
-	int ret;
-
-	if (copy_from_user(lbuf, buf, sizeof(lbuf)))
-		return -EFAULT;
-
-	ret = sscanf(lbuf, "%llu", &seq_num);
-	if (ret != 1)
-		pr_err("LOGSYNC (Kernel): Bad or malformed sequence number\n");
-	else
-		pr_debug("LOGSYNC (Kernel): seq_num = %llu\n", seq_num);
-
-	return count;
-}
-
-
-static const struct file_operations logsync_fops = {
-		.write = write_logsync,
-};
-
-static int msm_probe(struct platform_device *pdev)
+static int __devinit msm_probe(struct platform_device *pdev)
 {
 	struct msm_video_device *pvdev;
-	static struct dentry *cam_debugfs_root;
 	int rc = 0;
 
 	msm_v4l2_dev = kzalloc(sizeof(*msm_v4l2_dev),
@@ -1218,29 +1039,19 @@ static int msm_probe(struct platform_device *pdev)
 	video_set_drvdata(pvdev->vdev, pvdev);
 
 	msm_session_q = kzalloc(sizeof(*msm_session_q), GFP_KERNEL);
-	if (WARN_ON(!msm_session_q))
-		goto v4l2_fail;
+	if (WARN_ON(!msm_session_q)) {
+		rc = -ENOMEM;
+		goto session_fail;
+	}
 
 	msm_init_queue(msm_session_q);
 	spin_lock_init(&msm_eventq_lock);
 	spin_lock_init(&msm_pid_lock);
 	INIT_LIST_HEAD(&ordered_sd_list);
-
-	cam_debugfs_root = debugfs_create_dir(MSM_CAM_LOGSYNC_FILE_BASEDIR,
-						NULL);
-	if (!cam_debugfs_root) {
-		pr_warn("NON-FATAL: failed to create logsync base directory\n");
-	} else {
-		if (!debugfs_create_file(MSM_CAM_LOGSYNC_FILE_NAME,
-					 0666,
-					 cam_debugfs_root,
-					 NULL,
-					 &logsync_fops))
-			pr_warn("NON-FATAL: failed to create logsync debugfs file\n");
-	}
-
 	goto probe_end;
 
+session_fail:
+	video_unregister_device(pvdev->vdev);
 v4l2_fail:
 	v4l2_device_unregister(pvdev->vdev->v4l2_dev);
 register_fail:

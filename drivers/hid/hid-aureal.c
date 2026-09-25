@@ -10,6 +10,7 @@
  *  Copyright (c) 2005 Michael Haboustak <mike-@cinci.rr.com> for Concept2, Inc
  *  Copyright (c) 2006-2007 Jiri Kosina
  *  Copyright (c) 2008 Jiri Slaby
+ *  Copyright (C) 2017 XiaoMi, Inc.
  */
 #include <linux/device.h>
 #include <linux/hid.h>

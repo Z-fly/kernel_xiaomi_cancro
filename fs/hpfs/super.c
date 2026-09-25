@@ -52,17 +52,20 @@ static void unmark_dirty(struct super_block *s)
 }
 
 /* Filesystem error... */
-static char err_buf[1024];
-
 void hpfs_error(struct super_block *s, const char *fmt, ...)
 {
+	struct va_format vaf;
 	va_list args;
 
 	va_start(args, fmt);
-	vsnprintf(err_buf, sizeof(err_buf), fmt, args);
+
+	vaf.fmt = fmt;
+	vaf.va = &args;
+
+	pr_err("filesystem error: %pV", &vaf);
+
 	va_end(args);
 
-	printk("HPFS: filesystem error: %s", err_buf);
 	if (!hpfs_sb(s)->sb_was_error) {
 		if (hpfs_sb(s)->sb_err == 2) {
 			printk("; crashing the system because you wanted it\n");
@@ -210,11 +213,6 @@ static int init_inodecache(void)
 
 static void destroy_inodecache(void)
 {
-	/*
-	 * Make sure all delayed rcu free inodes are flushed before we
-	 * destroy cache.
-	 */
-	rcu_barrier();
 	kmem_cache_destroy(hpfs_inode_cachep);
 }
 
@@ -256,7 +254,7 @@ static const match_table_t tokens = {
 	{Opt_err, NULL},
 };
 
-static int parse_opts(char *opts, kuid_t *uid, kgid_t *gid, umode_t *umask,
+static int parse_opts(char *opts, uid_t *uid, gid_t *gid, umode_t *umask,
 		      int *lowercase, int *eas, int *chk, int *errs,
 		      int *chkdsk, int *timeshift)
 {
@@ -281,16 +279,12 @@ static int parse_opts(char *opts, kuid_t *uid, kgid_t *gid, umode_t *umask,
 		case Opt_uid:
 			if (match_int(args, &option))
 				return 0;
-			*uid = make_kuid(current_user_ns(), option);
-			if (!uid_valid(*uid))
-				return 0;
+			*uid = option;
 			break;
 		case Opt_gid:
 			if (match_int(args, &option))
 				return 0;
-			*gid = make_kgid(current_user_ns(), option);
-			if (!gid_valid(*gid))
-				return 0;
+			*gid = option;
 			break;
 		case Opt_umask:
 			if (match_octal(args, &option))
@@ -387,19 +381,23 @@ HPFS filesystem options:\n\
 
 static int hpfs_remount_fs(struct super_block *s, int *flags, char *data)
 {
-	kuid_t uid;
-	kgid_t gid;
+	uid_t uid;
+	gid_t gid;
 	umode_t umask;
 	int lowercase, eas, chk, errs, chkdsk, timeshift;
 	int o;
 	struct hpfs_sb_info *sbi = hpfs_sb(s);
 	char *new_opts = kstrdup(data, GFP_KERNEL);
-	
+
 	sync_filesystem(s);
 
+	if (!new_opts)
+		return -ENOMEM;
+
 	*flags |= MS_NOATIME;
-	
+
 	hpfs_lock(s);
+	lock_super(s);
 	uid = sbi->sb_uid; gid = sbi->sb_gid;
 	umask = 0777 & ~sbi->sb_mode;
 	lowercase = sbi->sb_lowercase;
@@ -432,10 +430,12 @@ static int hpfs_remount_fs(struct super_block *s, int *flags, char *data)
 
 	replace_mount_options(s, new_opts);
 
+	unlock_super(s);
 	hpfs_unlock(s);
 	return 0;
 
 out_err:
+	unlock_super(s);
 	hpfs_unlock(s);
 	kfree(new_opts);
 	return -EINVAL;
@@ -463,8 +463,8 @@ static int hpfs_fill_super(struct super_block *s, void *options, int silent)
 	struct hpfs_sb_info *sbi;
 	struct inode *root;
 
-	kuid_t uid;
-	kgid_t gid;
+	uid_t uid;
+	gid_t gid;
 	umode_t umask;
 	int lowercase, eas, chk, errs, chkdsk, timeshift;
 
@@ -586,7 +586,7 @@ static int hpfs_fill_super(struct super_block *s, void *options, int silent)
 		mark_buffer_dirty(bh2);
 	}
 
-	if (spareblock->hotfixes_used || spareblock->n_spares_used) {
+	if (le32_to_cpu(spareblock->hotfixes_used) || le32_to_cpu(spareblock->n_spares_used)) {
 		if (errs >= 2) {
 			printk("HPFS: Hotfixes not supported here, try chkdsk\n");
 			mark_dirty(s, 0);
@@ -659,7 +659,7 @@ static int hpfs_fill_super(struct super_block *s, void *options, int silent)
 		root->i_mtime.tv_nsec = 0;
 		root->i_ctime.tv_sec = local_to_gmt(s, le32_to_cpu(de->creation_date));
 		root->i_ctime.tv_nsec = 0;
-		hpfs_i(root)->i_ea_size = le32_to_cpu(de->ea_size);
+		hpfs_i(root)->i_ea_size = le16_to_cpu(de->ea_size);
 		hpfs_i(root)->i_parent_dir = root->i_ino;
 		if (root->i_size == -1)
 			root->i_size = 2048;
@@ -696,7 +696,6 @@ static struct file_system_type hpfs_fs_type = {
 	.kill_sb	= kill_block_super,
 	.fs_flags	= FS_REQUIRES_DEV,
 };
-MODULE_ALIAS_FS("hpfs");
 
 static int __init init_hpfs_fs(void)
 {

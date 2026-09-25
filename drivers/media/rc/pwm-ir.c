@@ -1,5 +1,5 @@
 /* Copyright (C) 2013 by Xiang Xiao <xiaoxiang@xiaomi.com>
- * Copyright (C) 2016 XiaoMi, Inc.
+ * Copyright (C) 2017 XiaoMi, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -42,11 +42,6 @@ struct pwm_ir_packet {
 	unsigned int       length;
 	unsigned int       next;
 };
-
-#define __devexit
-#define __devinitdata
-#define __devinit
-#define __devexit_p
 
 /* code for ir transmit */
 static int pwm_ir_tx_config(struct pwm_ir_dev *dev, u32 carrier, u32 duty_cycle)
@@ -133,6 +128,7 @@ static int pwm_ir_tx_transmit_with_timer(struct pwm_ir_packet *pkt)
 	return pkt->next ? : -ERESTARTSYS;
 }
 
+#define MAX_DELAY_NS (NSEC_PER_MSEC * MAX_UDELAY_MS)
 
 static long pwm_ir_tx_work(void *arg)
 {
@@ -145,25 +141,16 @@ static long pwm_ir_tx_work(void *arg)
 	for (; pkt->next < pkt->length; pkt->next++) {
 		if (signal_pending(current))
 			break;
-		if (pkt->next & 0x01) {
+		if (pkt->next & 0x01)
 			pwm_disable(pkt->pwm);
-			/* pwm_disable will cost 30us,but the off time turn to on should submit enable delay*/
-			if (pkt->buffer[pkt->next] > 60000)
-				pkt->buffer[pkt->next] -= 60000;
-			else
-				pkt->buffer[pkt->next] = 0;
-		} else {/* pulse */
+		else /* pulse */
 			pwm_enable(pkt->pwm);
-			/* pwm_enable will cost 60us, remove this delay out */
-			if (pkt->buffer[pkt->next] > 30000)
-				pkt->buffer[pkt->next] -= 30000;
-			else
-				pkt->buffer[pkt->next] = 0;
+
+		while (pkt->buffer[pkt->next] > MAX_DELAY_NS) {
+			ndelay(MAX_DELAY_NS);
+			pkt->buffer[pkt->next] -= MAX_DELAY_NS;
 		}
-		if (pkt->buffer[pkt->next] > 0) {
-			ndelay(pkt->buffer[pkt->next]%1000);
-			udelay(pkt->buffer[pkt->next]/1000);
-		}
+		ndelay(pkt->buffer[pkt->next]);
 	}
 
 	pwm_disable(pkt->pwm);
@@ -197,34 +184,10 @@ static int pwm_ir_tx_transmit(struct rc_dev *rdev, unsigned *txbuf, unsigned n)
 	struct pwm_ir_dev *dev = rdev->priv;
 	struct pwm_ir_data *data = dev->pdev->dev.platform_data;
 	struct pwm_ir_packet pkt = {};
-	int i = 0, rc = 0;
-	unsigned int temp = 0, temp2 = 0;
+	int i, rc = 0;
 
-	for (i = 0; i < n; i++) {
+	for (i = 0; i < n; i++)
 		txbuf[i] *= NSEC_PER_USEC;
-		temp  = txbuf[i] / 26666;
-		temp2 = txbuf[i] % 26666;
-
-		if (((i+1) % 2) == 0) {
-			if ((txbuf[i] > 53332) && (txbuf[i] < 280000))
-				txbuf[i] = temp * 26666  - 16000;
-			else if ((txbuf[i] > 280000) && (txbuf[i] < 620000)) {
-				if (txbuf[i] > 53332) {
-					if (temp2 < 8000)
-						txbuf[i] = temp * 26666;
-					else
-						txbuf[i] = temp * 26666 + 16000;
-				}
-			}
-		} else {
-			if (txbuf[i] > 53332) {
-				if (temp2 < 8000)
-					txbuf[i] = temp * 26666;
-				else
-					txbuf[i] = (temp + 1) * 26666;
-			}
-		}
-	}
 
 	mutex_lock(&dev->lock);
 
@@ -253,7 +216,6 @@ err_regulator_enable:
 static int __devinit pwm_ir_tx_probe(struct pwm_ir_dev *dev)
 {
 	struct pwm_ir_data *data = dev->pdev->dev.platform_data;
-	struct platform_device *pdev = dev->pdev;
 	int rc = 0;
 
 	if (data->reg_id) {
@@ -266,14 +228,12 @@ static int __devinit pwm_ir_tx_probe(struct pwm_ir_dev *dev)
 		}
 	}
 
-
 	dev->pwm = pwm_request(data->pwm_id, PWM_IR_NAME);
 	if (IS_ERR(dev->pwm)) {
 		dev_err(&dev->pdev->dev,
-			"failed to of_pwm_get()\n");
+			"failed to pwm_request(%d)\n",
+			 data->pwm_id);
 		rc = PTR_ERR(dev->pwm);
-		dev_err(&dev->pdev->dev, "Cannot get PWM device rc:(%d)\n", rc);
-		dev->pwm = NULL;
 		goto err_regulator_put;
 	}
 
@@ -329,14 +289,13 @@ static int __devinit pwm_ir_probe(struct platform_device *pdev)
 				struct pwm_ir_data *data = pdev->dev.platform_data;
 
 				of_property_read_string(pdev->dev.of_node, "reg-id", &data->reg_id);
-                of_property_read_u32(pdev->dev.of_node, "pwm-id", (u32 *)&data->pwm_id);
-
+				of_property_read_u32(pdev->dev.of_node, "pwm-id", (u32 *)&data->pwm_id);
 				data->low_active = of_property_read_bool(pdev->dev.of_node, "low-active");
 				data->use_timer = of_property_read_bool(pdev->dev.of_node, "use-timer");
 
 				dev_info(&pdev->dev,
-					 "reg-id = %s, low-active = %d, use-timer = %d\n",
-					  data->reg_id,  data->low_active, data->use_timer);
+					 "reg-id = %s, pwm-id = %d, low-active = %d, use-timer = %d\n",
+					  data->reg_id, data->pwm_id, data->low_active, data->use_timer);
 			}
 		} else {
 			dev_err(&pdev->dev, "failed to alloc platform data\n");

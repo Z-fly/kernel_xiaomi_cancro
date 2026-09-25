@@ -2,6 +2,7 @@
  *  HID driver for Kensigton Slimblade Trackball
  *
  *  Copyright (c) 2009 Jiri Kosina
+ *  Copyright (C) 2017 XiaoMi, Inc.
  */
 
 /*

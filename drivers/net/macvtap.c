@@ -17,6 +17,7 @@
 #include <linux/idr.h>
 #include <linux/fs.h>
 
+#include <net/ipv6.h>
 #include <net/net_namespace.h>
 #include <net/rtnetlink.h>
 #include <net/sock.h>
@@ -94,8 +95,7 @@ static int get_slot(struct macvlan_dev *vlan, struct macvtap_queue *q)
 	int i;
 
 	for (i = 0; i < MAX_MACVTAP_QUEUES; i++) {
-		if (rcu_dereference_protected(vlan->taps[i],
-					      lockdep_is_held(&macvtap_lock)) == q)
+		if (rcu_dereference(vlan->taps[i]) == q)
 			return i;
 	}
 
@@ -279,17 +279,28 @@ static int macvtap_receive(struct sk_buff *skb)
 static int macvtap_get_minor(struct macvlan_dev *vlan)
 {
 	int retval = -ENOMEM;
+	int id;
 
 	mutex_lock(&minor_lock);
-	retval = idr_alloc(&minor_idr, vlan, 1, MACVTAP_NUM_DEVS, GFP_KERNEL);
-	if (retval >= 0) {
-		vlan->minor = retval;
-	} else if (retval == -ENOSPC) {
+	if (idr_pre_get(&minor_idr, GFP_KERNEL) == 0)
+		goto exit;
+
+	retval = idr_get_new_above(&minor_idr, vlan, 1, &id);
+	if (retval < 0) {
+		if (retval == -EAGAIN)
+			retval = -ENOMEM;
+		goto exit;
+	}
+	if (id < MACVTAP_NUM_DEVS) {
+		vlan->minor = id;
+	} else {
 		printk(KERN_ERR "too many macvtap devices\n");
 		retval = -EINVAL;
+		idr_remove(&minor_idr, id);
 	}
+exit:
 	mutex_unlock(&minor_lock);
-	return retval < 0 ? retval : 0;
+	return retval;
 }
 
 static void macvtap_free_minor(struct macvlan_dev *vlan)
@@ -528,7 +539,6 @@ static int zerocopy_sg_from_iovec(struct sk_buff *skb, const struct iovec *from,
 
 			for (j = 0; j < num_pages; j++)
 				put_page(page[i + j]);
-			return -EFAULT;
 		}
 		truesize = size * PAGE_SIZE;
 		skb->data_len += len;
@@ -569,6 +579,8 @@ static int macvtap_skb_from_vnet_hdr(struct sk_buff *skb,
 			break;
 		case VIRTIO_NET_HDR_GSO_UDP:
 			gso_type = SKB_GSO_UDP;
+			if (skb->protocol == htons(ETH_P_IPV6))
+				ipv6_proxy_select_ident(skb);
 			break;
 		default:
 			return -EINVAL;
@@ -658,15 +670,11 @@ static unsigned long iov_pages(const struct iovec *iv, int offset,
 	return pages;
 }
 
-/* Neighbour code has some assumptions on HH_DATA_MOD alignment */
-#define MACVTAP_RESERVE HH_DATA_OFF(ETH_HLEN)
-
 /* Get packet from user space buffer */
 static ssize_t macvtap_get_user(struct macvtap_queue *q, struct msghdr *m,
 				const struct iovec *iv, unsigned long total_len,
 				size_t count, int noblock)
 {
-	int good_linear = SKB_MAX_HEAD(MACVTAP_RESERVE);
 	struct sk_buff *skb;
 	struct macvlan_dev *vlan;
 	unsigned long len = total_len;
@@ -709,8 +717,6 @@ static ssize_t macvtap_get_user(struct macvtap_queue *q, struct msghdr *m,
 
 	if (m && m->msg_control && sock_flag(&q->sk, SOCK_ZEROCOPY)) {
 		copylen = vnet_hdr.hdr_len ? vnet_hdr.hdr_len : GOODCOPY_LEN;
-		if (copylen > good_linear)
-			copylen = good_linear;
 		linear = copylen;
 		if (iov_pages(iv, vnet_hdr_len + copylen, count)
 		    <= MAX_SKB_FRAGS)
@@ -719,13 +725,10 @@ static ssize_t macvtap_get_user(struct macvtap_queue *q, struct msghdr *m,
 
 	if (!zerocopy) {
 		copylen = len;
-		if (vnet_hdr.hdr_len > good_linear)
-			linear = good_linear;
-		else
-			linear = vnet_hdr.hdr_len;
+		linear = vnet_hdr.hdr_len;
 	}
 
-	skb = macvtap_alloc_skb(&q->sk, MACVTAP_RESERVE, copylen,
+	skb = macvtap_alloc_skb(&q->sk, NET_IP_ALIGN, copylen,
 				linear, noblock, &err);
 	if (!skb)
 		goto err;
@@ -737,7 +740,7 @@ static ssize_t macvtap_get_user(struct macvtap_queue *q, struct msghdr *m,
 						   len);
 		if (!err && m && m->msg_control) {
 			struct ubuf_info *uarg = m->msg_control;
-			uarg->callback(uarg, false);
+			uarg->callback(uarg);
 		}
 	}
 
@@ -754,15 +757,12 @@ static ssize_t macvtap_get_user(struct macvtap_queue *q, struct msghdr *m,
 			goto err_kfree;
 	}
 
-	skb_probe_transport_header(skb, ETH_HLEN);
-
 	rcu_read_lock_bh();
 	vlan = rcu_dereference_bh(q->vlan);
 	/* copy skb_ubuf_info for callback when skb has no error */
 	if (zerocopy) {
 		skb_shinfo(skb)->destructor_arg = m->msg_control;
 		skb_shinfo(skb)->tx_flags |= SKBTX_DEV_ZEROCOPY;
-		skb_shinfo(skb)->tx_flags |= SKBTX_SHARED_FRAG;
 	}
 	if (vlan)
 		macvlan_start_xmit(skb, vlan->dev);
@@ -863,12 +863,13 @@ static ssize_t macvtap_do_read(struct macvtap_queue *q, struct kiocb *iocb,
 			       const struct iovec *iv, unsigned long len,
 			       int noblock)
 {
-	DEFINE_WAIT(wait);
+	DECLARE_WAITQUEUE(wait, current);
 	struct sk_buff *skb;
 	ssize_t ret = 0;
 
+	add_wait_queue(sk_sleep(&q->sk), &wait);
 	while (len) {
-		prepare_to_wait(sk_sleep(&q->sk), &wait, TASK_INTERRUPTIBLE);
+		current->state = TASK_INTERRUPTIBLE;
 
 		/* Read frames from the queue */
 		skb = skb_dequeue(&q->sk.sk_receive_queue);
@@ -890,7 +891,8 @@ static ssize_t macvtap_do_read(struct macvtap_queue *q, struct kiocb *iocb,
 		break;
 	}
 
-	finish_wait(sk_sleep(&q->sk), &wait);
+	current->state = TASK_RUNNING;
+	remove_wait_queue(sk_sleep(&q->sk), &wait);
 	return ret;
 }
 

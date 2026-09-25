@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2015, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2011-2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -418,7 +418,7 @@ static int msm_xfer_msg(struct slim_controller *ctrl, struct slim_msg_txn *txn)
 			 * Only disable port
 			 */
 			writel_relaxed(0, PGD_PORT(PGD_PORT_CFGn,
-					dev->pipes[*puc].port_b, dev->ver));
+					(*puc + dev->port_b), dev->ver));
 			mutex_unlock(&dev->tx_lock);
 			if (msgv >= 0)
 				msm_slim_put_ctrl(dev);
@@ -431,7 +431,7 @@ static int msm_xfer_msg(struct slim_controller *ctrl, struct slim_msg_txn *txn)
 				msm_slim_put_ctrl(dev);
 			return dev->err;
 		}
-		*(puc) = (u8)dev->pipes[*puc].port_b;
+		*(puc) = *(puc) + dev->port_b;
 	}
 	if (txn->mt == SLIM_MSG_MT_CORE &&
 		mc == SLIM_MSG_MC_BEGIN_RECONFIGURATION)
@@ -1111,7 +1111,7 @@ static void msm_slim_prg_slew(struct platform_device *pdev,
 	iounmap(slew_reg);
 }
 
-static int msm_slim_probe(struct platform_device *pdev)
+static int __devinit msm_slim_probe(struct platform_device *pdev)
 {
 	struct msm_slim_ctrl *dev;
 	int ret;
@@ -1390,10 +1390,6 @@ err_request_irq_failed:
 	kthread_stop(dev->rx_msgq_thread);
 err_thread_create_failed:
 	msm_slim_sps_exit(dev, true);
-	msm_slim_deinit_ep(dev, &dev->rx_msgq,
-				&dev->use_rx_msgqs);
-	msm_slim_deinit_ep(dev, &dev->tx_msgq,
-				&dev->use_tx_msgqs);
 err_sps_init_failed:
 	if (dev->hclk) {
 		clk_disable_unprepare(dev->hclk);
@@ -1413,7 +1409,7 @@ err_get_res_bam_failed:
 	return ret;
 }
 
-static int msm_slim_remove(struct platform_device *pdev)
+static int __devexit msm_slim_remove(struct platform_device *pdev)
 {
 	struct msm_slim_ctrl *dev = platform_get_drvdata(pdev);
 	struct resource *bam_mem;
@@ -1439,11 +1435,6 @@ static int msm_slim_remove(struct platform_device *pdev)
 	if (dev->hclk)
 		clk_put(dev->hclk);
 	msm_slim_sps_exit(dev, true);
-	msm_slim_deinit_ep(dev, &dev->rx_msgq,
-				&dev->use_rx_msgqs);
-	msm_slim_deinit_ep(dev, &dev->tx_msgq,
-				&dev->use_tx_msgqs);
-
 	kthread_stop(dev->rx_msgq_thread);
 	iounmap(dev->bam.base);
 	iounmap(dev->base);

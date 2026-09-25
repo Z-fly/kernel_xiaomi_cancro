@@ -1,6 +1,7 @@
  /*
  * Copyright (c) 2012 Analog Devices, Inc.
- *  Author: Lars-Peter Clausen <lars@metafoo.de>
+ * Author: Lars-Peter Clausen <lars@metafoo.de>
+ * Copyright (C) 2017 XiaoMi, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License version 2 as published by
@@ -56,12 +57,12 @@ int iio_triggered_buffer_setup(struct iio_dev *indio_dev,
 	}
 
 	indio_dev->pollfunc = iio_alloc_pollfunc(pollfunc_bh,
-						 pollfunc_th,
-						 IRQF_ONESHOT,
-						 indio_dev,
-						 "%s_consumer%d",
-						 indio_dev->name,
-						 indio_dev->id);
+		pollfunc_th,
+		IRQF_ONESHOT,
+		indio_dev,
+		"%s_consumer%d",
+		indio_dev->name,
+		indio_dev->id);
 	if (indio_dev->pollfunc == NULL) {
 		ret = -ENOMEM;
 		goto error_kfifo_free;
@@ -77,8 +78,8 @@ int iio_triggered_buffer_setup(struct iio_dev *indio_dev,
 	indio_dev->modes |= INDIO_BUFFER_TRIGGERED;
 
 	ret = iio_buffer_register(indio_dev,
-				  indio_dev->channels,
-				  indio_dev->num_channels);
+			indio_dev->channels,
+			indio_dev->num_channels);
 	if (ret)
 		goto error_dealloc_pollfunc;
 

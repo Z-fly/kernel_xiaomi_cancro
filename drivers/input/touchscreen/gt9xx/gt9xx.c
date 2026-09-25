@@ -833,7 +833,7 @@ err_retry:
 			return ret;
 		}
 		gtp_reset_guitar(ts, 20);
-		if (retry++ < GTP_I2C_RETRY_10)
+		if (retry++ < 10)
 			goto err_retry;
 		dev_err(&ts->client->dev, "GTP wakeup sleep failed.\n");
 	}
@@ -1219,8 +1219,7 @@ static int gtp_request_input_dev(struct goodix_ts_data *ts)
 		BIT_MASK(EV_SYN) | BIT_MASK(EV_KEY) | BIT_MASK(EV_ABS) ;
 	set_bit(BTN_TOOL_FINGER, ts->input_dev->keybit);
 	__set_bit(INPUT_PROP_DIRECT, ts->input_dev->propbit);
-	/* in case of "out of memory" */
-	input_mt_init_slots(ts->input_dev, 10, 0);
+	input_mt_init_slots(ts->input_dev, 10);/* in case of "out of memory" */
 
 	if (ts->pdata->have_touch_key) {
 		for (index = 0; index < ts->pdata->num_button; index++) {
@@ -1537,7 +1536,7 @@ static ssize_t gtp_fw_upgrade_store(struct device *dev,
 	if (size > 2)
 		return -EINVAL;
 
-	if (sscanf(buf, "%u", &val) != 1)
+	if (sscanf(buf, "%u", &val) != 1);
 		return -EINVAL;
 
 	if (ts->gtp_is_suspend) {
@@ -1575,7 +1574,7 @@ static ssize_t gtp_force_fw_upgrade_store(struct device *dev,
 	if (size > 2)
 		return -EINVAL;
 
-	if (sscanf(buf, "%u", &val) != 1)
+	if (sscanf(buf, "%u", &val) != 1);
 		return -EINVAL;
 
 	if (ts->gtp_is_suspend) {
@@ -2539,7 +2538,7 @@ Input:
 Output:
     Executive Outcomes. 0---succeed.
 ********************************************************/
-static int __init goodix_ts_init(void)
+static int __devinit goodix_ts_init(void)
 {
 	int ret;
 

@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2012 Avionic Design GmbH
+ * Copyright (C) 2017 XiaoMi, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -21,8 +22,8 @@ struct adc081c {
 #define REG_CONV_RES 0x00
 
 static int adc081c_read_raw(struct iio_dev *iio,
-			    struct iio_chan_spec const *channel, int *value,
-			    int *shift, long mask)
+		struct iio_chan_spec const *channel, int *value,
+		int *shift, long mask)
 {
 	struct adc081c *adc = iio_priv(iio);
 	int err;
@@ -65,7 +66,7 @@ static const struct iio_info adc081c_info = {
 };
 
 static int adc081c_probe(struct i2c_client *client,
-			 const struct i2c_device_id *id)
+		const struct i2c_device_id *id)
 {
 	struct iio_dev *iio;
 	struct adc081c *adc;

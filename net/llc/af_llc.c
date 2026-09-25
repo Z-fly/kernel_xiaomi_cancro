@@ -71,7 +71,8 @@ static inline u16 llc_ui_next_link_no(int sap)
  */
 static inline __be16 llc_proto_type(u16 arphrd)
 {
-	return htons(ETH_P_802_2);
+	return arphrd == ARPHRD_IEEE802_TR ?
+			 htons(ETH_P_TR_802_2) : htons(ETH_P_802_2);
 }
 
 /**
@@ -160,7 +161,7 @@ static int llc_ui_create(struct net *net, struct socket *sock, int protocol,
 	struct sock *sk;
 	int rc = -ESOCKTNOSUPPORT;
 
-	if (!ns_capable(net->user_ns, CAP_NET_RAW))
+	if (!capable(CAP_NET_RAW))
 		return -EPERM;
 
 	if (!net_eq(net, &init_net))
@@ -517,7 +518,7 @@ static int llc_ui_listen(struct socket *sock, int backlog)
 	if (sock_flag(sk, SOCK_ZAPPED))
 		goto out;
 	rc = 0;
-	if (!(unsigned int)backlog)	/* BSDism */
+	if (!(unsigned)backlog)	/* BSDism */
 		backlog = 1;
 	sk->sk_max_ack_backlog = backlog;
 	if (sk->sk_state != TCP_LISTEN) {
@@ -613,7 +614,7 @@ static int llc_wait_data(struct sock *sk, long timeo)
 		if (signal_pending(current))
 			break;
 		rc = 0;
-		if (sk_wait_data(sk, &timeo))
+		if (sk_wait_data(sk, &timeo, NULL))
 			break;
 	}
 	return rc;
@@ -802,12 +803,13 @@ static int llc_ui_recvmsg(struct kiocb *iocb, struct socket *sock,
 			release_sock(sk);
 			lock_sock(sk);
 		} else
-			sk_wait_data(sk, &timeo);
+			sk_wait_data(sk, &timeo, NULL);
 
 		if ((flags & MSG_PEEK) && peek_seq != llc->copied_seq) {
-			net_dbg_ratelimited("LLC(%s:%d): Application bug, race in MSG_PEEK\n",
-					    current->comm,
-					    task_pid_nr(current));
+			if (net_ratelimit())
+				printk(KERN_DEBUG "LLC(%s:%d): Application "
+						  "bug, race in MSG_PEEK.\n",
+				       current->comm, task_pid_nr(current));
 			peek_seq = llc->copied_seq;
 		}
 		continue;
@@ -1024,7 +1026,7 @@ static int llc_ui_ioctl(struct socket *sock, unsigned int cmd,
  *	@sock: Socket to set options on.
  *	@level: Socket level user is requesting operations on.
  *	@optname: Operation name.
- *	@optval: User provided operation data.
+ *	@optval User provided operation data.
  *	@optlen: Length of optval.
  *
  *	Set various connection specific parameters.
@@ -1206,7 +1208,7 @@ static int __init llc2_init(void)
 	rc = llc_proc_init();
 	if (rc != 0) {
 		printk(llc_proc_err_msg);
-		goto out_station;
+		goto out_unregister_llc_proto;
 	}
 	rc = llc_sysctl_init();
 	if (rc) {
@@ -1226,8 +1228,7 @@ out_sysctl:
 	llc_sysctl_exit();
 out_proc:
 	llc_proc_exit();
-out_station:
-	llc_station_exit();
+out_unregister_llc_proto:
 	proto_unregister(&llc_proto);
 	goto out;
 }

@@ -1,5 +1,6 @@
 /*
 * Copyright (C) 2012 Invensense, Inc.
+* Copyright (C) 2017 XiaoMi, Inc.
 *
 * This software is licensed under the terms of the GNU General Public
 * License version 2, as published by the Free Software Foundation, and
@@ -104,7 +105,7 @@ int inv_mpu6050_switch_engine(struct inv_mpu6050_state *st, bool en, u32 mask)
 	}
 
 	result = i2c_smbus_read_i2c_block_data(st->client,
-				       st->reg->pwr_mgmt_2, 1, &d);
+			st->reg->pwr_mgmt_2, 1, &d);
 	if (result != 1)
 		return result;
 	if (en)
@@ -139,7 +140,7 @@ int inv_mpu6050_set_power_itg(struct inv_mpu6050_state *st, bool power_on)
 		result = inv_mpu6050_write_reg(st, st->reg->pwr_mgmt_1, 0);
 	else
 		result = inv_mpu6050_write_reg(st, st->reg->pwr_mgmt_1,
-						INV_MPU6050_BIT_SLEEP);
+				INV_MPU6050_BIT_SLEEP);
 	if (result)
 		return result;
 
@@ -195,14 +196,14 @@ static int inv_mpu6050_init_config(struct iio_dev *indio_dev)
 }
 
 static int inv_mpu6050_sensor_show(struct inv_mpu6050_state  *st, int reg,
-				int axis, int *val)
+		int axis, int *val)
 {
 	int ind, result;
 	__be16 d;
 
 	ind = (axis - IIO_MOD_X) * 2;
 	result = i2c_smbus_read_i2c_block_data(st->client, reg + ind,  2,
-						(u8 *)&d);
+			(u8 *)&d);
 	if (result != 2)
 		return -EINVAL;
 	*val = (short)be16_to_cpup(&d);
@@ -211,10 +212,10 @@ static int inv_mpu6050_sensor_show(struct inv_mpu6050_state  *st, int reg,
 }
 
 static int inv_mpu6050_read_raw(struct iio_dev *indio_dev,
-			      struct iio_chan_spec const *chan,
-			      int *val,
-			      int *val2,
-			      long mask) {
+		struct iio_chan_spec const *chan,
+		int *val,
+		int *val2,
+		long mask) {
 	struct inv_mpu6050_state  *st = iio_priv(indio_dev);
 
 	switch (mask) {
@@ -241,7 +242,7 @@ static int inv_mpu6050_read_raw(struct iio_dev *indio_dev,
 					goto error_read_raw;
 			}
 			ret =  inv_mpu6050_sensor_show(st, st->reg->raw_gyro,
-						chan->channel2, val);
+					chan->channel2, val);
 			if (!st->chip_config.gyro_fifo_enable ||
 					!st->chip_config.enable) {
 				result = inv_mpu6050_switch_engine(st, false,
@@ -259,7 +260,7 @@ static int inv_mpu6050_read_raw(struct iio_dev *indio_dev,
 					goto error_read_raw;
 			}
 			ret = inv_mpu6050_sensor_show(st, st->reg->raw_accl,
-						chan->channel2, val);
+					chan->channel2, val);
 			if (!st->chip_config.accl_fifo_enable ||
 					!st->chip_config.enable) {
 				result = inv_mpu6050_switch_engine(st, false,
@@ -272,7 +273,7 @@ static int inv_mpu6050_read_raw(struct iio_dev *indio_dev,
 			/* wait for stablization */
 			msleep(INV_MPU6050_SENSOR_UP_TIME);
 			inv_mpu6050_sensor_show(st, st->reg->temperature,
-							IIO_MOD_X, val);
+					IIO_MOD_X, val);
 			break;
 		default:
 			ret = -EINVAL;
@@ -360,10 +361,10 @@ static int inv_mpu6050_write_accel_fs(struct inv_mpu6050_state *st, int fs)
 }
 
 static int inv_mpu6050_write_raw(struct iio_dev *indio_dev,
-			       struct iio_chan_spec const *chan,
-			       int val,
-			       int val2,
-			       long mask) {
+		struct iio_chan_spec const *chan,
+		int val,
+		int val2,
+		long mask) {
 	struct inv_mpu6050_state  *st = iio_priv(indio_dev);
 	int result;
 
@@ -491,7 +492,7 @@ static ssize_t inv_fifo_rate_show(struct device *dev,
 {
 	struct inv_mpu6050_state *st = iio_priv(dev_to_iio_dev(dev));
 
-	return sprintf(buf, "%d\n", st->chip_config.fifo_rate);
+	return snprintf(buf, "%d\n", st->chip_config.fifo_rate);
 }
 
 /**
@@ -512,7 +513,7 @@ static ssize_t inv_attr_show(struct device *dev,
 	case ATTR_ACCL_MATRIX:
 		m = st->plat_data.orientation;
 
-		return sprintf(buf, "%d, %d, %d; %d, %d, %d; %d, %d, %d\n",
+		return snprintf(buf, "%d, %d, %d; %d, %d, %d; %d, %d, %d\n",
 			m[0], m[1], m[2], m[3], m[4], m[5], m[6], m[7], m[8]);
 	default:
 		return -EINVAL;
@@ -529,7 +530,7 @@ static ssize_t inv_attr_show(struct device *dev,
  * device, -EINVAL otherwise.
  */
 static int inv_mpu6050_validate_trigger(struct iio_dev *indio_dev,
-					struct iio_trigger *trig)
+		struct iio_trigger *trig)
 {
 	struct inv_mpu6050_state *st = iio_priv(indio_dev);
 
@@ -548,12 +549,12 @@ static int inv_mpu6050_validate_trigger(struct iio_dev *indio_dev,
 		.info_mask_separate = BIT(IIO_CHAN_INFO_RAW),         \
 		.scan_index = _index,                                 \
 		.scan_type = {                                        \
-				.sign = 's',                          \
-				.realbits = 16,                       \
-				.storagebits = 16,                    \
-				.shift = 0 ,                          \
-				.endianness = IIO_BE,                 \
-			     },                                       \
+			.sign = 's',                          \
+			.realbits = 16,                       \
+			.storagebits = 16,                    \
+			.shift = 0 ,                          \
+			.endianness = IIO_BE,                 \
+		},                                       \
 	}
 
 static const struct iio_chan_spec inv_mpu_channels[] = {
@@ -621,7 +622,7 @@ static int inv_check_and_setup_chip(struct inv_mpu6050_state *st,
 
 	/* reset to make sure previous state are not there */
 	result = inv_mpu6050_write_reg(st, st->reg->pwr_mgmt_1,
-					INV_MPU6050_BIT_H_RESET);
+			INV_MPU6050_BIT_H_RESET);
 	if (result)
 		return result;
 	msleep(INV_MPU6050_POWER_UP_TIME);
@@ -637,11 +638,11 @@ static int inv_check_and_setup_chip(struct inv_mpu6050_state *st,
 		return result;
 
 	result = inv_mpu6050_switch_engine(st, false,
-					INV_MPU6050_BIT_PWR_ACCL_STBY);
+			INV_MPU6050_BIT_PWR_ACCL_STBY);
 	if (result)
 		return result;
 	result = inv_mpu6050_switch_engine(st, false,
-					INV_MPU6050_BIT_PWR_GYRO_STBY);
+			INV_MPU6050_BIT_PWR_GYRO_STBY);
 	if (result)
 		return result;
 
@@ -660,12 +661,11 @@ static int inv_mpu_probe(struct i2c_client *client,
 {
 	struct inv_mpu6050_state *st;
 	struct iio_dev *indio_dev;
-	struct inv_mpu6050_platform_data *pdata;
 	int result;
 
 	if (!i2c_check_functionality(client->adapter,
-					I2C_FUNC_SMBUS_READ_I2C_BLOCK |
-					I2C_FUNC_SMBUS_WRITE_I2C_BLOCK)) {
+			I2C_FUNC_SMBUS_READ_I2C_BLOCK |
+			I2C_FUNC_SMBUS_WRITE_I2C_BLOCK)) {
 		result = -ENOSYS;
 		goto out_no_free;
 	}
@@ -676,10 +676,8 @@ static int inv_mpu_probe(struct i2c_client *client,
 	}
 	st = iio_priv(indio_dev);
 	st->client = client;
-	pdata = (struct inv_mpu6050_platform_data
+	st->plat_data = *(struct inv_mpu6050_platform_data
 			*)dev_get_platdata(&client->dev);
-	if (pdata)
-		st->plat_data = *pdata;
 	/* power is turned on inside check chip type*/
 	result = inv_check_and_setup_chip(st, id);
 	if (result)
@@ -688,7 +686,7 @@ static int inv_mpu_probe(struct i2c_client *client,
 	result = inv_mpu6050_init_config(indio_dev);
 	if (result) {
 		dev_err(&client->dev,
-			"Could not initialize device.\n");
+				"Could not initialize device.\n");
 		goto out_free;
 	}
 
@@ -702,9 +700,9 @@ static int inv_mpu_probe(struct i2c_client *client,
 	indio_dev->modes = INDIO_BUFFER_TRIGGERED;
 
 	result = iio_triggered_buffer_setup(indio_dev,
-					    inv_mpu6050_irq_handler,
-					    inv_mpu6050_read_fifo,
-					    NULL);
+			inv_mpu6050_irq_handler,
+			inv_mpu6050_read_fifo,
+			NULL);
 	if (result) {
 		dev_err(&st->client->dev, "configure buffer fail %d\n",
 				result);

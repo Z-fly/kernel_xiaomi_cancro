@@ -186,9 +186,6 @@ static int mdss_livedisplay_update_locked(struct mdss_dsi_ctrl_pdata *ctrl_pdata
 	if (mlc == NULL)
 		return -ENODEV;
 
-	if (!mlc->caps || !mdss_panel_is_power_on_interactive(pinfo->panel_power_state))
-		return 0;
-
 	// First find the length of the command array
 	if ((mlc->caps & MODE_PRESET) && (types & MODE_PRESET))
 		len += mlc->presets_len[mlc->preset];
@@ -533,8 +530,7 @@ static ssize_t mdss_livedisplay_set_rgb(struct device *dev,
 	mlc->g = g;
 	mlc->b = b;
 
-	if (!mdss_panel_is_power_on_interactive(mfd->panel_power_state) ||
-			(mdss_livedisplay_set_rgb_locked(mfd) == 0))
+	if (mdss_livedisplay_set_rgb_locked(mfd)==0)
 		ret = count;
 
 	mutex_unlock(&mlc->lock);
@@ -640,11 +636,12 @@ int mdss_livedisplay_create_sysfs(struct msm_fb_data_type *mfd)
 			goto sysfs_err;
 	}
 
-	if (mlc->caps & MODE_SRE) {
-		rc = sysfs_create_file(&mfd->fbi->dev->kobj, &dev_attr_sre.attr);
-		if (rc)
-			goto sysfs_err;
-	}
+	// Some panels do not play nicely with sre let's disable sre sysfs
+	//if (mlc->caps & MODE_SRE) {
+	//	rc = sysfs_create_file(&mfd->fbi->dev->kobj, &dev_attr_sre.attr);
+	//	if (rc)
+	//		goto sysfs_err;
+	//}
 
 	if (mlc->caps & MODE_AUTO_CONTRAST) {
 		rc = sysfs_create_file(&mfd->fbi->dev->kobj, &dev_attr_aco.attr);
@@ -675,4 +672,3 @@ sysfs_err:
 	pr_err("%s: sysfs creation failed, rc=%d", __func__, rc);
 	return rc;
 }
-

@@ -2,6 +2,7 @@
  * AD5686R, AD5685R, AD5684R Digital to analog converters  driver
  *
  * Copyright 2011 Analog Devices Inc.
+ * Copyright (C) 2017 XiaoMi, Inc.
  *
  * Licensed under the GPL-2.
  */
@@ -93,7 +94,7 @@ enum ad5686_supported_device_ids {
 	ID_AD5686,
 };
 static int ad5686_spi_write(struct ad5686_state *st,
-			     u8 cmd, u8 addr, u16 val, u8 shift)
+		u8 cmd, u8 addr, u16 val, u8 shift)
 {
 	val <<= shift;
 
@@ -167,7 +168,7 @@ static ssize_t ad5686_read_dac_powerdown(struct iio_dev *indio_dev,
 {
 	struct ad5686_state *st = iio_priv(indio_dev);
 
-	return sprintf(buf, "%d\n", !!(st->pwr_down_mask &
+	return snprintf(buf, "%d\n", !!(st->pwr_down_mask &
 			(0x3 << (chan->channel * 2))));
 }
 
@@ -195,10 +196,10 @@ static ssize_t ad5686_write_dac_powerdown(struct iio_dev *indio_dev,
 }
 
 static int ad5686_read_raw(struct iio_dev *indio_dev,
-			   struct iio_chan_spec const *chan,
-			   int *val,
-			   int *val2,
-			   long m)
+		struct iio_chan_spec const *chan,
+		int *val,
+		int *val2,
+		long m)
 {
 	struct ad5686_state *st = iio_priv(indio_dev);
 	unsigned long scale_uv;
@@ -356,7 +357,7 @@ static int ad5686_probe(struct spi_device *spi)
 
 	regdone = 1;
 	ret = ad5686_spi_write(st, AD5686_CMD_INTERNAL_REFER_SETUP, 0,
-				!!voltage_uv, 0);
+			!!voltage_uv, 0);
 	if (ret)
 		goto error_disable_reg;
 

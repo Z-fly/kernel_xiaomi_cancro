@@ -2,6 +2,7 @@
  *  Copyright (c) 2009, Citrix Systems, Inc.
  *  Copyright (c) 2010, Microsoft Corporation.
  *  Copyright (c) 2011, Novell Inc.
+ *  Copyright (C) 2017 XiaoMi, Inc.
  *
  *  This program is free software; you can redistribute it and/or modify it
  *  under the terms and conditions of the GNU General Public License,
@@ -199,12 +200,10 @@ static void mousevsc_on_receive_device_info(struct mousevsc_dev *input_device,
 	if (desc->bLength == 0)
 		goto cleanup;
 
-	input_device->hid_desc = kzalloc(desc->bLength, GFP_ATOMIC);
+	input_device->hid_desc = kmemdup(desc, desc->bLength, GFP_ATOMIC);
 
 	if (!input_device->hid_desc)
 		goto cleanup;
-
-	memcpy(input_device->hid_desc, desc, desc->bLength);
 
 	input_device->report_desc_size = desc->desc[0].wDescriptorLength;
 	if (input_device->report_desc_size == 0) {
@@ -436,7 +435,7 @@ static int mousevsc_hid_parse(struct hid_device *hid)
 	struct mousevsc_dev *input_dev = hv_get_drvdata(dev);
 
 	return hid_parse_report(hid, input_dev->report_desc,
-				input_dev->report_desc_size);
+			input_dev->report_desc_size);
 }
 
 static int mousevsc_hid_open(struct hid_device *hid)

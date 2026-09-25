@@ -6,7 +6,6 @@
 #include <asm/mmu.h>
 
 #include <linux/smp.h>
-#include <linux/percpu.h>
 
 static inline void fill_ldt(struct desc_struct *desc, const struct user_desc *info)
 {
@@ -278,21 +277,6 @@ static inline bool LDT_zero(const struct user_desc *info)
 static inline void clear_LDT(void)
 {
 	set_ldt(NULL, 0);
-}
-
-/*
- * load one particular LDT into the current CPU
- */
-static inline void load_LDT_nolock(mm_context_t *pc)
-{
-	set_ldt(pc->ldt, pc->size);
-}
-
-static inline void load_LDT(mm_context_t *pc)
-{
-	preempt_disable();
-	load_LDT_nolock(pc);
-	preempt_enable();
 }
 
 static inline unsigned long get_desc_base(const struct desc_struct *desc)

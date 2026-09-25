@@ -1,5 +1,6 @@
 /*
  *  Copyright (c) 1999-2001 Vojtech Pavlik
+ *  Copyright (C) 2017 XiaoMi, Inc.
  *
  *  USB HIDBP Mouse support
  */

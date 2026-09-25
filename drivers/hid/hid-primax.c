@@ -2,6 +2,7 @@
  * HID driver for primax and similar keyboards with in-band modifiers
  *
  * Copyright 2011 Google Inc. All Rights Reserved
+ * Copyright (C) 2017 XiaoMi, Inc.
  *
  * Author:
  *	Terry Lambert <tlambert@google.com>

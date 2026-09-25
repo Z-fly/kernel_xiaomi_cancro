@@ -2,6 +2,7 @@
  *  HID driver for TopSeed Cyberlink remote
  *
  *  Copyright (c) 2008 Lev Babiev
+ *  Copyright (C) 2017 XiaoMi, Inc.
  *  based on hid-cherry driver
  *
  *  Modified to also support BTC "Emprex 3009URF III Vista MCE Remote" by

@@ -5,6 +5,7 @@
  *  (This module is based on "hid-ortek".)
  *
  *  Copyright (c) 2012 Andreas Hübner
+ *  Copyright (C) 2017 XiaoMi, Inc.
  */
 
 /*

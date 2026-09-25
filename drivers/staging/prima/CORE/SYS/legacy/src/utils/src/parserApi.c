@@ -1027,13 +1027,12 @@ PopulateDot11fExtCap(tpAniSirGlobal      pMac,
                            tDot11fIEExtCap  *pDot11f,
                            tpPESession   psessionEntry)
 {
-     struct s_ext_cap *p_ext_cap = (struct s_ext_cap *)pDot11f->bytes;
 
 #ifdef WLAN_FEATURE_11AC
     if (psessionEntry->vhtCapability &&
         psessionEntry->limSystemRole != eLIM_STA_IN_IBSS_ROLE )
     {
-        p_ext_cap->operModeNotification = 1;
+        pDot11f->operModeNotification = 1;
         pDot11f->present = 1;
     }
 #endif
@@ -1050,15 +1049,9 @@ PopulateDot11fExtCap(tpAniSirGlobal      pMac,
          && pMac->roam.configParam.channelBondingMode24GHz)
 #endif
        {
-           p_ext_cap->bssCoexistMgmtSupport = 1;
+           pDot11f->bssCoexistMgmtSupport = 1;
            pDot11f->present = 1;
        }
-    }
-
-    if (pDot11f->present)
-    {
-        /* Need to compute the num_bytes based on bits set */
-        pDot11f->num_bytes = lim_compute_ext_cap_ie_length(pDot11f);
     }
     return eSIR_SUCCESS;
 }
@@ -2339,7 +2332,7 @@ tSirRetStatus sirConvertProbeFrame2Struct(tpAniSirGlobal       pMac,
     }
 #endif
 
-#if defined(FEATURE_WLAN_ESE) || defined(WLAN_FEATURE_ROAM_SCAN_OFFLOAD)
+#if defined FEATURE_WLAN_ESE
     if (pr->QBSSLoad.present)
     {
         vos_mem_copy(&pProbeResp->QBSSLoad, &pr->QBSSLoad, sizeof(tDot11fIEQBSSLoad));
@@ -2638,13 +2631,10 @@ sirConvertAssocRespFrame2Struct(tpAniSirGlobal pMac,
     }
     if (ar.ExtCap.present)
     {
-        struct s_ext_cap *p_ext_cap;
         vos_mem_copy(&pAssocRsp->ExtCap, &ar.ExtCap, sizeof(tDot11fIEExtCap));
-
-        p_ext_cap = (struct s_ext_cap *)&pAssocRsp->ExtCap.bytes;
         limLog(pMac, LOG1,
                FL("ExtCap is present, TDLSChanSwitProhibited: %d"),
-               p_ext_cap->TDLSChanSwitProhibited);
+               ar.ExtCap.TDLSChanSwitProhibited);
     }
     if ( ar.WMMParams.present )
     {
@@ -2961,8 +2951,6 @@ sirFillBeaconMandatoryIEforEseBcnReport(tpAniSirGlobal   pMac,
         limLog(pMac, LOGE, FL("Failed to allocate memory") );
         return eSIR_FAILURE;
     }
-    vos_mem_zero(pBies, sizeof(tDot11fBeaconIEs));
-
     // delegate to the framesc-generated code,
     status = dot11fUnpackBeaconIEs( pMac, pPayload, nPayload, pBies );
 
@@ -3089,19 +3077,14 @@ sirFillBeaconMandatoryIEforEseBcnReport(tpAniSirGlobal   pMac,
            retStatus = eSIR_FAILURE;
            goto err_bcnrep;
        }
-       if (eseBcnReportMandatoryIe.supportedRates.numRates <=
-             SIR_MAC_RATESET_EID_MAX) {
-           *pos = SIR_MAC_RATESET_EID;
-           pos++;
-           *pos = eseBcnReportMandatoryIe.supportedRates.numRates;
-           pos++;
-           vos_mem_copy(pos,
-                        (tANI_U8*)eseBcnReportMandatoryIe.supportedRates.rate,
-                        eseBcnReportMandatoryIe.supportedRates.numRates);
-           pos += eseBcnReportMandatoryIe.supportedRates.numRates;
-           freeBytes -= (1 + 1 +
-                         eseBcnReportMandatoryIe.supportedRates.numRates);
-       }
+       *pos = SIR_MAC_RATESET_EID;
+       pos++;
+       *pos = eseBcnReportMandatoryIe.supportedRates.numRates;
+       pos++;
+       vos_mem_copy(pos, (tANI_U8*)eseBcnReportMandatoryIe.supportedRates.rate,
+                    eseBcnReportMandatoryIe.supportedRates.numRates);
+       pos += eseBcnReportMandatoryIe.supportedRates.numRates;
+       freeBytes -= (1 + 1 + eseBcnReportMandatoryIe.supportedRates.numRates);
     }
 
     /* Fill FH Parameter set IE */
@@ -3262,8 +3245,6 @@ sirParseBeaconIE(tpAniSirGlobal        pMac,
         limLog(pMac, LOGE, FL("Failed to allocate memory") );
         return eSIR_FAILURE;
     }
-    vos_mem_zero(pBies, sizeof(tDot11fBeaconIEs));
-
     // delegate to the framesc-generated code,
     status = dot11fUnpackBeaconIEs( pMac, pPayload, nPayload, pBies );
 

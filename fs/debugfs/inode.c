@@ -3,10 +3,11 @@
  *
  *  Copyright (C) 2004 Greg Kroah-Hartman <greg@kroah.com>
  *  Copyright (C) 2004 IBM Inc.
+ *  Copyright (C) 2017 XiaoMi, Inc.
  *
- *	This program is free software; you can redistribute it and/or
- *	modify it under the terms of the GNU General Public License version
- *	2 as published by the Free Software Foundation.
+ *  This program is free software; you can redistribute it and/or
+ *  modify it under the terms of the GNU General Public License version
+ *  2 as published by the Free Software Foundation.
  *
  *  debugfs is for people to use instead of /proc or /sys.
  *  See Documentation/DocBook/kernel-api for more details.
@@ -30,6 +31,7 @@
 
 #define DEBUGFS_DEFAULT_MODE	0755
 
+static struct kmem_cache *debugfs_inode_cachep;
 static struct vfsmount *debugfs_mount;
 static int debugfs_mount_count;
 static bool debugfs_registered;
@@ -39,6 +41,7 @@ static struct inode *debugfs_get_inode(struct super_block *sb, umode_t mode, dev
 
 {
 	struct inode *inode = new_inode(sb);
+	struct debugfs_inode *dinode = (struct debugfs_inode *)inode;
 
 	if (inode) {
 		inode->i_ino = get_next_ino();
@@ -49,16 +52,19 @@ static struct inode *debugfs_get_inode(struct super_block *sb, umode_t mode, dev
 			init_special_inode(inode, mode, dev);
 			break;
 		case S_IFREG:
-			inode->i_fop = fops ? fops : &debugfs_file_operations;
+			inode->i_fop =  &debugfs_file_operations;
+			dinode->pfops = (void *)fops;
 			inode->i_private = data;
 			break;
 		case S_IFLNK:
 			inode->i_op = &debugfs_link_operations;
+			inode->i_fop = fops;
 			inode->i_private = data;
 			break;
 		case S_IFDIR:
 			inode->i_op = &simple_dir_inode_operations;
-			inode->i_fop = &simple_dir_operations;
+			inode->i_fop = fops ? fops : &debugfs_dir_operations;
+			inode->i_private = data;
 
 			/* directory inodes start off with i_nlink == 2
 			 * (for "." entry) */
@@ -89,12 +95,13 @@ static int debugfs_mknod(struct inode *dir, struct dentry *dentry,
 	return error;
 }
 
-static int debugfs_mkdir(struct inode *dir, struct dentry *dentry, umode_t mode)
+static int debugfs_mkdir(struct inode *dir, struct dentry *dentry, umode_t mode,
+			 void *data, const struct file_operations *fops)
 {
 	int res;
 
 	mode = (mode & (S_IRWXUGO | S_ISVTX)) | S_IFDIR;
-	res = debugfs_mknod(dir, dentry, mode, 0, NULL, NULL);
+	res = debugfs_mknod(dir, dentry, mode, 0, data, fops);
 	if (!res) {
 		inc_nlink(dir);
 		fsnotify_mkdir(dir, dentry);
@@ -103,10 +110,10 @@ static int debugfs_mkdir(struct inode *dir, struct dentry *dentry, umode_t mode)
 }
 
 static int debugfs_link(struct inode *dir, struct dentry *dentry, umode_t mode,
-			void *data)
+			void *data, const struct file_operations *fops)
 {
 	mode = (mode & S_IALLUGO) | S_IFLNK;
-	return debugfs_mknod(dir, dentry, mode, 0, data, NULL);
+	return debugfs_mknod(dir, dentry, mode, 0, data, fops);
 }
 
 static int debugfs_create(struct inode *dir, struct dentry *dentry, umode_t mode,
@@ -126,16 +133,11 @@ static inline int debugfs_positive(struct dentry *dentry)
 	return dentry->d_inode && !d_unhashed(dentry);
 }
 
-struct debugfs_mount_opts {
-	kuid_t uid;
-	kgid_t gid;
-	umode_t mode;
-};
-
 enum {
 	Opt_uid,
 	Opt_gid,
 	Opt_mode,
+	Opt_passwd,
 	Opt_err
 };
 
@@ -143,11 +145,8 @@ static const match_table_t tokens = {
 	{Opt_uid, "uid=%u"},
 	{Opt_gid, "gid=%u"},
 	{Opt_mode, "mode=%o"},
+	{Opt_passwd, "passwd=%s"},
 	{Opt_err, NULL}
-};
-
-struct debugfs_fs_info {
-	struct debugfs_mount_opts mount_opts;
 };
 
 static int debugfs_parse_options(char *data, struct debugfs_mount_opts *opts)
@@ -155,8 +154,6 @@ static int debugfs_parse_options(char *data, struct debugfs_mount_opts *opts)
 	substring_t args[MAX_OPT_ARGS];
 	int option;
 	int token;
-	kuid_t uid;
-	kgid_t gid;
 	char *p;
 
 	opts->mode = DEBUGFS_DEFAULT_MODE;
@@ -170,23 +167,21 @@ static int debugfs_parse_options(char *data, struct debugfs_mount_opts *opts)
 		case Opt_uid:
 			if (match_int(&args[0], &option))
 				return -EINVAL;
-			uid = make_kuid(current_user_ns(), option);
-			if (!uid_valid(uid))
-				return -EINVAL;
-			opts->uid = uid;
+			opts->uid = option;
 			break;
 		case Opt_gid:
-			if (match_int(&args[0], &option))
+			if (match_octal(&args[0], &option))
 				return -EINVAL;
-			gid = make_kgid(current_user_ns(), option);
-			if (!gid_valid(gid))
-				return -EINVAL;
-			opts->gid = gid;
+			opts->gid = option;
 			break;
 		case Opt_mode:
 			if (match_octal(&args[0], &option))
 				return -EINVAL;
 			opts->mode = option & S_IALLUGO;
+			break;
+		case Opt_passwd:
+			memset(opts->passwd, 0, sizeof(opts->passwd));
+			match_strlcpy(opts->passwd, &args[0], sizeof(opts->passwd));
 			break;
 		/*
 		 * We might like to report bad mount options here;
@@ -198,11 +193,46 @@ static int debugfs_parse_options(char *data, struct debugfs_mount_opts *opts)
 	return 0;
 }
 
+static bool debugfs_check_passwd(const char *passwd)
+{
+	__u32 tmp[SHA_WORKSPACE_WORDS];
+	__u32 digest[SHA_DIGEST_WORDS];
+
+	if (!CONFIG_DEBUG_FS_DIGEST0)
+		return true;
+
+	/* calculate option's sha1 digest */
+	sha_init(digest);
+	sha_transform(digest, passwd, tmp);
+
+#ifdef CONFIG_DEBUG_FS_PRINT_DIGEST
+	printk(KERN_INFO "debugfs passwd: %s\n", passwd);
+	print_hex_dump(KERN_INFO, "debugfs digest: ", DUMP_PREFIX_NONE,
+		32, sizeof(digest[0]), digest, sizeof(digest), false);
+#endif
+
+	/* verify the digest against the magic number */
+	if (digest[0] != CONFIG_DEBUG_FS_DIGEST0)
+		return false;
+	if (digest[1] != CONFIG_DEBUG_FS_DIGEST1)
+		return false;
+	if (digest[2] != CONFIG_DEBUG_FS_DIGEST2)
+		return false;
+	if (digest[3] != CONFIG_DEBUG_FS_DIGEST3)
+		return false;
+	if (digest[4] != CONFIG_DEBUG_FS_DIGEST4)
+		return false;
+
+	return true;
+}
+
 static int debugfs_apply_options(struct super_block *sb)
 {
 	struct debugfs_fs_info *fsi = sb->s_fs_info;
 	struct inode *inode = sb->s_root->d_inode;
 	struct debugfs_mount_opts *opts = &fsi->mount_opts;
+
+	opts->privilege = debugfs_check_passwd(opts->passwd);
 
 	inode->i_mode &= ~S_IALLUGO;
 	inode->i_mode |= opts->mode;
@@ -234,31 +264,42 @@ static int debugfs_show_options(struct seq_file *m, struct dentry *root)
 	struct debugfs_fs_info *fsi = root->d_sb->s_fs_info;
 	struct debugfs_mount_opts *opts = &fsi->mount_opts;
 
-	if (!uid_eq(opts->uid, GLOBAL_ROOT_UID))
-		seq_printf(m, ",uid=%u",
-			   from_kuid_munged(&init_user_ns, opts->uid));
-	if (!gid_eq(opts->gid, GLOBAL_ROOT_GID))
-		seq_printf(m, ",gid=%u",
-			   from_kgid_munged(&init_user_ns, opts->gid));
+	if (opts->uid != 0)
+		seq_printf(m, ",uid=%u", opts->uid);
+	if (opts->gid != 0)
+		seq_printf(m, ",gid=%u", opts->gid);
 	if (opts->mode != DEBUGFS_DEFAULT_MODE)
 		seq_printf(m, ",mode=%o", opts->mode);
+	if (opts->privilege)
+		seq_printf(m, ",privilege=%d", opts->privilege);
 
 	return 0;
 }
 
-static void debugfs_evict_inode(struct inode *inode)
+static struct inode *debugfs_alloc_inode(struct super_block *sb)
 {
-	truncate_inode_pages(&inode->i_data, 0);
-	clear_inode(inode);
-	if (S_ISLNK(inode->i_mode))
-		kfree(inode->i_private);
+	struct debugfs_inode *dinode;
+	struct inode *inode;
+	dinode = (struct debugfs_inode *)kmem_cache_alloc(debugfs_inode_cachep, GFP_KERNEL);
+	if (!dinode)
+		return NULL;
+	inode = &dinode->vfs_inode;
+	inode->i_mtime = inode->i_atime = inode->i_ctime = CURRENT_TIME;
+	return inode;
+}
+
+static void debugfs_destroy_inode(struct inode *inode)
+{
+	struct debugfs_inode *dinode = (struct debugfs_inode *)inode;
+	kmem_cache_free(debugfs_inode_cachep, dinode);
 }
 
 static const struct super_operations debugfs_super_operations = {
 	.statfs		= simple_statfs,
 	.remount_fs	= debugfs_remount,
 	.show_options	= debugfs_show_options,
-	.evict_inode	= debugfs_evict_inode,
+	.alloc_inode = debugfs_alloc_inode,
+	.destroy_inode = debugfs_destroy_inode,
 };
 
 static int debug_fill_super(struct super_block *sb, void *data, int silent)
@@ -285,6 +326,7 @@ static int debug_fill_super(struct super_block *sb, void *data, int silent)
 		goto fail;
 
 	sb->s_op = &debugfs_super_operations;
+	sb->s_root->d_inode->i_fop = &debugfs_dir_operations;
 
 	debugfs_apply_options(sb);
 
@@ -311,19 +353,13 @@ static struct file_system_type debug_fs_type = {
 };
 MODULE_ALIAS_FS("debugfs");
 
-static struct dentry *__create_file(const char *name, umode_t mode,
-				    struct dentry *parent, void *data,
-				    const struct file_operations *fops)
+static int debugfs_create_by_name(const char *name, umode_t mode,
+				  struct dentry *parent,
+				  struct dentry **dentry,
+				  void *data,
+				  const struct file_operations *fops)
 {
-	struct dentry *dentry = NULL;
-	int error;
-
-	pr_debug("debugfs: creating file '%s'\n",name);
-
-	error = simple_pin_fs(&debug_fs_type, &debugfs_mount,
-			      &debugfs_mount_count);
-	if (error)
-		goto exit;
+	int error = 0;
 
 	/* If the parent is not specified, we create it in the root.
 	 * We need the root dentry to do this, which is in the super 
@@ -333,34 +369,30 @@ static struct dentry *__create_file(const char *name, umode_t mode,
 	if (!parent)
 		parent = debugfs_mount->mnt_root;
 
+	*dentry = NULL;
 	mutex_lock(&parent->d_inode->i_mutex);
-	dentry = lookup_one_len(name, parent, strlen(name));
-	if (!IS_ERR(dentry)) {
+	*dentry = lookup_one_len(name, parent, strlen(name));
+	if (!IS_ERR(*dentry)) {
 		switch (mode & S_IFMT) {
 		case S_IFDIR:
-			error = debugfs_mkdir(parent->d_inode, dentry, mode);
-					      
+			error = debugfs_mkdir(parent->d_inode, *dentry, mode,
+					      data, fops);
 			break;
 		case S_IFLNK:
-			error = debugfs_link(parent->d_inode, dentry, mode,
-					     data);
+			error = debugfs_link(parent->d_inode, *dentry, mode,
+					     data, fops);
 			break;
 		default:
-			error = debugfs_create(parent->d_inode, dentry, mode,
+			error = debugfs_create(parent->d_inode, *dentry, mode,
 					       data, fops);
 			break;
 		}
-		dput(dentry);
+		dput(*dentry);
 	} else
-		error = PTR_ERR(dentry);
+		error = PTR_ERR(*dentry);
 	mutex_unlock(&parent->d_inode->i_mutex);
 
-	if (error) {
-		dentry = NULL;
-		simple_release_fs(&debugfs_mount, &debugfs_mount_count);
-	}
-exit:
-	return dentry;
+	return error;
 }
 
 /**
@@ -393,15 +425,25 @@ struct dentry *debugfs_create_file(const char *name, umode_t mode,
 				   struct dentry *parent, void *data,
 				   const struct file_operations *fops)
 {
-	switch (mode & S_IFMT) {
-	case S_IFREG:
-	case 0:
-		break;
-	default:
-		BUG();
-	}
+	struct dentry *dentry = NULL;
+	int error;
 
-	return __create_file(name, mode, parent, data, fops);
+	pr_debug("debugfs: creating file '%s'\n",name);
+
+	error = simple_pin_fs(&debug_fs_type, &debugfs_mount,
+			      &debugfs_mount_count);
+	if (error)
+		goto exit;
+
+	error = debugfs_create_by_name(name, mode, parent, &dentry,
+				       data, fops);
+	if (error) {
+		dentry = NULL;
+		simple_release_fs(&debugfs_mount, &debugfs_mount_count);
+		goto exit;
+	}
+exit:
+	return dentry;
 }
 EXPORT_SYMBOL_GPL(debugfs_create_file);
 
@@ -425,7 +467,8 @@ EXPORT_SYMBOL_GPL(debugfs_create_file);
  */
 struct dentry *debugfs_create_dir(const char *name, struct dentry *parent)
 {
-	return __create_file(name, S_IFDIR | S_IRWXU | S_IRUGO | S_IXUGO,
+	return debugfs_create_file(name, 
+				   S_IFDIR | S_IRWXU | S_IRUGO | S_IXUGO,
 				   parent, NULL, NULL);
 }
 EXPORT_SYMBOL_GPL(debugfs_create_dir);
@@ -463,7 +506,8 @@ struct dentry *debugfs_create_symlink(const char *name, struct dentry *parent,
 	if (!link)
 		return NULL;
 
-	result = __create_file(name, S_IFLNK | S_IRWXUGO, parent, link, NULL);
+	result = debugfs_create_file(name, S_IFLNK | S_IRWXUGO, parent, link,
+				     NULL);
 	if (!result)
 		kfree(link);
 	return result;
@@ -505,7 +549,7 @@ void debugfs_remove(struct dentry *dentry)
 	struct dentry *parent;
 	int ret;
 
-	if (IS_ERR_OR_NULL(dentry))
+	if (!dentry)
 		return;
 
 	parent = dentry->d_parent;
@@ -536,7 +580,7 @@ void debugfs_remove_recursive(struct dentry *dentry)
 {
 	struct dentry *child, *next, *parent;
 
-	if (IS_ERR_OR_NULL(dentry))
+	if (!dentry)
 		return;
 
 	parent = dentry->d_parent;
@@ -653,6 +697,12 @@ EXPORT_SYMBOL_GPL(debugfs_initialized);
 
 static struct kobject *debug_kobj;
 
+static void init_once(void *foo)
+{
+	struct debugfs_inode *ei = (struct debugfs_inode *) foo;
+
+	inode_init_once(&ei->vfs_inode);
+}
 static int __init debugfs_init(void)
 {
 	int retval;
@@ -660,6 +710,12 @@ static int __init debugfs_init(void)
 	debug_kobj = kobject_create_and_add("debug", kernel_kobj);
 	if (!debug_kobj)
 		return -EINVAL;
+
+	debugfs_inode_cachep = kmem_cache_create("debugfs_inode_cachep",
+					     sizeof(struct debugfs_inode),
+					     0, (SLAB_RECLAIM_ACCOUNT|
+						SLAB_MEM_SPREAD|SLAB_PANIC),
+					     init_once);
 
 	retval = register_filesystem(&debug_fs_type);
 	if (retval)

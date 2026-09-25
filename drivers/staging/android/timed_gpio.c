@@ -51,7 +51,6 @@ static int gpio_get_time(struct timed_output_dev *dev)
 	if (hrtimer_active(&data->timer)) {
 		ktime_t r = hrtimer_get_remaining(&data->timer);
 		struct timeval t = ktime_to_timeval(r);
-
 		return t.tv_sec * 1000 + t.tv_usec / 1000;
 	} else
 		return 0;
@@ -162,7 +161,18 @@ static struct platform_driver timed_gpio_driver = {
 	},
 };
 
-module_platform_driver(timed_gpio_driver);
+static int __init timed_gpio_init(void)
+{
+	return platform_driver_register(&timed_gpio_driver);
+}
+
+static void __exit timed_gpio_exit(void)
+{
+	platform_driver_unregister(&timed_gpio_driver);
+}
+
+module_init(timed_gpio_init);
+module_exit(timed_gpio_exit);
 
 MODULE_AUTHOR("Mike Lockwood <lockwood@android.com>");
 MODULE_DESCRIPTION("timed gpio driver");

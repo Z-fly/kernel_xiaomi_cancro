@@ -25,10 +25,10 @@
 #include <linux/types.h>
 #include <linux/platform_device.h>
 #include <linux/delay.h>
-#include <linux/ipc_logging.h>
-#include <linux/platform_data/msm_serial_hs.h>
-#include <soc/qcom/subsystem_restart.h>
-#include <soc/qcom/subsystem_notif.h>
+#include <mach/subsystem_notif.h>
+#include <mach/subsystem_restart.h>
+#include <mach/msm_serial_hs.h>
+#include <mach/msm_ipc_logging.h>
 #include "smux_private.h"
 #include "smux_loopback.h"
 
@@ -3905,13 +3905,12 @@ static int __init smux_init(void)
 		return ret;
 	}
 
-#ifdef CONFIG_IPC_LOGGING
 	log_ctx = ipc_log_context_create(1, "smux", 0);
 	if (!log_ctx) {
 		SMUX_ERR("%s: unable to create log context\n", __func__);
 		disable_ipc_logging = 1;
 	}
-#endif
+
 	return 0;
 }
 

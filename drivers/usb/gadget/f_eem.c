@@ -297,6 +297,7 @@ eem_bind(struct usb_configuration *c, struct usb_function *f)
 
 fail:
 	usb_free_all_descriptors(f);
+
 	if (eem->port.out_ep)
 		eem->port.out_ep->driver_data = NULL;
 	if (eem->port.in_ep)
@@ -528,7 +529,7 @@ error:
  * Caller must have called @gether_setup().  Caller is also responsible
  * for calling @gether_cleanup() before module unload.
  */
-int __init eem_bind_config(struct usb_configuration *c, struct eth_dev *dev)
+int __init eem_bind_config(struct usb_configuration *c)
 {
 	struct f_eem	*eem;
 	int		status;
@@ -549,7 +550,6 @@ int __init eem_bind_config(struct usb_configuration *c, struct eth_dev *dev)
 	if (!eem)
 		return -ENOMEM;
 
-	eem->port.ioport = dev;
 	eem->port.cdc_filter = DEFAULT_FILTER;
 
 	eem->port.func.name = "cdc_eem";

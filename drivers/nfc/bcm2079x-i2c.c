@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2012 Broadcom Corporation.
- * Copyright (C) 2015 XiaoMi, Inc.
+ * Copyright (C) 2017 XiaoMi, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -39,7 +39,7 @@
 #include <linux/version.h>
 #include <linux/of_gpio.h>
 
-#include "bcm2079x.h"
+#include <linux/nfc/bcm2079x.h>
 
 #define USE_WAKE_LOCK
 
@@ -80,7 +80,7 @@ struct bcm2079x_dev {
 	unsigned int count_irq;
 	int original_address;
 #ifdef USE_WAKE_LOCK
-        struct wake_lock wake_lock;
+	struct wake_lock wake_lock;
 #endif
 
 };
@@ -138,7 +138,7 @@ static void set_client_addr(struct bcm2079x_dev *bcm2079x_dev, int addr)
 	client->addr = addr;
 	if (addr > 0x7F)
 		client->flags |= I2C_CLIENT_TEN;
-    else
+	else
 		client->flags &= ~I2C_CLIENT_TEN;
 
 	dev_info(&client->dev,
@@ -169,26 +169,26 @@ static void change_client_addr(struct bcm2079x_dev *bcm2079x_dev, int addr)
 		ret += addr_data[i];
 	addr_data[sizeof(addr_data) - 1] = (ret & 0xFF);
 	dev_info(&client->dev,
-		 "Change client device from (0x%04X) flag = "\
-		 "%04x, addr_data[%d] = %02x\n",
-		 client->addr, client->flags, sizeof(addr_data) - 1,
-		 addr_data[sizeof(addr_data) - 1]);
+			"Change client device from (0x%04X) flag = "\
+			"%04x, addr_data[%d] = %02x\n",
+			client->addr, client->flags, sizeof(addr_data) - 1,
+			addr_data[sizeof(addr_data) - 1]);
 	ret = i2c_master_send(client, addr_data+offset, sizeof(addr_data)-offset);
 	if (ret != sizeof(addr_data)-offset) {
 		client->addr = ALIAS_ADDRESS;
 		client->flags &= ~I2C_CLIENT_TEN;
 		dev_info(&client->dev,
-			 "Change client device from (0x%04X) flag = "\
-		 "%04x, addr_data[%d] = %02x\n",
-		 client->addr, client->flags, sizeof(addr_data) - 1,
-		 addr_data[sizeof(addr_data) - 1]);
+				"Change client device from (0x%04X) flag = "\
+				"%04x, addr_data[%d] = %02x\n",
+				client->addr, client->flags, sizeof(addr_data) - 1,
+				addr_data[sizeof(addr_data) - 1]);
 		ret = i2c_master_send(client, addr_data, sizeof(addr_data));
 	}
 	client->addr = addr_data[5];
 
 	dev_info(&client->dev,
-		 "Change client device changed to (0x%04X) flag = %04x, ret = %d\n",
-		 client->addr, client->flags, ret);
+			"Change client device changed to (0x%04X) flag = %04x, ret = %d\n",
+			client->addr, client->flags, ret);
 }
 
 static irqreturn_t bcm2079x_dev_irq_handler(int irq, void *dev_id)
@@ -198,21 +198,19 @@ static irqreturn_t bcm2079x_dev_irq_handler(int irq, void *dev_id)
 
 #ifdef USE_WAKE_LOCK
 	int wakelockcnt = 0;
-	if(! (wakelockcnt =  wake_lock_active(&bcm2079x_dev->wake_lock )))
-	{
+	if (!(wakelockcnt =  wake_lock_active(&bcm2079x_dev->wake_lock))) {
 		dev_dbg(&bcm2079x_dev->client->dev, "irq aquire wake lock\n");
 		wake_lock(&bcm2079x_dev->wake_lock);
-	}else
-	{
-//		printk("irq wake lock count = %d\n", wakelockcnt);
+	} else {
+
 	}
-	//printk("irq handler ( wake lock %d)...\n", wakelockcnt);
+
 #endif
 
 	spin_lock_irqsave(&bcm2079x_dev->irq_enabled_lock, flags);
 	bcm2079x_dev->count_irq++;
 
-	//printk("bcm2079x_dev_irq_handler got irq (cnt=%d)\n", bcm2079x_dev->count_irq++);
+
 	spin_unlock_irqrestore(&bcm2079x_dev->irq_enabled_lock, flags);
 	wake_up(&bcm2079x_dev->read_wq);
 
@@ -225,21 +223,19 @@ static unsigned int bcm2079x_dev_poll(struct file *filp, poll_table *wait)
 	unsigned int mask = 0;
 	unsigned long flags;
 
-	//printk("bcm2079x_dev_poll  poll to get read irq(cnt=%d)\n", bcm2079x_dev->count_irq);
+
 	spin_lock_irqsave(&bcm2079x_dev->irq_enabled_lock, flags);
-	if(!gpio_get_value(bcm2079x_dev->irq_gpio) && (bcm2079x_dev->count_irq < 1) )
-	{
+	if (!gpio_get_value(bcm2079x_dev->irq_gpio) && (bcm2079x_dev->count_irq < 1)) {
 		spin_unlock_irqrestore(&bcm2079x_dev->irq_enabled_lock, flags);
-//		printk("poll wait, irq count %d, irq_gpio %d\n", bcm2079x_dev->count_irq,  bcm2079x_dev->irq_gpio  );
+
 		poll_wait(filp, &bcm2079x_dev->read_wq, wait);
-	}else
-	{
+	} else {
 		if (bcm2079x_dev->count_irq < 1)
 			bcm2079x_dev->count_irq = 1;
 
 		spin_unlock_irqrestore(&bcm2079x_dev->irq_enabled_lock, flags);
-//		printk("poll there is data to read!!! no wait any more.\n");
-		return (POLLIN | POLLRDNORM);
+
+		return POLLIN | POLLRDNORM;
 	}
 
 	spin_lock_irqsave(&bcm2079x_dev->irq_enabled_lock, flags);
@@ -276,22 +272,22 @@ static ssize_t bcm2079x_dev_read(struct file *filp, char __user *buf,
 		total = ret;
 		/** First byte is the packet type
 		**/
-		switch(tmp[0]) {
-			case PACKET_TYPE_NCI:
-				len = tmp[PACKET_HEADER_SIZE_NCI-1];
-				break;
+		switch (tmp[0]) {
+		case PACKET_TYPE_NCI:
+			len = tmp[PACKET_HEADER_SIZE_NCI-1];
+			break;
 
-			case PACKET_TYPE_HCIEV:
-				len = tmp[PACKET_HEADER_SIZE_HCI-1];
-				if (len == 0)
-					total--;				/*Since payload is 0, decrement total size (from 4 to 3) */
-				else
-					len--;					/*First byte of payload is in tmp[3] already */
-				break;
+		case PACKET_TYPE_HCIEV:
+			len = tmp[PACKET_HEADER_SIZE_HCI-1];
+			if (len == 0)
+				total--;				/*Since payload is 0, decrement total size (from 4 to 3) */
+			else
+				len--;					/*First byte of payload is in tmp[3] already */
+			break;
 
-			default:
-				len = 0;					/*Unknown packet byte */
-				break;
+		default:
+			len = 0;					/*Unknown packet byte */
+			break;
 		} /* switch*/
 
 		/** make sure full packet fits in the buffer
@@ -343,16 +339,16 @@ static ssize_t bcm2079x_dev_write(struct file *filp, const char __user *buf,
 		if ((bcm2079x_dev->client->flags & I2C_CLIENT_TEN) != I2C_CLIENT_TEN && bcm2079x_dev->error_write == 0) {
 			set_client_addr(bcm2079x_dev, 0x1FA);
 			ret = i2c_master_send(bcm2079x_dev->client, tmp, count);
-            if (ret != count) {
+			if (ret != count) {
 				bcm2079x_dev->error_write++;
-                set_client_addr(bcm2079x_dev, bcm2079x_dev->original_address);
-            }
+		set_client_addr(bcm2079x_dev, bcm2079x_dev->original_address);
+		}
 		} else {
-                        dev_err(&bcm2079x_dev->client->dev,
-                            "failed to write %d\n", ret);
-                        ret = -EIO;
-                        bcm2079x_dev->error_write++;
-	        }
+			dev_err(&bcm2079x_dev->client->dev,
+			"failed to write %d\n", ret);
+			ret = -EIO;
+			bcm2079x_dev->error_write++;
+		}
 	}
 	mutex_unlock(&bcm2079x_dev->read_mutex);
 
@@ -405,15 +401,13 @@ static long bcm2079x_dev_unlocked_ioctl(struct file *filp,
 			 "%s, BCMNFC_WAKE_CTL (%x, %lx):\n",
 			 __func__, cmd, arg);*/
 #ifdef USE_WAKE_LOCK
-		if(arg != 0)
-		{
-			while(wake_lock_active(&bcm2079x_dev->wake_lock ))
-			{
-				dev_dbg(&bcm2079x_dev->client->dev,
+		if (arg != 0) {
+			while (wake_lock_active(&bcm2079x_dev->wake_lock)) {
+				dev_dbg (&bcm2079x_dev->client->dev,
 						"release wake lock!!!\n");
 				wake_unlock(&bcm2079x_dev->wake_lock);
 			}
-			//wake_lock_timeout(&bcm2079x_dev->wake_lock, HZ*2);
+
 		}
 #endif
 		gpio_set_value(bcm2079x_dev->wake_gpio, arg);
@@ -453,7 +447,7 @@ static int bcm2079x_probe(struct i2c_client *client,
 				"broadcom,enable-gpio", 0, NULL);
 		dev_err(&client->dev, "probe from device tree mode:wake-gpio=%d,"
 			"irq-gpio=%d, en-gpio=%d\n", wake_gpio, irq_gpio, en_gpio);
-	} else if(!client->dev.platform_data) {
+	} else if (!client->dev.platform_data) {
 		struct bcm2079x_platform_data *pdata = client->dev.platform_data;
 
 		wake_gpio = pdata->wake_gpio;
@@ -560,7 +554,7 @@ static int bcm2079x_probe(struct i2c_client *client,
 		 __func__);
 
 #ifdef USE_WAKE_LOCK
-	wake_lock_init(&bcm2079x_dev->wake_lock , WAKE_LOCK_SUSPEND, "nfcwakelock" );
+	wake_lock_init(&bcm2079x_dev->wake_lock , WAKE_LOCK_SUSPEND, "nfcwakelock");
 #endif
 	return 0;
 

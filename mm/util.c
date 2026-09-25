@@ -108,11 +108,23 @@ void *memdup_user(const void __user *src, size_t len)
 }
 EXPORT_SYMBOL(memdup_user);
 
-static __always_inline void *__do_krealloc(const void *p, size_t new_size,
-					   gfp_t flags)
+/**
+ * __krealloc - like krealloc() but don't free @p.
+ * @p: object to reallocate memory for.
+ * @new_size: how many bytes of memory are required.
+ * @flags: the type of memory to allocate.
+ *
+ * This function is like krealloc() except it never frees the originally
+ * allocated buffer. Use this if you don't want to free the buffer immediately
+ * like, for example, with RCU.
+ */
+void *__krealloc(const void *p, size_t new_size, gfp_t flags)
 {
 	void *ret;
 	size_t ks = 0;
+
+	if (unlikely(!new_size))
+		return ZERO_SIZE_PTR;
 
 	if (p)
 		ks = ksize(p);
@@ -126,25 +138,6 @@ static __always_inline void *__do_krealloc(const void *p, size_t new_size,
 
 	return ret;
 }
-
-/**
- * __krealloc - like krealloc() but don't free @p.
- * @p: object to reallocate memory for.
- * @new_size: how many bytes of memory are required.
- * @flags: the type of memory to allocate.
- *
- * This function is like krealloc() except it never frees the originally
- * allocated buffer. Use this if you don't want to free the buffer immediately
- * like, for example, with RCU.
- */
-void *__krealloc(const void *p, size_t new_size, gfp_t flags)
-{
-	if (unlikely(!new_size))
-		return ZERO_SIZE_PTR;
-
-	return __do_krealloc(p, new_size, flags);
-
-}
 EXPORT_SYMBOL(__krealloc);
 
 /**
@@ -155,7 +148,7 @@ EXPORT_SYMBOL(__krealloc);
  *
  * The contents of the object pointed to are preserved up to the
  * lesser of the new and old sizes.  If @p is %NULL, krealloc()
- * behaves exactly like kmalloc().  If @new_size is 0 and @p is not a
+ * behaves exactly like kmalloc().  If @size is 0 and @p is not a
  * %NULL pointer, the object pointed to is freed.
  */
 void *krealloc(const void *p, size_t new_size, gfp_t flags)
@@ -167,7 +160,7 @@ void *krealloc(const void *p, size_t new_size, gfp_t flags)
 		return ZERO_SIZE_PTR;
 	}
 
-	ret = __do_krealloc(p, new_size, flags);
+	ret = __krealloc(p, new_size, flags);
 	if (ret && p != ret)
 		kfree(p);
 
@@ -194,7 +187,7 @@ void kzfree(const void *p)
 	if (unlikely(ZERO_OR_NULL_PTR(mem)))
 		return;
 	ks = ksize(mem);
-	memset(mem, 0, ks);
+	memzero_explicit(mem, ks);
 	kfree(mem);
 }
 EXPORT_SYMBOL(kzfree);
@@ -273,14 +266,17 @@ pid_t vm_is_stack(struct task_struct *task,
 
 	if (in_group) {
 		struct task_struct *t;
-
 		rcu_read_lock();
-		for_each_thread(task, t) {
+		if (!pid_alive(task))
+			goto done;
+
+		t = task;
+		do {
 			if (vm_is_stack_for_task(t, vma)) {
 				ret = t->pid;
 				goto done;
 			}
-		}
+		} while_each_thread(task, t);
 done:
 		rcu_read_unlock();
 	}
@@ -293,6 +289,7 @@ void arch_pick_mmap_layout(struct mm_struct *mm)
 {
 	mm->mmap_base = TASK_UNMAPPED_BASE;
 	mm->get_unmapped_area = arch_get_unmapped_area;
+	mm->unmap_area = arch_unmap_area;
 }
 #endif
 
@@ -347,39 +344,6 @@ int __attribute__((weak)) get_user_pages_fast(unsigned long start,
 	return ret;
 }
 EXPORT_SYMBOL_GPL(get_user_pages_fast);
-
-unsigned long vm_mmap_pgoff(struct file *file, unsigned long addr,
-	unsigned long len, unsigned long prot,
-	unsigned long flag, unsigned long pgoff)
-{
-	unsigned long ret;
-	struct mm_struct *mm = current->mm;
-	unsigned long populate;
-
-	ret = security_mmap_file(file, prot, flag);
-	if (!ret) {
-		down_write(&mm->mmap_sem);
-		ret = do_mmap_pgoff(file, addr, len, prot, flag, pgoff,
-				    &populate);
-		up_write(&mm->mmap_sem);
-		if (populate)
-			mm_populate(ret, populate);
-	}
-	return ret;
-}
-
-unsigned long vm_mmap(struct file *file, unsigned long addr,
-	unsigned long len, unsigned long prot,
-	unsigned long flag, unsigned long offset)
-{
-	if (unlikely(offset + PAGE_ALIGN(len) < offset))
-		return -EINVAL;
-	if (unlikely(offset & ~PAGE_MASK))
-		return -EINVAL;
-
-	return vm_mmap_pgoff(file, addr, len, prot, flag, offset >> PAGE_SHIFT);
-}
-EXPORT_SYMBOL(vm_mmap);
 
 void kvfree(const void *addr)
 {

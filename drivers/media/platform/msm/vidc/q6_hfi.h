@@ -1,4 +1,4 @@
-/* Copyright (c) 2013-2014, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2013, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -13,7 +13,7 @@
 #ifndef __Q6_HFI_H__
 #define __Q6_HFI_H__
 
-#include <linux/qdsp6v2/apr.h>
+#include <mach/qdsp6v2/apr.h>
 #include "vidc_hfi.h"
 #include "vidc_hfi_helper.h"
 #include "msm_vidc_resources.h"
@@ -53,7 +53,6 @@ struct q6_hfi_device {
 	struct msm_vidc_platform_resources *res;
 	void *apr;
 	struct mutex session_lock;
-	struct hfi_packetization_ops *pkt_ops;
 };
 
 struct q6_apr_cmd_sys_init_packet {

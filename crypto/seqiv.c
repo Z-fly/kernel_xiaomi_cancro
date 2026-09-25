@@ -305,8 +305,9 @@ static struct crypto_instance *seqiv_alloc(struct rtattr **tb)
 	int err;
 
 	algt = crypto_get_attr_type(tb);
+	err = PTR_ERR(algt);
 	if (IS_ERR(algt))
-		return ERR_CAST(algt);
+		return ERR_PTR(err);
 
 	err = crypto_get_default_rng();
 	if (err)
@@ -362,4 +363,3 @@ module_exit(seqiv_module_exit);
 
 MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION("Sequence Number IV Generator");
-MODULE_ALIAS_CRYPTO("seqiv");

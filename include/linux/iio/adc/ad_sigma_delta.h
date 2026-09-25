@@ -2,6 +2,7 @@
  * Support code for Analog Devices Sigma-Delta ADCs
  *
  * Copyright 2012 Analog Devices Inc.
+ * Copyright (C) 2017 XiaoMi, Inc.
  *  Author: Lars-Peter Clausen <lars@metafoo.de>
  *
  * Licensed under the GPL-2.

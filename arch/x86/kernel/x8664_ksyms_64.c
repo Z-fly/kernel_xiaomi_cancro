@@ -13,12 +13,8 @@
 #include <asm/ftrace.h>
 
 #ifdef CONFIG_FUNCTION_TRACER
-/* mcount and __fentry__ are defined in assembly */
-#ifdef CC_USING_FENTRY
-EXPORT_SYMBOL(__fentry__);
-#else
+/* mcount is defined in assembly */
 EXPORT_SYMBOL(mcount);
-#endif
 #endif
 
 EXPORT_SYMBOL(__get_user_1);
@@ -32,7 +28,6 @@ EXPORT_SYMBOL(__put_user_8);
 
 EXPORT_SYMBOL(copy_user_generic_string);
 EXPORT_SYMBOL(copy_user_generic_unrolled);
-EXPORT_SYMBOL(copy_user_enhanced_fast_string);
 EXPORT_SYMBOL(__copy_user_nocache);
 EXPORT_SYMBOL(_copy_from_user);
 EXPORT_SYMBOL(_copy_to_user);
@@ -50,24 +45,15 @@ EXPORT_SYMBOL(csum_partial);
 #undef memset
 #undef memmove
 
-extern void *__memset(void *, int, __kernel_size_t);
-extern void *__memcpy(void *, const void *, __kernel_size_t);
-extern void *__memmove(void *, const void *, __kernel_size_t);
 extern void *memset(void *, int, __kernel_size_t);
 extern void *memcpy(void *, const void *, __kernel_size_t);
-extern void *memmove(void *, const void *, __kernel_size_t);
-
-EXPORT_SYMBOL(__memset);
-EXPORT_SYMBOL(__memcpy);
-EXPORT_SYMBOL(__memmove);
+extern void *__memcpy(void *, const void *, __kernel_size_t);
 
 EXPORT_SYMBOL(memset);
 EXPORT_SYMBOL(memcpy);
+EXPORT_SYMBOL(__memcpy);
 EXPORT_SYMBOL(memmove);
 
-#ifndef CONFIG_DEBUG_VIRTUAL
-EXPORT_SYMBOL(phys_base);
-#endif
 EXPORT_SYMBOL(empty_zero_page);
 #ifndef CONFIG_PARAVIRT
 EXPORT_SYMBOL(native_load_gs_index);

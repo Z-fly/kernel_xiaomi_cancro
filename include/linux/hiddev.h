@@ -1,5 +1,6 @@
 /*
  *  Copyright (c) 1999-2000 Vojtech Pavlik
+ *  Copyright (C) 2017 XiaoMi, Inc.
  *
  *  Sponsored by SuSE
  */

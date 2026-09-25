@@ -2,6 +2,7 @@
  * drivers/iio/light/tsl2563.c
  *
  * Copyright (C) 2008 Nokia Corporation
+ * Copyright (C) 2017 XiaoMi, Inc.
  *
  * Written by Timo O. Karjalainen <timo.o.karjalainen@nokia.com>
  * Contact: Amit Kucheria <amit.kucheria@verdurent.com>
@@ -299,8 +300,8 @@ static int tsl2563_adjust_gainlevel(struct tsl2563_chip *chip, u16 adc)
 			chip->gainlevel++ : chip->gainlevel--;
 
 		i2c_smbus_write_byte_data(client,
-					  TSL2563_CMD | TSL2563_REG_TIMING,
-					  chip->gainlevel->gaintime);
+				TSL2563_CMD | TSL2563_REG_TIMING,
+				chip->gainlevel->gaintime);
 
 		tsl2563_wait_adc(chip);
 		tsl2563_wait_adc(chip);
@@ -453,10 +454,10 @@ static u32 calib_adc(u32 adc, u32 calib)
 }
 
 static int tsl2563_write_raw(struct iio_dev *indio_dev,
-			       struct iio_chan_spec const *chan,
-			       int val,
-			       int val2,
-			       long mask)
+		struct iio_chan_spec const *chan,
+		int val,
+		int val2,
+		long mask)
 {
 	struct tsl2563_chip *chip = iio_priv(indio_dev);
 
@@ -469,10 +470,10 @@ static int tsl2563_write_raw(struct iio_dev *indio_dev,
 }
 
 static int tsl2563_read_raw(struct iio_dev *indio_dev,
-			    struct iio_chan_spec const *chan,
-			    int *val,
-			    int *val2,
-			    long m)
+		struct iio_chan_spec const *chan,
+		int *val,
+		int *val2,
+		long m)
 {
 	int ret = -EINVAL;
 	u32 calib0, calib1;
@@ -539,9 +540,9 @@ static const struct iio_chan_spec tsl2563_channels[] = {
 		.info_mask_separate = BIT(IIO_CHAN_INFO_RAW) |
 		BIT(IIO_CHAN_INFO_CALIBSCALE),
 		.event_mask = (IIO_EV_BIT(IIO_EV_TYPE_THRESH,
-					  IIO_EV_DIR_RISING) |
-			       IIO_EV_BIT(IIO_EV_TYPE_THRESH,
-					  IIO_EV_DIR_FALLING)),
+				IIO_EV_DIR_RISING) |
+				IIO_EV_BIT(IIO_EV_TYPE_THRESH,
+					IIO_EV_DIR_FALLING)),
 	}, {
 		.type = IIO_INTENSITY,
 		.modified = 1,
@@ -552,8 +553,8 @@ static const struct iio_chan_spec tsl2563_channels[] = {
 };
 
 static int tsl2563_read_thresh(struct iio_dev *indio_dev,
-			       u64 event_code,
-			       int *val)
+		u64 event_code,
+		int *val)
 {
 	struct tsl2563_chip *chip = iio_priv(indio_dev);
 
@@ -572,8 +573,8 @@ static int tsl2563_read_thresh(struct iio_dev *indio_dev,
 }
 
 static int tsl2563_write_thresh(struct iio_dev *indio_dev,
-				  u64 event_code,
-				  int val)
+		u64 event_code,
+		int val)
 {
 	struct tsl2563_chip *chip = iio_priv(indio_dev);
 	int ret;
@@ -589,8 +590,8 @@ static int tsl2563_write_thresh(struct iio_dev *indio_dev,
 	if (ret)
 		goto error_ret;
 	ret = i2c_smbus_write_byte_data(chip->client,
-					TSL2563_CMD | (address + 1),
-					(val >> 8) & 0xFF);
+			TSL2563_CMD | (address + 1),
+			(val >> 8) & 0xFF);
 	if (IIO_EVENT_CODE_EXTRACT_DIR(event_code) == IIO_EV_DIR_RISING)
 		chip->high_thres = val;
 	else
@@ -608,11 +609,11 @@ static irqreturn_t tsl2563_event_handler(int irq, void *private)
 	struct tsl2563_chip *chip = iio_priv(dev_info);
 
 	iio_push_event(dev_info,
-		       IIO_UNMOD_EVENT_CODE(IIO_LIGHT,
-					    0,
-					    IIO_EV_TYPE_THRESH,
-					    IIO_EV_DIR_EITHER),
-		       iio_get_time_ns());
+			IIO_UNMOD_EVENT_CODE(IIO_LIGHT,
+			0,
+			IIO_EV_TYPE_THRESH,
+			IIO_EV_DIR_EITHER),
+		iio_get_time_ns());
 
 	/* clear the interrupt and push the event */
 	i2c_smbus_write_byte(chip->client, TSL2563_CMD | TSL2563_CLEARINT);
@@ -620,8 +621,8 @@ static irqreturn_t tsl2563_event_handler(int irq, void *private)
 }
 
 static int tsl2563_write_interrupt_config(struct iio_dev *indio_dev,
-					  u64 event_code,
-					  int state)
+		u64 event_code,
+		int state)
 {
 	struct tsl2563_chip *chip = iio_priv(indio_dev);
 	int ret = 0;
@@ -641,16 +642,16 @@ static int tsl2563_write_interrupt_config(struct iio_dev *indio_dev,
 				goto out;
 		}
 		ret = i2c_smbus_write_byte_data(chip->client,
-						TSL2563_CMD | TSL2563_REG_INT,
-						chip->intr);
+				TSL2563_CMD | TSL2563_REG_INT,
+				chip->intr);
 		chip->int_enabled = true;
 	}
 
 	if (!state && (chip->intr & 0x30)) {
 		chip->intr &= ~0x30;
 		ret = i2c_smbus_write_byte_data(chip->client,
-						TSL2563_CMD | TSL2563_REG_INT,
-						chip->intr);
+				TSL2563_CMD | TSL2563_REG_INT,
+				chip->intr);
 		chip->int_enabled = false;
 		/* now the interrupt is not enabled, we can go to sleep */
 		schedule_delayed_work(&chip->poweroff_work, 5 * HZ);
@@ -662,7 +663,7 @@ out:
 }
 
 static int tsl2563_read_interrupt_config(struct iio_dev *indio_dev,
-					 u64 event_code)
+		u64 event_code)
 {
 	struct tsl2563_chip *chip = iio_priv(indio_dev);
 	int ret;
@@ -694,7 +695,7 @@ static const struct iio_info tsl2563_info = {
 };
 
 static int tsl2563_probe(struct i2c_client *client,
-				const struct i2c_device_id *device_id)
+		const struct i2c_device_id *device_id)
 {
 	struct iio_dev *indio_dev;
 	struct tsl2563_chip *chip;

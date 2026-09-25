@@ -13,6 +13,7 @@
 #include <linux/skbuff.h>
 #include <linux/string.h>
 #include <linux/types.h>
+#include <linux/ratelimit.h>
 #include <net/netlink.h>
 
 static const u16 nla_attr_minlen[NLA_TYPE_MAX+1] = {
@@ -22,10 +23,6 @@ static const u16 nla_attr_minlen[NLA_TYPE_MAX+1] = {
 	[NLA_U64]	= sizeof(u64),
 	[NLA_MSECS]	= sizeof(u64),
 	[NLA_NESTED]	= NLA_HDRLEN,
-	[NLA_S8]	= sizeof(s8),
-	[NLA_S16]	= sizeof(s16),
-	[NLA_S32]	= sizeof(s32),
-	[NLA_S64]	= sizeof(s64),
 };
 
 static int validate_nla(const struct nlattr *nla, int maxtype,

@@ -280,7 +280,9 @@ static void __cache_size_refresh(void)
 	BUG_ON(!mutex_is_locked(&dm_bufio_clients_lock));
 	BUG_ON(dm_bufio_client_count < 0);
 
-	dm_bufio_cache_size_latch = ACCESS_ONCE(dm_bufio_cache_size);
+	dm_bufio_cache_size_latch = dm_bufio_cache_size;
+
+	barrier();
 
 	/*
 	 * Use default if set to 0 and report the actual cache size used.
@@ -346,13 +348,15 @@ static void *alloc_buffer_data(struct dm_bufio_client *c, gfp_t gfp_mask,
 	 * as if GFP_NOIO was specified.
 	 */
 
-	if (gfp_mask & __GFP_NORETRY)
-		noio_flag = memalloc_noio_save();
+	if (gfp_mask & __GFP_NORETRY) {
+		noio_flag = current->flags & PF_MEMALLOC;
+		current->flags |= PF_MEMALLOC;
+	}
 
 	ptr = __vmalloc(c->block_size, gfp_mask, PAGE_KERNEL);
 
 	if (gfp_mask & __GFP_NORETRY)
-		memalloc_noio_restore(noio_flag);
+		current->flags = (current->flags & ~PF_MEMALLOC) | noio_flag;
 
 	return ptr;
 }
@@ -461,7 +465,8 @@ static void __relink_lru(struct dm_buffer *b, int dirty)
 	c->n_buffers[b->list_mode]--;
 	c->n_buffers[dirty]++;
 	b->list_mode = dirty;
-	list_move(&b->lru_list, &c->lru[dirty]);
+	list_del(&b->lru_list);
+	list_add(&b->lru_list, &c->lru[dirty]);
 	b->last_accessed = jiffies;
 }
 
@@ -529,19 +534,6 @@ static void use_dmio(struct dm_buffer *b, int rw, sector_t block,
 		end_io(&b->bio, r);
 }
 
-static void inline_endio(struct bio *bio, int error)
-{
-	bio_end_io_t *end_fn = bio->bi_private;
-
-	/*
-	 * Reset the bio to free any attached resources
-	 * (e.g. bio integrity profiles).
-	 */
-	bio_reset(bio);
-
-	end_fn(bio, error);
-}
-
 static void use_inline_bio(struct dm_buffer *b, int rw, sector_t block,
 			   bio_end_io_t *end_io)
 {
@@ -553,12 +545,7 @@ static void use_inline_bio(struct dm_buffer *b, int rw, sector_t block,
 	b->bio.bi_max_vecs = DM_BUFIO_INLINE_VECS;
 	b->bio.bi_sector = block << b->c->sectors_per_block_bits;
 	b->bio.bi_bdev = b->c->bdev;
-	b->bio.bi_end_io = inline_endio;
-	/*
-	 * Use of .bi_private isn't a problem here because
-	 * the dm_buffer's inline bio is local to bufio.
-	 */
-	b->bio.bi_private = end_io;
+	b->bio.bi_end_io = end_io;
 
 	/*
 	 * We assume that if len >= PAGE_SIZE ptr is page-aligned.
@@ -623,9 +610,9 @@ static void write_endio(struct bio *bio, int error)
 
 	BUG_ON(!test_bit(B_WRITING, &b->state));
 
-	smp_mb__before_atomic();
+	smp_mb__before_clear_bit();
 	clear_bit(B_WRITING, &b->state);
-	smp_mb__after_atomic();
+	smp_mb__after_clear_bit();
 
 	wake_up_bit(&b->state, B_WRITING);
 }
@@ -851,7 +838,7 @@ static void __get_memory_limit(struct dm_bufio_client *c,
 {
 	unsigned long buffers;
 
-	if (ACCESS_ONCE(dm_bufio_cache_size) != dm_bufio_cache_size_latch) {
+	if (dm_bufio_cache_size != dm_bufio_cache_size_latch) {
 		mutex_lock(&dm_bufio_clients_lock);
 		__cache_size_refresh();
 		mutex_unlock(&dm_bufio_clients_lock);
@@ -900,8 +887,9 @@ static void __check_watermark(struct dm_bufio_client *c)
 static struct dm_buffer *__find(struct dm_bufio_client *c, sector_t block)
 {
 	struct dm_buffer *b;
+	struct hlist_node *hn;
 
-	hlist_for_each_entry(b, &c->cache_hash[DM_BUFIO_HASH(block)],
+	hlist_for_each_entry(b, hn, &c->cache_hash[DM_BUFIO_HASH(block)],
 			     hash_list) {
 		dm_bufio_cond_resched();
 		if (b->block == block)
@@ -992,9 +980,9 @@ static void read_endio(struct bio *bio, int error)
 
 	BUG_ON(!test_bit(B_READING, &b->state));
 
-	smp_mb__before_atomic();
+	smp_mb__before_clear_bit();
 	clear_bit(B_READING, &b->state);
-	smp_mb__after_atomic();
+	smp_mb__after_clear_bit();
 
 	wake_up_bit(&b->state, B_READING);
 }
@@ -1065,8 +1053,6 @@ void dm_bufio_prefetch(struct dm_bufio_client *c,
 		       sector_t block, unsigned n_blocks)
 {
 	struct blk_plug plug;
-
-	BUG_ON(dm_bufio_in_request());
 
 	blk_start_plug(&plug);
 	dm_bufio_lock(c);
@@ -1235,7 +1221,7 @@ EXPORT_SYMBOL_GPL(dm_bufio_write_dirty_buffers);
 int dm_bufio_issue_flush(struct dm_bufio_client *c)
 {
 	struct dm_io_request io_req = {
-		.bi_rw = WRITE_FLUSH,
+		.bi_rw = REQ_FLUSH,
 		.mem.type = DM_IO_KMEM,
 		.mem.ptr.addr = NULL,
 		.client = c->dm_io,
@@ -1393,9 +1379,9 @@ static void drop_buffers(struct dm_bufio_client *c)
 
 /*
  * Test if the buffer is unused and too old, and commit it.
- * At if noio is set, we must not do any I/O because we hold
- * dm_bufio_clients_lock and we would risk deadlock if the I/O gets rerouted to
- * different bufio client.
+ * And if GFP_NOFS is used, we must not do any I/O because we hold
+ * dm_bufio_clients_lock and we would risk deadlock if the I/O gets
+ * rerouted to different bufio client.
  */
 static int __cleanup_old_buffer(struct dm_buffer *b, gfp_t gfp,
 				unsigned long max_jiffies)
@@ -1403,7 +1389,7 @@ static int __cleanup_old_buffer(struct dm_buffer *b, gfp_t gfp,
 	if (jiffies - b->last_accessed < max_jiffies)
 		return 1;
 
-	if (!(gfp & __GFP_IO)) {
+	if (!(gfp & __GFP_FS)) {
 		if (test_bit(B_READING, &b->state) ||
 		    test_bit(B_WRITING, &b->state) ||
 		    test_bit(B_DIRTY, &b->state))
@@ -1442,7 +1428,7 @@ static int shrink(struct shrinker *shrinker, struct shrink_control *sc)
 	unsigned long r;
 	unsigned long nr_to_scan = sc->nr_to_scan;
 
-	if (sc->gfp_mask & __GFP_IO)
+	if (sc->gfp_mask & __GFP_FS)
 		dm_bufio_lock(c);
 	else if (!dm_bufio_trylock(c))
 		return !nr_to_scan ? 0 : -1;
@@ -1630,8 +1616,10 @@ EXPORT_SYMBOL_GPL(dm_bufio_client_destroy);
 
 static void cleanup_old_buffers(void)
 {
-	unsigned long max_age = ACCESS_ONCE(dm_bufio_max_age);
+	unsigned long max_age = dm_bufio_max_age;
 	struct dm_bufio_client *c;
+
+	barrier();
 
 	if (max_age > ULONG_MAX / HZ)
 		max_age = ULONG_MAX / HZ;

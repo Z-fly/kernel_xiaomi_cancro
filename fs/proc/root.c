@@ -16,7 +16,6 @@
 #include <linux/sched.h>
 #include <linux/module.h>
 #include <linux/bitops.h>
-#include <linux/user_namespace.h>
 #include <linux/mount.h>
 #include <linux/pid_namespace.h>
 #include <linux/parser.h>
@@ -62,13 +61,13 @@ static int proc_parse_options(char *options, struct pid_namespace *pid)
 		if (!*p)
 			continue;
 
-		args[0].to = args[0].from = NULL;
+		args[0].to = args[0].from = 0;
 		token = match_token(p, tokens, args);
 		switch (token) {
 		case Opt_gid:
 			if (match_int(&args[0], &option))
 				return 0;
-			pid->pid_gid = make_kgid(current_user_ns(), option);
+			pid->pid_gid = option;
 			break;
 		case Opt_hidepid:
 			if (match_int(&args[0], &option))
@@ -103,21 +102,18 @@ static struct dentry *proc_mount(struct file_system_type *fs_type,
 	int err;
 	struct super_block *sb;
 	struct pid_namespace *ns;
+	struct proc_inode *ei;
 	char *options;
 
 	if (flags & MS_KERNMOUNT) {
 		ns = (struct pid_namespace *)data;
 		options = NULL;
 	} else {
-		ns = task_active_pid_ns(current);
+		ns = current->nsproxy->pid_ns;
 		options = data;
-
-		if (!current_user_ns()->may_mount_proc ||
-		    !ns_capable(ns->user_ns, CAP_SYS_ADMIN))
-			return ERR_PTR(-EPERM);
 	}
 
-	sb = sget(fs_type, proc_test_super, proc_set_super, flags, ns);
+	sb = sget(fs_type, proc_test_super, proc_set_super, ns);
 	if (IS_ERR(sb))
 		return ERR_CAST(sb);
 
@@ -127,6 +123,7 @@ static struct dentry *proc_mount(struct file_system_type *fs_type,
 	}
 
 	if (!sb->s_root) {
+		sb->s_flags = flags;
 		err = proc_fill_super(sb);
 		if (err) {
 			deactivate_locked_super(sb);
@@ -134,6 +131,13 @@ static struct dentry *proc_mount(struct file_system_type *fs_type,
 		}
 
 		sb->s_flags |= MS_ACTIVE;
+	}
+
+	ei = PROC_I(sb->s_root->d_inode);
+	if (!ei->pid) {
+		rcu_read_lock();
+		ei->pid = get_pid(find_pid_ns(1, ns));
+		rcu_read_unlock();
 	}
 
 	return dget(sb->s_root);
@@ -144,8 +148,6 @@ static void proc_kill_sb(struct super_block *sb)
 	struct pid_namespace *ns;
 
 	ns = (struct pid_namespace *)sb->s_fs_info;
-	if (ns->proc_self)
-		dput(ns->proc_self);
 	kill_anon_super(sb);
 	put_pid_ns(ns);
 }
@@ -154,7 +156,6 @@ static struct file_system_type proc_fs_type = {
 	.name		= "proc",
 	.mount		= proc_mount,
 	.kill_sb	= proc_kill_sb,
-	.fs_flags	= FS_USERNS_MOUNT,
 };
 
 void __init proc_root_init(void)
@@ -165,8 +166,12 @@ void __init proc_root_init(void)
 	err = register_filesystem(&proc_fs_type);
 	if (err)
 		return;
+	err = pid_ns_prepare_proc(&init_pid_ns);
+	if (err) {
+		unregister_filesystem(&proc_fs_type);
+		return;
+	}
 
-	proc_self_init();
 	proc_symlink("mounts", NULL, "self/mounts");
 
 	proc_net_init();

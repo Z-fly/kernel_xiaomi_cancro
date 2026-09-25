@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2005-2010 IBM Corporation
+ * Copyright (C) 2017 XiaoMi, Inc.
  *
  * Author:
  * Mimi Zohar <zohar@us.ibm.com>
@@ -20,13 +21,13 @@
 #include <linux/integrity.h>
 #include <linux/evm.h>
 #include <crypto/hash.h>
+#include <crypto/algapi.h>
 #include "evm.h"
 
 int evm_initialized;
 
 char *evm_hmac = "hmac(sha1)";
 char *evm_hash = "sha1";
-int evm_hmac_version = CONFIG_EVM_HMAC_VERSION;
 
 char *evm_config_xattrnames[] = {
 #ifdef CONFIG_SECURITY_SELINUX
@@ -34,9 +35,6 @@ char *evm_config_xattrnames[] = {
 #endif
 #ifdef CONFIG_SECURITY_SMACK
 	XATTR_NAME_SMACK,
-#endif
-#ifdef CONFIG_IMA_APPRAISE
-	XATTR_NAME_IMA,
 #endif
 	XATTR_NAME_CAPS,
 	NULL
@@ -128,7 +126,7 @@ static enum integrity_status evm_verify_hmac(struct dentry *dentry,
 				   xattr_value_len, calc.digest);
 		if (rc)
 			break;
-		rc = memcmp(xattr_data->digest, calc.digest,
+		rc = crypto_memneq(xattr_data->digest, calc.digest,
 			    sizeof(calc.digest));
 		if (rc)
 			rc = -EINVAL;
@@ -437,6 +435,15 @@ static int __init init_evm(void)
 	return 0;
 err:
 	return error;
+}
+
+static void __exit cleanup_evm(void)
+{
+	evm_cleanup_secfs();
+	if (hmac_tfm)
+		crypto_free_shash(hmac_tfm);
+	if (hash_tfm)
+		crypto_free_shash(hash_tfm);
 }
 
 /*

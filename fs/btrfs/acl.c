@@ -61,7 +61,7 @@ struct posix_acl *btrfs_get_acl(struct inode *inode, int type)
 		size = __btrfs_getxattr(inode, name, value, size);
 	}
 	if (size > 0) {
-		acl = posix_acl_from_xattr(&init_user_ns, value, size);
+		acl = posix_acl_from_xattr(value, size);
 	} else if (size == -ENOENT || size == -ENODATA || size == 0) {
 		/* FIXME, who returns -ENOENT?  I think nobody */
 		acl = NULL;
@@ -91,7 +91,7 @@ static int btrfs_xattr_acl_get(struct dentry *dentry, const char *name,
 		return PTR_ERR(acl);
 	if (acl == NULL)
 		return -ENODATA;
-	ret = posix_acl_to_xattr(&init_user_ns, acl, value, size);
+	ret = posix_acl_to_xattr(acl, value, size);
 	posix_acl_release(acl);
 
 	return ret;
@@ -118,8 +118,7 @@ static int btrfs_set_acl(struct btrfs_trans_handle *trans,
 	case ACL_TYPE_ACCESS:
 		name = POSIX_ACL_XATTR_ACCESS;
 		if (acl) {
-			ret = posix_acl_update_mode(inode,
-				&inode->i_mode, &acl);
+			ret = posix_acl_update_mode(inode, &inode->i_mode, &acl);
 			if (ret)
 				return ret;
 		}
@@ -142,7 +141,7 @@ static int btrfs_set_acl(struct btrfs_trans_handle *trans,
 			goto out;
 		}
 
-		ret = posix_acl_to_xattr(&init_user_ns, acl, value, size);
+		ret = posix_acl_to_xattr(acl, value, size);
 		if (ret < 0)
 			goto out;
 	}
@@ -170,7 +169,7 @@ static int btrfs_xattr_acl_set(struct dentry *dentry, const char *name,
 		return -EOPNOTSUPP;
 
 	if (value) {
-		acl = posix_acl_from_xattr(&init_user_ns, value, size);
+		acl = posix_acl_from_xattr(value, size);
 		if (IS_ERR(acl))
 			return PTR_ERR(acl);
 
@@ -228,11 +227,7 @@ int btrfs_init_acl(struct btrfs_trans_handle *trans,
 		if (ret > 0) {
 			/* we need an acl */
 			ret = btrfs_set_acl(trans, inode, acl, ACL_TYPE_ACCESS);
-		} else if (ret < 0) {
-			cache_no_acl(inode);
 		}
-	} else {
-		cache_no_acl(inode);
 	}
 failed:
 	posix_acl_release(acl);

@@ -2,6 +2,7 @@
  * AD9523 SPI Low Jitter Clock Generator
  *
  * Copyright 2012 Analog Devices Inc.
+ * Copyright (C) 2017 XiaoMi, Inc.
  *
  * Licensed under the GPL-2.
  */
@@ -22,8 +23,8 @@
 
 #define AD9523_READ	(1 << 15)
 #define AD9523_WRITE	(0 << 15)
-#define AD9523_CNT(x)	(((x) - 1) << 13)
-#define AD9523_ADDR(x)	((x) & 0xFFF)
+#define AD9523_CNT(x)	(((x) -1) << 13)
+#define AD9523_ADDR(x)	((x) &0xFFF)
 
 #define AD9523_R1B	(1 << 16)
 #define AD9523_R2B	(2 << 16)
@@ -121,14 +122,14 @@
 #define AD9523_PLL1_BYPASS_REFA_DIV		(1 << 0)
 
 /* AD9523_PLL1_LOOP_FILTER_CTRL */
-#define AD9523_PLL1_LOOP_FILTER_RZERO(x)	((x) & 0xF)
+#define AD9523_PLL1_LOOP_FILTER_RZERO(x)	((x) &0xF)
 
 /* AD9523_PLL2_CHARGE_PUMP */
 #define AD9523_PLL2_CHARGE_PUMP_CURRENT_nA(x)	((x) / 3500)
 
 /* AD9523_PLL2_FEEDBACK_DIVIDER_AB */
-#define AD9523_PLL2_FB_NDIV_A_CNT(x)		(((x) & 0x3) << 6)
-#define AD9523_PLL2_FB_NDIV_B_CNT(x)		(((x) & 0x3F) << 0)
+#define AD9523_PLL2_FB_NDIV_A_CNT(x)		(((x) &0x3) << 6)
+#define AD9523_PLL2_FB_NDIV_B_CNT(x)		(((x) &0x3F) << 0)
 #define AD9523_PLL2_FB_NDIV(a, b)		(4 * (b) + (a))
 
 /* AD9523_PLL2_CTRL */
@@ -151,30 +152,30 @@
 #define AD9523_PLL2_FORCE_RELEASE_SYNC		(1 << 4)
 
 /* AD9523_PLL2_VCO_DIVIDER */
-#define AD9523_PLL2_VCO_DIV_M1(x)		((((x) - 3) & 0x3) << 0)
-#define AD9523_PLL2_VCO_DIV_M2(x)		((((x) - 3) & 0x3) << 4)
+#define AD9523_PLL2_VCO_DIV_M1(x)		((((x) -3) & 0x3) << 0)
+#define AD9523_PLL2_VCO_DIV_M2(x)		((((x) -3) & 0x3) << 4)
 #define AD9523_PLL2_VCO_DIV_M1_PWR_DOWN_EN	(1 << 2)
 #define AD9523_PLL2_VCO_DIV_M2_PWR_DOWN_EN	(1 << 6)
 
 /* AD9523_PLL2_LOOP_FILTER_CTRL */
-#define AD9523_PLL2_LOOP_FILTER_CPOLE1(x)	(((x) & 0x7) << 0)
-#define AD9523_PLL2_LOOP_FILTER_RZERO(x)	(((x) & 0x7) << 3)
-#define AD9523_PLL2_LOOP_FILTER_RPOLE2(x)	(((x) & 0x7) << 6)
+#define AD9523_PLL2_LOOP_FILTER_CPOLE1(x)	(((x) &0x7) << 0)
+#define AD9523_PLL2_LOOP_FILTER_RZERO(x)	(((x) &0x7) << 3)
+#define AD9523_PLL2_LOOP_FILTER_RPOLE2(x)	(((x) &0x7) << 6)
 #define AD9523_PLL2_LOOP_FILTER_RZERO_BYPASS_EN	(1 << 8)
 
 /* AD9523_PLL2_R2_DIVIDER */
-#define AD9523_PLL2_R2_DIVIDER_VAL(x)		(((x) & 0x1F) << 0)
+#define AD9523_PLL2_R2_DIVIDER_VAL(x)		(((x) &0x1F) << 0)
 
 /* AD9523_CHANNEL_CLOCK_DIST */
-#define AD9523_CLK_DIST_DIV_PHASE(x)		(((x) & 0x3F) << 18)
+#define AD9523_CLK_DIST_DIV_PHASE(x)		(((x) &0x3F) << 18)
 #define AD9523_CLK_DIST_DIV_PHASE_REV(x)	((ret >> 18) & 0x3F)
-#define AD9523_CLK_DIST_DIV(x)			((((x) - 1) & 0x3FF) << 8)
+#define AD9523_CLK_DIST_DIV(x)			((((x) -1) & 0x3FF) << 8)
 #define AD9523_CLK_DIST_DIV_REV(x)		(((ret >> 8) & 0x3FF) + 1)
 #define AD9523_CLK_DIST_INV_DIV_OUTPUT_EN	(1 << 7)
 #define AD9523_CLK_DIST_IGNORE_SYNC_EN		(1 << 6)
 #define AD9523_CLK_DIST_PWR_DOWN_EN		(1 << 5)
 #define AD9523_CLK_DIST_LOW_PWR_MODE_EN		(1 << 4)
-#define AD9523_CLK_DIST_DRIVER_MODE(x)		(((x) & 0xF) << 0)
+#define AD9523_CLK_DIST_DRIVER_MODE(x)		(((x) &0xF) << 0)
 
 /* AD9523_PLL1_OUTPUT_CTRL */
 #define AD9523_PLL1_OUTP_CTRL_VCO_DIV_SEL_CH6_M2	(1 << 7)
@@ -333,8 +334,8 @@ static int ad9523_write(struct iio_dev *indio_dev, unsigned addr, unsigned val)
 	};
 
 	st->data[0].d32 = cpu_to_be32(AD9523_WRITE |
-				      AD9523_CNT(AD9523_TRANSF_LEN(addr)) |
-				      AD9523_ADDR(addr));
+			AD9523_CNT(AD9523_TRANSF_LEN(addr)) |
+			AD9523_ADDR(addr));
 	st->data[1].d32 = cpu_to_be32(val);
 
 	ret = spi_sync_transfer(st->spi, t, ARRAY_SIZE(t));
@@ -351,7 +352,7 @@ static int ad9523_io_update(struct iio_dev *indio_dev)
 }
 
 static int ad9523_vco_out_map(struct iio_dev *indio_dev,
-			      unsigned ch, unsigned out)
+		unsigned ch, unsigned out)
 {
 	struct ad9523_state *st = iio_priv(indio_dev);
 	int ret;
@@ -405,7 +406,7 @@ static int ad9523_vco_out_map(struct iio_dev *indio_dev,
 }
 
 static int ad9523_set_clock_provider(struct iio_dev *indio_dev,
-			      unsigned ch, unsigned long freq)
+		unsigned ch, unsigned long freq)
 {
 	struct ad9523_state *st = iio_priv(indio_dev);
 	long tmp1, tmp2;
@@ -494,8 +495,8 @@ static int ad9523_sync(struct iio_dev *indio_dev)
 }
 
 static ssize_t ad9523_store(struct device *dev,
-				struct device_attribute *attr,
-				const char *buf, size_t len)
+		struct device_attribute *attr,
+		const char *buf, size_t len)
 {
 	struct iio_dev *indio_dev = dev_to_iio_dev(dev);
 	struct iio_dev_attr *this_attr = to_iio_dev_attr(attr);
@@ -526,8 +527,8 @@ static ssize_t ad9523_store(struct device *dev,
 }
 
 static ssize_t ad9523_show(struct device *dev,
-			struct device_attribute *attr,
-			char *buf)
+		struct device_attribute *attr,
+		char *buf)
 {
 	struct iio_dev *indio_dev = dev_to_iio_dev(dev);
 	struct iio_dev_attr *this_attr = to_iio_dev_attr(attr);
@@ -545,54 +546,54 @@ static ssize_t ad9523_show(struct device *dev,
 }
 
 static IIO_DEVICE_ATTR(pll1_locked, S_IRUGO,
-			ad9523_show,
-			NULL,
-			AD9523_STAT_PLL1_LD);
+		ad9523_show,
+		NULL,
+		AD9523_STAT_PLL1_LD);
 
 static IIO_DEVICE_ATTR(pll2_locked, S_IRUGO,
-			ad9523_show,
-			NULL,
-			AD9523_STAT_PLL2_LD);
+		ad9523_show,
+		NULL,
+		AD9523_STAT_PLL2_LD);
 
 static IIO_DEVICE_ATTR(pll1_reference_clk_a_present, S_IRUGO,
-			ad9523_show,
-			NULL,
-			AD9523_STAT_REFA);
+		ad9523_show,
+		NULL,
+		AD9523_STAT_REFA);
 
 static IIO_DEVICE_ATTR(pll1_reference_clk_b_present, S_IRUGO,
-			ad9523_show,
-			NULL,
-			AD9523_STAT_REFB);
+		ad9523_show,
+		NULL,
+		AD9523_STAT_REFB);
 
 static IIO_DEVICE_ATTR(pll1_reference_clk_test_present, S_IRUGO,
-			ad9523_show,
-			NULL,
-			AD9523_STAT_REF_TEST);
+		ad9523_show,
+		NULL,
+		AD9523_STAT_REF_TEST);
 
 static IIO_DEVICE_ATTR(vcxo_clk_present, S_IRUGO,
-			ad9523_show,
-			NULL,
-			AD9523_STAT_VCXO);
+		ad9523_show,
+		NULL,
+		AD9523_STAT_VCXO);
 
 static IIO_DEVICE_ATTR(pll2_feedback_clk_present, S_IRUGO,
-			ad9523_show,
-			NULL,
-			AD9523_STAT_PLL2_FB_CLK);
+		ad9523_show,
+		NULL,
+		AD9523_STAT_PLL2_FB_CLK);
 
 static IIO_DEVICE_ATTR(pll2_reference_clk_present, S_IRUGO,
-			ad9523_show,
-			NULL,
-			AD9523_STAT_PLL2_REF_CLK);
+		ad9523_show,
+		NULL,
+		AD9523_STAT_PLL2_REF_CLK);
 
 static IIO_DEVICE_ATTR(sync_dividers, S_IWUSR,
-			NULL,
-			ad9523_store,
-			AD9523_SYNC);
+		NULL,
+		ad9523_store,
+		AD9523_SYNC);
 
 static IIO_DEVICE_ATTR(store_eeprom, S_IWUSR,
-			NULL,
-			ad9523_store,
-			AD9523_EEPROM);
+		NULL,
+		ad9523_store,
+		AD9523_EEPROM);
 
 static struct attribute *ad9523_attributes[] = {
 	&iio_dev_attr_sync_dividers.dev_attr.attr,
@@ -613,10 +614,10 @@ static const struct attribute_group ad9523_attribute_group = {
 };
 
 static int ad9523_read_raw(struct iio_dev *indio_dev,
-			   struct iio_chan_spec const *chan,
-			   int *val,
-			   int *val2,
-			   long m)
+		struct iio_chan_spec const *chan,
+		int *val,
+		int *val2,
+		long m)
 {
 	struct ad9523_state *st = iio_priv(indio_dev);
 	unsigned code;
@@ -649,10 +650,10 @@ static int ad9523_read_raw(struct iio_dev *indio_dev,
 };
 
 static int ad9523_write_raw(struct iio_dev *indio_dev,
-			    struct iio_chan_spec const *chan,
-			    int val,
-			    int val2,
-			    long mask)
+		struct iio_chan_spec const *chan,
+		int val,
+		int val2,
+		long mask)
 {
 	struct ad9523_state *st = iio_priv(indio_dev);
 	unsigned reg;
@@ -709,8 +710,8 @@ out:
 }
 
 static int ad9523_reg_access(struct iio_dev *indio_dev,
-			      unsigned reg, unsigned writeval,
-			      unsigned *readval)
+		unsigned reg, unsigned writeval,
+		unsigned *readval)
 {
 	int ret;
 

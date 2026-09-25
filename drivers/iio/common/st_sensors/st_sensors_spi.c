@@ -2,8 +2,8 @@
  * STMicroelectronics sensors spi library driver
  *
  * Copyright 2012-2013 STMicroelectronics Inc.
- *
  * Denis Ciocca <denis.ciocca@st.com>
+ * Copyright (C) 2017 XiaoMi, Inc.
  *
  * Licensed under the GPL-2.
  */
@@ -64,7 +64,7 @@ acc_spi_read_error:
 }
 
 static int st_sensors_spi_read_byte(struct st_sensor_transfer_buffer *tb,
-				struct device *dev, u8 reg_addr, u8 *res_byte)
+		struct device *dev, u8 reg_addr, u8 *res_byte)
 {
 	return st_sensors_spi_read(tb, dev, reg_addr, 1, res_byte, false);
 }
@@ -77,7 +77,7 @@ static int st_sensors_spi_read_multiple_byte(
 }
 
 static int st_sensors_spi_write_byte(struct st_sensor_transfer_buffer *tb,
-				struct device *dev, u8 reg_addr, u8 data)
+		struct device *dev, u8 reg_addr, u8 data)
 {
 	int err;
 
@@ -104,7 +104,7 @@ static const struct st_sensor_transfer_function st_sensors_tf_spi = {
 };
 
 void st_sensors_spi_configure(struct iio_dev *indio_dev,
-			struct spi_device *spi, struct st_sensor_data *sdata)
+		struct spi_device *spi, struct st_sensor_data *sdata)
 {
 	spi_set_drvdata(spi, indio_dev);
 

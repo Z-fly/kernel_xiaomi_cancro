@@ -2,6 +2,7 @@
  *  Force feedback support for Logitech RumblePad and Rumblepad 2
  *
  *  Copyright (c) 2008 Anssi Hannula <anssi.hannula@gmail.com>
+ *  Copyright (C) 2017 XiaoMi, Inc.
  */
 
 /*
@@ -95,7 +96,7 @@ int lg2ff_init(struct hid_device *hid)
 
 	hid_hw_request(hid, report, HID_REQ_SET_REPORT);
 
-	hid_info(hid, "Force feedback for Logitech variant 2 rumble devices by Anssi Hannula <anssi.hannula@gmail.com>\n");
+	hid_info(hid, "Force feedback for Logitech RumblePad/Rumblepad 2 by Anssi Hannula <anssi.hannula@gmail.com>\n");
 
 	return 0;
 }

@@ -21,6 +21,7 @@
 
 #include <linux/kernel.h>
 #include <linux/slab.h>
+#include <linux/utsname.h>
 #include <linux/device.h>
 
 #include <sound/core.h>
@@ -414,12 +415,13 @@ static void f_midi_unbind(struct usb_configuration *c, struct usb_function *f)
 	card = midi->card;
 	midi->card = NULL;
 	if (card)
-		snd_card_free_when_closed(card);
+		snd_card_free(card);
 
 	kfree(midi->id);
 	midi->id = NULL;
 
 	usb_free_all_descriptors(f);
+
 	kfree(midi);
 }
 
@@ -545,14 +547,13 @@ static void f_midi_transmit_byte(struct usb_request *req,
 static void f_midi_transmit(struct f_midi *midi, struct usb_request *req)
 {
 	struct usb_ep *ep = midi->in_ep;
-	size_t extra_buf_alloc = midi->gadget->extra_buf_alloc;
 	int i;
 
 	if (!ep)
 		return;
 
 	if (!req)
-		req = midi_alloc_ep_req(ep, midi->buflen + extra_buf_alloc);
+		req = midi_alloc_ep_req(ep, midi->buflen);
 
 	if (!req) {
 		ERROR(midi, "gmidi_transmit: midi_alloc_ep_request failed\n");
@@ -892,6 +893,7 @@ f_midi_bind(struct usb_configuration *c, struct usb_function *f)
 		goto fail_f_midi;
 
 	if (gadget_is_dualspeed(c->cdev->gadget)) {
+		c->highspeed = true;
 		bulk_in_desc.wMaxPacketSize = cpu_to_le16(512);
 		bulk_out_desc.wMaxPacketSize = cpu_to_le16(512);
 		f->hs_descriptors = usb_copy_descriptors(midi_function);
@@ -906,6 +908,7 @@ f_midi_bind(struct usb_configuration *c, struct usb_function *f)
 fail_f_midi:
 	kfree(midi_function);
 	usb_free_descriptors(f->hs_descriptors);
+
 fail:
 	/* we might as well release our claims on endpoints */
 	if (midi->out_ep)

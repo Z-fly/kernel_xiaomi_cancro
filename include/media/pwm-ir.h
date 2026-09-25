@@ -1,5 +1,5 @@
 /* Copyright (C) 2013 by Xiang Xiao <xiaoxiang@xiaomi.com>
- * Copyright (C) 2016 XiaoMi, Inc.
+ * Copyright (C) 2017 XiaoMi, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and

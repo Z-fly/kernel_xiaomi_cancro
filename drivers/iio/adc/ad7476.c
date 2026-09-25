@@ -2,6 +2,7 @@
  * AD7466/7/8 AD7476/5/7/8 (A) SPI ADC driver
  *
  * Copyright 2010 Analog Devices Inc.
+ * Copyright (C) 2017 XiaoMi, Inc.
  *
  * Licensed under the GPL-2 or later.
  */
@@ -101,10 +102,10 @@ static int ad7476_scan_direct(struct ad7476_state *st)
 }
 
 static int ad7476_read_raw(struct iio_dev *indio_dev,
-			   struct iio_chan_spec const *chan,
-			   int *val,
-			   int *val2,
-			   long m)
+		struct iio_chan_spec const *chan,
+		int *val,
+		int *val2,
+		long m)
 {
 	int ret;
 	struct ad7476_state *st = iio_priv(indio_dev);

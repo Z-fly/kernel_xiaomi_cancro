@@ -58,10 +58,10 @@ static struct iio_chan_spec const vprbrd_adc_iio_channels[] = {
 };
 
 static int vprbrd_iio_read_raw(struct iio_dev *iio_dev,
-				struct iio_chan_spec const *chan,
-				int *val,
-				int *val2,
-				long info)
+		struct iio_chan_spec const *chan,
+		int *val,
+		int *val2,
+		long info)
 {
 	int ret, error = 0;
 	struct vprbrd_adc *adc = iio_priv(iio_dev);
@@ -77,18 +77,18 @@ static int vprbrd_iio_read_raw(struct iio_dev *iio_dev,
 		admsg->val = 0x00;
 
 		ret = usb_control_msg(vb->usb_dev,
-			usb_sndctrlpipe(vb->usb_dev, 0), VPRBRD_USB_REQUEST_ADC,
-			VPRBRD_USB_TYPE_OUT, 0x0000, 0x0000, admsg,
-			sizeof(struct vprbrd_adc_msg), VPRBRD_USB_TIMEOUT_MS);
+				usb_sndctrlpipe(vb->usb_dev, 0), VPRBRD_USB_REQUEST_ADC,
+				VPRBRD_USB_TYPE_OUT, 0x0000, 0x0000, admsg,
+				sizeof(struct vprbrd_adc_msg), VPRBRD_USB_TIMEOUT_MS);
 		if (ret != sizeof(struct vprbrd_adc_msg)) {
 			dev_err(&iio_dev->dev, "usb send error on adc read\n");
 			error = -EREMOTEIO;
 		}
 
 		ret = usb_control_msg(vb->usb_dev,
-			usb_rcvctrlpipe(vb->usb_dev, 0), VPRBRD_USB_REQUEST_ADC,
-			VPRBRD_USB_TYPE_IN, 0x0000, 0x0000, admsg,
-			sizeof(struct vprbrd_adc_msg), VPRBRD_USB_TIMEOUT_MS);
+				usb_rcvctrlpipe(vb->usb_dev, 0), VPRBRD_USB_REQUEST_ADC,
+				VPRBRD_USB_TYPE_IN, 0x0000, 0x0000, admsg,
+				sizeof(struct vprbrd_adc_msg), VPRBRD_USB_TIMEOUT_MS);
 
 		*val = admsg->val;
 

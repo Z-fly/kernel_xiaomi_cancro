@@ -2,6 +2,7 @@
  * MCP4725 DAC driver
  *
  * Copyright (C) 2012 Peter Meerwald <pmeerw@pmeerw.net>
+ * Copyright (C) 2017 XiaoMi, Inc.
  *
  * Licensed under the GPL-2 or later.
  */

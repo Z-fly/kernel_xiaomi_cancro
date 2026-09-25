@@ -1,7 +1,8 @@
 /*
  * ADF4350/ADF4351 SPI PLL driver
  *
- * Copyright 2012 Analog Devices Inc.
+ * Copyright 2012-2013 Analog Devices Inc.
+ * Copyright (C) 2017 XiaoMi, Inc.
  *
  * Licensed under the GPL-2.
  */
@@ -18,12 +19,12 @@
 #define ADF4350_REG5	5
 
 /* REG0 Bit Definitions */
-#define ADF4350_REG0_FRACT(x)			(((x) & 0xFFF) << 3)
-#define ADF4350_REG0_INT(x)			(((x) & 0xFFFF) << 15)
+#define ADF4350_REG0_FRACT(x)			(((x) &0xFFF) << 3)
+#define ADF4350_REG0_INT(x)			(((x) &0xFFFF) << 15)
 
 /* REG1 Bit Definitions */
-#define ADF4350_REG1_MOD(x)			(((x) & 0xFFF) << 3)
-#define ADF4350_REG1_PHASE(x)			(((x) & 0xFFF) << 15)
+#define ADF4350_REG1_MOD(x)			(((x) &0xFFF) << 3)
+#define ADF4350_REG1_PHASE(x)			(((x) &0xFFF) << 15)
 #define ADF4350_REG1_PRESCALER			(1 << 27)
 
 /* REG2 Bit Definitions */
@@ -41,7 +42,7 @@
 #define ADF4350_REG2_RDIV2_EN			(1 << 24)
 #define ADF4350_REG2_RMULT2_EN			(1 << 25)
 #define ADF4350_REG2_MUXOUT(x)			((x) << 26)
-#define ADF4350_REG2_NOISE_MODE(x)		((x) << 29)
+#define ADF4350_REG2_NOISE_MODE(x)		(((unsigned)(x)) << 29)
 #define ADF4350_MUXOUT_THREESTATE		0
 #define ADF4350_MUXOUT_DVDD			1
 #define ADF4350_MUXOUT_GND			2

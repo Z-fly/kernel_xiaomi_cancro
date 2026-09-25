@@ -2,6 +2,7 @@
  * STMicroelectronics magnetometers driver
  *
  * Copyright 2012-2013 STMicroelectronics Inc.
+ * Copyright (C) 2017 XiaoMi, Inc.
  *
  * Denis Ciocca <denis.ciocca@st.com>
  *
@@ -19,7 +20,7 @@
 #include "st_magn.h"
 
 static int st_magn_i2c_probe(struct i2c_client *client,
-						const struct i2c_device_id *id)
+			const struct i2c_device_id *id)
 {
 	struct iio_dev *indio_dev;
 	struct st_sensor_data *mdata;

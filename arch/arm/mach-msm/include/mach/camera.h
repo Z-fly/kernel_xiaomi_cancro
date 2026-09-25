@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2013, 2015 The Linux Foundation. All rights reserved.
+/* Copyright (c) 2009-2012, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -25,7 +25,7 @@
 #include <mach/board.h>
 #include <media/msm_camera.h>
 #include <linux/msm_ion.h>
-#include <linux/msm_iommu_domains.h>
+#include <mach/iommu_domains.h>
 
 #define CONFIG_MSM_CAMERA_DEBUG
 #ifdef CONFIG_MSM_CAMERA_DEBUG
@@ -300,8 +300,6 @@ enum msm_cci_cmd_type {
 };
 
 struct msm_camera_cci_wait_sync_cfg {
-	uint16_t cid;
-	int16_t csid;
 	uint16_t line;
 	uint16_t delay;
 };

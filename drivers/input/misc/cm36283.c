@@ -3,7 +3,7 @@
  * Copyright (C) 2012 Capella Microsystems Inc.
  * Author: Frank Hsieh <pengyueh@gmail.com>
  *
- * Copyright (c) 2013-2015, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2013-2014, The Linux Foundation. All rights reserved.
  *
  * This software is licensed under the terms of the GNU General Public
  * License version 2, as published by the Free Software Foundation, and
@@ -37,6 +37,7 @@
 #include <linux/of_gpio.h>
 
 #include <asm/uaccess.h>
+#include <asm/mach-types.h>
 #include <asm/setup.h>
 
 #define I2C_RETRY_COUNT 10
@@ -1316,14 +1317,14 @@ static int lightsensor_setup(struct cm36283_info *lpi)
 	int ret;
 	int range;
 
-	lpi->ls_input_dev = devm_input_allocate_device(&lpi->i2c_client->dev);
+	lpi->ls_input_dev = input_allocate_device();
 	if (!lpi->ls_input_dev) {
 		pr_err(
 			"[LS][CM36283 error]%s: could not allocate ls input device\n",
 			__func__);
 		return -ENOMEM;
 	}
-	lpi->ls_input_dev->name = "light";
+	lpi->ls_input_dev->name = "cm36283-ls";
 	lpi->ls_input_dev->id.bustype = BUS_I2C;
 	set_bit(EV_ABS, lpi->ls_input_dev->evbit);
 
@@ -1337,7 +1338,10 @@ static int lightsensor_setup(struct cm36283_info *lpi)
 		goto err_free_ls_input_device;
 	}
 
+	return ret;
+
 err_free_ls_input_device:
+	input_free_device(lpi->ls_input_dev);
 	return ret;
 }
 
@@ -1345,14 +1349,14 @@ static int psensor_setup(struct cm36283_info *lpi)
 {
 	int ret;
 
-	lpi->ps_input_dev = devm_input_allocate_device(&lpi->i2c_client->dev);
+	lpi->ps_input_dev = input_allocate_device();
 	if (!lpi->ps_input_dev) {
 		pr_err(
 			"[PS][CM36283 error]%s: could not allocate ps input device\n",
 			__func__);
 		return -ENOMEM;
 	}
-	lpi->ps_input_dev->name = "proximity";
+	lpi->ps_input_dev->name = "cm36283-ps";
 	lpi->ps_input_dev->id.bustype = BUS_I2C;
 	set_bit(EV_ABS, lpi->ps_input_dev->evbit);
 	input_set_abs_params(lpi->ps_input_dev, ABS_DISTANCE, 0, 1, 0, 0);
@@ -1365,7 +1369,10 @@ static int psensor_setup(struct cm36283_info *lpi)
 		goto err_free_ps_input_device;
 	}
 
+	return ret;
+
 err_free_ps_input_device:
+	input_free_device(lpi->ps_input_dev);
 	return ret;
 }
 
@@ -1540,7 +1547,7 @@ static int remove_sysfs_interfaces(struct device *dev,
 }
 
 static struct device_attribute light_attr[] = {
-	__ATTR(ls_adc, 0444, ls_adc_show, NULL),
+	__ATTR(ls_adc, 0664, ls_adc_show, NULL),
 	__ATTR(ls_kadc, 0664, ls_kadc_show, ls_kadc_store),
 	__ATTR(ls_gadc, 0664, ls_gadc_show, ls_gadc_store),
 	__ATTR(ls_conf, 0664, ls_conf_show, ls_conf_store),
@@ -1698,14 +1705,14 @@ static int cm36283_probe(struct i2c_client *client,
 	if (ret < 0) {
 		pr_err("[PS][CM36283 error]%s: psensor_setup error!!\n",
 			__func__);
-		goto err_lightsensor_setup;
+		goto err_psensor_setup;
 	}
 
 	ret = create_sysfs_interfaces(&lpi->ls_input_dev->dev, light_attr,
 			ARRAY_SIZE(light_attr));
 	if (ret < 0) {
 		dev_err(&client->dev, "failed to create sysfs\n");
-		goto err_lightsensor_setup;
+		goto err_input_cleanup;
 	}
 
 	ret = create_sysfs_interfaces(&lpi->ps_input_dev->dev, proximity_attr,
@@ -1725,12 +1732,11 @@ static int cm36283_probe(struct i2c_client *client,
 	lpi->ps_cdev.sensors_poll_delay = ps_poll_delay_set;
 	lpi->ps_cdev.min_delay = CM36283_PS_MIN_POLL_DELAY * 1000;
 
-	ret = sensors_classdev_register(&lpi->ls_input_dev->dev,
-			&lpi->als_cdev);
+	ret = sensors_classdev_register(&client->dev, &lpi->als_cdev);
 	if (ret)
 		goto err_proximity_sysfs_cleanup;
 
-	ret = sensors_classdev_register(&lpi->ps_input_dev->dev, &lpi->ps_cdev);
+	ret = sensors_classdev_register(&client->dev, &lpi->ps_cdev);
 	if (ret)
 		goto err_create_class_sysfs;
 
@@ -1748,6 +1754,12 @@ err_proximity_sysfs_cleanup:
 err_light_sysfs_cleanup:
 	remove_sysfs_interfaces(&lpi->ls_input_dev->dev, light_attr,
 			ARRAY_SIZE(light_attr));
+err_input_cleanup:
+	input_unregister_device(lpi->ps_input_dev);
+	input_free_device(lpi->ps_input_dev);
+err_psensor_setup:
+	input_unregister_device(lpi->ls_input_dev);
+	input_free_device(lpi->ls_input_dev);
 err_lightsensor_setup:
 err_cm36283_setup:
 	cm36283_power_set(lpi, false);
@@ -2051,7 +2063,6 @@ static const struct i2c_device_id cm36283_i2c_id[] = {
 
 static struct of_device_id cm36283_match_table[] = {
 	{ .compatible = "capella,cm36283",},
-	{ .compatible = "capella,cm36682",},
 	{ },
 };
 

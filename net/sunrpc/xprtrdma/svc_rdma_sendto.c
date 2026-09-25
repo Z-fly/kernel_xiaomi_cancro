@@ -545,10 +545,10 @@ static int send_reply(struct svcxprt_rdma *rdma,
 {
 	struct ib_send_wr send_wr;
 	struct ib_send_wr inv_wr;
+	u32 xdr_off;
 	int sge_no;
 	int sge_bytes;
 	int page_no;
-	int pages;
 	int ret;
 
 	/* Post a recv buffer to handle another request. */
@@ -585,8 +585,8 @@ static int send_reply(struct svcxprt_rdma *rdma,
 	ctxt->direction = DMA_TO_DEVICE;
 
 	/* Map the payload indicated by 'byte_count' */
+	xdr_off = 0;
 	for (sge_no = 1; byte_count && sge_no < vec->count; sge_no++) {
-		int xdr_off = 0;
 		sge_bytes = min_t(size_t, vec->sge[sge_no].iov_len, byte_count);
 		byte_count -= sge_bytes;
 		if (!vec->frmr) {
@@ -612,8 +612,7 @@ static int send_reply(struct svcxprt_rdma *rdma,
 	 * respages array. They are our pages until the I/O
 	 * completes.
 	 */
-	pages = rqstp->rq_next_page - rqstp->rq_respages;
-	for (page_no = 0; page_no < pages; page_no++) {
+	for (page_no = 0; page_no < rqstp->rq_resused; page_no++) {
 		ctxt->pages[page_no+1] = rqstp->rq_respages[page_no];
 		ctxt->count++;
 		rqstp->rq_respages[page_no] = NULL;
@@ -625,6 +624,14 @@ static int send_reply(struct svcxprt_rdma *rdma,
 		if (page_no+1 >= sge_no)
 			ctxt->sge[page_no+1].length = 0;
 	}
+
+	/* The loop above bumps sc_dma_used for each sge. The
+	 * xdr_buf.tail gets a separate sge, but resides in the
+	 * same page as xdr_buf.head. Don't count it twice.
+	 */
+	if (sge_no > ctxt->count)
+		atomic_dec(&rdma->sc_dma_used);
+
 	BUG_ON(sge_no > rdma->sc_max_sge);
 	memset(&send_wr, 0, sizeof send_wr);
 	ctxt->wr_op = IB_WR_SEND;

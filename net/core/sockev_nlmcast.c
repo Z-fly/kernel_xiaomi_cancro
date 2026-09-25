@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2014-2015, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -29,10 +29,6 @@ static void sockev_skmsg_recv(struct sk_buff *skb)
 {
 	pr_debug("%s(): Got unsolicited request\n", __func__);
 }
-
-static struct netlink_kernel_cfg nlcfg = {
-	.input = sockev_skmsg_recv
-};
 
 static void _sockev_event(unsigned long event, __u8 *evstr, int buflen)
 {
@@ -68,18 +64,17 @@ static int sockev_client_cb(struct notifier_block *nb,
 	struct nlmsghdr *nlh;
 	struct sknlsockevmsg *smsg;
 	struct socket *sock;
+	struct sock *sk;
 
 	sock = (struct socket *)data;
-	if (socknlmsgsk == 0)
-		goto done;
-	if ((socknlmsgsk == NULL) || (sock == NULL) || (sock->sk == NULL))
-		goto done;
+	if (!socknlmsgsk || !sock)
+		goto sk_null;
 
-	if (sock->sk->sk_family != AF_INET && sock->sk->sk_family != AF_INET6)
-		goto done;
+	sk = sock->sk;
+	if (!sk)
+		goto sk_null;
 
-	if (event != SOCKEV_BIND && event != SOCKEV_LISTEN)
-		goto done;
+	sock_hold(sk);
 
 	skb = nlmsg_new(sizeof(struct sknlsockevmsg), GFP_KERNEL);
 	if (skb == NULL)
@@ -96,14 +91,15 @@ static int sockev_client_cb(struct notifier_block *nb,
 	smsg = nlmsg_data(nlh);
 	smsg->pid = current->pid;
 	_sockev_event(event, smsg->event, sizeof(smsg->event));
-	smsg->skfamily = sock->sk->sk_family;
-	smsg->skstate = sock->sk->sk_state;
-	smsg->skprotocol = sock->sk->sk_protocol;
-	smsg->sktype = sock->sk->sk_type;
-	smsg->skflags = sock->sk->sk_flags;
-
+	smsg->skfamily = sk->sk_family;
+	smsg->skstate = sk->sk_state;
+	smsg->skprotocol = sk->sk_protocol;
+	smsg->sktype = sk->sk_type;
+	smsg->skflags = sk->sk_flags;
 	nlmsg_notify(socknlmsgsk, skb, 0, SKNLGRP_SOCKEV, 0, GFP_KERNEL);
 done:
+	sock_put(sk);
+sk_null:
 	return 0;
 }
 
@@ -124,7 +120,12 @@ static int __init sockev_client_init(void)
 		registration_status = 0;
 		pr_err("%s(): Failed to register cb (%d)\n", __func__, rc);
 	}
-	socknlmsgsk = netlink_kernel_create(&init_net, NETLINK_SOCKEV, &nlcfg);
+	socknlmsgsk = netlink_kernel_create(&init_net,
+					    NETLINK_SOCKEV, 
+					    0,
+					    sockev_skmsg_recv,
+					    NULL,
+					    THIS_MODULE);
 	if (!socknlmsgsk) {
 		pr_err("%s(): Failed to initialize netlink socket\n", __func__);
 		if (registration_status)
@@ -142,4 +143,5 @@ static void __exit sockev_client_exit(void)
 module_init(sockev_client_init)
 module_exit(sockev_client_exit)
 MODULE_LICENSE("GPL v2");
+
 

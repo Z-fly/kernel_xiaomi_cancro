@@ -2,6 +2,7 @@
  *  HID driver for Waltop devices not fully compliant with HID standard
  *
  *  Copyright (c) 2010 Nikolai Kondrashov
+ *  Copyright (C) 2017 XiaoMi, Inc.
  */
 
 /*

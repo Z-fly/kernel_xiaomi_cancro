@@ -2,7 +2,8 @@
  * AD7787/AD7788/AD7789/AD7790/AD7791 SPI ADC driver
  *
  * Copyright 2012 Analog Devices Inc.
- *  Author: Lars-Peter Clausen <lars@metafoo.de>
+ * Author: Lars-Peter Clausen <lars@metafoo.de>
+ * Copyright (C) 2017 XiaoMi, Inc.
  *
  * Licensed under the GPL-2.
  */
@@ -68,23 +69,23 @@
 #define DECLARE_AD7787_CHANNELS(name, bits, storagebits) \
 const struct iio_chan_spec name[] = { \
 	AD_SD_DIFF_CHANNEL(0, 0, 0, AD7791_CH_AIN1P_AIN1N, \
-		(bits), (storagebits), 0), \
+			(bits), (storagebits), 0), \
 	AD_SD_CHANNEL(1, 1, AD7791_CH_AIN2, (bits), (storagebits), 0), \
 	AD_SD_SHORTED_CHANNEL(2, 0, AD7791_CH_AIN1N_AIN1N, \
-		(bits), (storagebits), 0), \
+			(bits), (storagebits), 0), \
 	AD_SD_SUPPLY_CHANNEL(3, 2, AD7791_CH_AVDD_MONITOR,  \
-		(bits), (storagebits), 0), \
+			(bits), (storagebits), 0), \
 	IIO_CHAN_SOFT_TIMESTAMP(4), \
 }
 
 #define DECLARE_AD7791_CHANNELS(name, bits, storagebits) \
 const struct iio_chan_spec name[] = { \
 	AD_SD_DIFF_CHANNEL(0, 0, 0, AD7791_CH_AIN1P_AIN1N, \
-		(bits), (storagebits), 0), \
+			(bits), (storagebits), 0), \
 	AD_SD_SHORTED_CHANNEL(1, 0, AD7791_CH_AIN1N_AIN1N, \
-		(bits), (storagebits), 0), \
+			(bits), (storagebits), 0), \
 	AD_SD_SUPPLY_CHANNEL(2, 1, AD7791_CH_AVDD_MONITOR, \
-		(bits), (storagebits), 0), \
+			(bits), (storagebits), 0), \
 	IIO_CHAN_SOFT_TIMESTAMP(3), \
 }
 
@@ -260,7 +261,7 @@ static ssize_t ad7791_read_frequency(struct device *dev,
 	struct ad7791_state *st = iio_priv(indio_dev);
 	unsigned int rate = st->filter & AD7791_FILTER_RATE_MASK;
 
-	return sprintf(buf, "%s\n", ad7791_sample_freq_avail[rate]);
+	return snprintf(buf, "%s\n", ad7791_sample_freq_avail[rate]);
 }
 
 static ssize_t ad7791_write_frequency(struct device *dev,
@@ -326,7 +327,7 @@ static const struct iio_info ad7791_no_filter_info = {
 };
 
 static int ad7791_setup(struct ad7791_state *st,
-			struct ad7791_platform_data *pdata)
+		struct ad7791_platform_data *pdata)
 {
 	/* Set to poweron-reset default values */
 	st->mode = AD7791_MODE_BUFFER;

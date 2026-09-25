@@ -46,12 +46,11 @@ int pft_inode_mknod(struct inode *dir, struct dentry *dentry, umode_t mode,
 int pft_inode_rename(struct inode *inode, struct dentry *dentry,
 		     struct inode *new_inode, struct dentry *new_dentry);
 
-int pft_inode_set_xattr(struct dentry *dentry, const char *name,
-			const void *value, size_t size, int flags);
+int pft_inode_set_xattr(struct dentry *dentry, const char *name);
 
 
 #else
-static inline int pft_get_key_index(struct bio *bio, u32 *key_index,
+static inline int pft_get_key_index(struct inode *inode, u32 *key_index,
 				    bool *is_encrypted, bool *is_inplace)
 { return -ENODEV; }
 
@@ -86,9 +85,7 @@ static inline int pft_inode_rename(struct inode *inode, struct dentry *dentry,
 		     struct inode *new_inode, struct dentry *new_dentry)
 { return 0; }
 
-static inline int pft_inode_set_xattr(struct dentry *dentry, const char *name,
-				      const void *value, size_t size,
-				      int flags)
+static inline int pft_inode_set_xattr(struct dentry *dentry, const char *name)
 { return 0; }
 
 #endif /* CONFIG_PFT */

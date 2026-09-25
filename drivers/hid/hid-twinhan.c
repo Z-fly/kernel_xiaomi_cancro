@@ -4,6 +4,7 @@
  * Based on hid-gyration.c
  *
  * Copyright (c) 2009 Bruno Prémont <bonbons@linux-vserver.org>
+ * Copyright (C) 2017 XiaoMi, Inc.
  */
 
 /*

@@ -23,14 +23,13 @@ extern struct hlist_head unix_socket_table[2 * UNIX_HASH_SIZE];
 struct unix_address {
 	atomic_t	refcnt;
 	int		len;
-	unsigned int	hash;
+	unsigned	hash;
 	struct sockaddr_un name[0];
 };
 
 struct unix_skb_parms {
 	struct pid		*pid;		/* Skb credentials	*/
-	kuid_t			uid;
-	kgid_t			gid;
+	const struct cred	*cred;
 	struct scm_fp_list	*fp;		/* Passed files		*/
 #ifdef CONFIG_SECURITY_NETWORK
 	u32			secid;		/* Security ID		*/
@@ -54,6 +53,7 @@ struct unix_sock {
 	struct path		path;
 	struct mutex		readlock;
 	struct sock		*peer;
+	struct sock		*other;
 	struct list_head	link;
 	atomic_long_t		inflight;
 	spinlock_t		lock;

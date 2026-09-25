@@ -2,8 +2,8 @@
  * STMicroelectronics sensors trigger library driver
  *
  * Copyright 2012-2013 STMicroelectronics Inc.
- *
  * Denis Ciocca <denis.ciocca@st.com>
+ * Copyright (C) 2017 XiaoMi, Inc.
  *
  * Licensed under the GPL-2.
  */
@@ -19,7 +19,7 @@
 
 
 int st_sensors_allocate_trigger(struct iio_dev *indio_dev,
-				const struct iio_trigger_ops *trigger_ops)
+		const struct iio_trigger_ops *trigger_ops)
 {
 	int err;
 	struct st_sensor_data *sdata = iio_priv(indio_dev);
@@ -49,7 +49,7 @@ int st_sensors_allocate_trigger(struct iio_dev *indio_dev,
 		dev_err(&indio_dev->dev, "failed to register iio trigger.\n");
 		goto iio_trigger_register_error;
 	}
-	indio_dev->trig = iio_trigger_get(sdata->trig);
+	indio_dev->trig = sdata->trig;
 
 	return 0;
 

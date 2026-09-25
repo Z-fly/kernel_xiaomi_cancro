@@ -2,6 +2,7 @@
  * mcp4725.c - Support for Microchip MCP4725
  *
  * Copyright (C) 2012 Peter Meerwald <pmeerw@pmeerw.net>
+ * Copyright (C) 2017 XiaoMi, Inc.
  *
  * Based on max517 by Roland Stigge <stigge@antcom.de>
  *
@@ -96,8 +97,8 @@ static int mcp4725_set_value(struct iio_dev *indio_dev, int val)
 }
 
 static int mcp4725_read_raw(struct iio_dev *indio_dev,
-			   struct iio_chan_spec const *chan,
-			   int *val, int *val2, long mask)
+		struct iio_chan_spec const *chan,
+		int *val, int *val2, long mask)
 {
 	struct mcp4725_data *data = iio_priv(indio_dev);
 	unsigned long scale_uv;
@@ -116,8 +117,8 @@ static int mcp4725_read_raw(struct iio_dev *indio_dev,
 }
 
 static int mcp4725_write_raw(struct iio_dev *indio_dev,
-			       struct iio_chan_spec const *chan,
-			       int val, int val2, long mask)
+		struct iio_chan_spec const *chan,
+		int val, int val2, long mask)
 {
 	struct mcp4725_data *data = iio_priv(indio_dev);
 	int ret;
@@ -142,7 +143,7 @@ static const struct iio_info mcp4725_info = {
 };
 
 static int mcp4725_probe(struct i2c_client *client,
-			 const struct i2c_device_id *id)
+		const struct i2c_device_id *id)
 {
 	struct mcp4725_data *data;
 	struct iio_dev *indio_dev;

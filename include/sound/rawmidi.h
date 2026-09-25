@@ -30,7 +30,7 @@
 #include <linux/workqueue.h>
 
 #if defined(CONFIG_SND_SEQUENCER) || defined(CONFIG_SND_SEQUENCER_MODULE)
-#include <sound/seq_device.h>
+#include "seq_device.h"
 #endif
 
 /*
@@ -77,6 +77,7 @@ struct snd_rawmidi_runtime {
 	size_t xruns;		/* over/underruns counter */
 	/* misc */
 	spinlock_t lock;
+	struct mutex realloc_mutex;
 	wait_queue_head_t sleep;
 	/* event handler (new bytes, input only) */
 	void (*event)(struct snd_rawmidi_substream *substream);

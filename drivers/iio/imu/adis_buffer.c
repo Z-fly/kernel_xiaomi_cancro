@@ -2,7 +2,8 @@
  * Common library for ADIS16XXX devices
  *
  * Copyright 2012 Analog Devices Inc.
- *   Author: Lars-Peter Clausen <lars@metafoo.de>
+ * Author: Lars-Peter Clausen <lars@metafoo.de>
+ * Copyright (C) 2017 XiaoMi, Inc.
  *
  * Licensed under the GPL-2 or later.
  */

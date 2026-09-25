@@ -2,6 +2,7 @@
  *  HID driver for Keytouch devices not fully compliant with HID standard
  *
  *  Copyright (c) 2011 Jiri Kosina
+ *  Copyright (C) 2017 XiaoMi, Inc.
  */
 
 /*

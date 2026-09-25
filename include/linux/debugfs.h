@@ -3,6 +3,7 @@
  *
  *  Copyright (C) 2004 Greg Kroah-Hartman <greg@kroah.com>
  *  Copyright (C) 2004 IBM Inc.
+ *  Copyright (C) 2017 XiaoMi, Inc.
  *
  *	This program is free software; you can redistribute it and/or
  *	modify it under the terms of the GNU General Public License version
@@ -17,7 +18,7 @@
 
 #include <linux/fs.h>
 #include <linux/seq_file.h>
-
+#include <linux/cryptohash.h>
 #include <linux/types.h>
 
 struct file_operations;
@@ -33,9 +34,26 @@ struct debugfs_reg32 {
 };
 
 struct debugfs_regset32 {
-	const struct debugfs_reg32 *regs;
+	struct debugfs_reg32 *regs;
 	int nregs;
 	void __iomem *base;
+};
+
+struct debugfs_mount_opts {
+	uid_t uid;
+	gid_t gid;
+	umode_t mode;
+	bool privilege;
+	char passwd[SHA_MESSAGE_BYTES];
+};
+
+struct debugfs_fs_info {
+	struct debugfs_mount_opts mount_opts;
+};
+
+struct debugfs_inode {
+	struct inode vfs_inode;
+	void *pfops;
 };
 
 extern struct dentry *arch_debugfs_dir;
@@ -43,6 +61,7 @@ extern struct dentry *arch_debugfs_dir;
 #if defined(CONFIG_DEBUG_FS)
 
 /* declared over in file.c */
+extern const struct file_operations debugfs_dir_operations;
 extern const struct file_operations debugfs_file_operations;
 extern const struct inode_operations debugfs_link_operations;
 
@@ -79,8 +98,6 @@ struct dentry *debugfs_create_x64(const char *name, umode_t mode,
 				  struct dentry *parent, u64 *value);
 struct dentry *debugfs_create_size_t(const char *name, umode_t mode,
 				     struct dentry *parent, size_t *value);
-struct dentry *debugfs_create_atomic_t(const char *name, umode_t mode,
-				     struct dentry *parent, atomic_t *value);
 struct dentry *debugfs_create_bool(const char *name, umode_t mode,
 				  struct dentry *parent, u32 *value);
 
@@ -94,10 +111,6 @@ struct dentry *debugfs_create_regset32(const char *name, umode_t mode,
 
 int debugfs_print_regs32(struct seq_file *s, const struct debugfs_reg32 *regs,
 			 int nregs, void __iomem *base, char *prefix);
-
-struct dentry *debugfs_create_u32_array(const char *name, umode_t mode,
-					struct dentry *parent,
-					u32 *array, u32 elements);
 
 bool debugfs_initialized(void);
 
@@ -223,13 +236,6 @@ static inline struct dentry *debugfs_create_regset32(const char *name,
 static inline bool debugfs_initialized(void)
 {
 	return false;
-}
-
-static inline struct dentry *debugfs_create_u32_array(const char *name, umode_t mode,
-					struct dentry *parent,
-					u32 *array, u32 elements)
-{
-	return ERR_PTR(-ENODEV);
 }
 
 #endif

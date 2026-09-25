@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2016, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2015, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -106,8 +106,8 @@ struct voip_frame_hdr {
 	uint32_t timestamp;
 	union {
 		/*
-		 * Bits 0-3: Frame type
-		 * [optional] Bits 16-19: Frame rate
+		 * Bits 0-15: Frame type
+		 * Bits 16-31: Frame rate
 		 */
 		uint32_t frame_type;
 		uint32_t packet_rate;
@@ -200,10 +200,9 @@ static struct snd_pcm_hardware msm_pcm_hardware = {
 				SNDRV_PCM_INFO_INTERLEAVED),
 	.formats =              SNDRV_PCM_FMTBIT_S16_LE |
 				SNDRV_PCM_FMTBIT_SPECIAL,
-	.rates =                SNDRV_PCM_RATE_8000 | SNDRV_PCM_RATE_16000 |
-				SNDRV_PCM_RATE_32000 | SNDRV_PCM_RATE_48000,
+	.rates =                SNDRV_PCM_RATE_8000 | SNDRV_PCM_RATE_16000,
 	.rate_min =             8000,
-	.rate_max =             48000,
+	.rate_max =             16000,
 	.channels_min =         1,
 	.channels_max =         1,
 	.buffer_bytes_max =	sizeof(struct voip_buf_node) * VOIP_MAX_Q_LEN,
@@ -302,8 +301,7 @@ static struct snd_kcontrol_new msm_voip_controls[] = {
 	SOC_SINGLE_EXT("Voip Rate Config", SND_SOC_NOPM, 0, VOIP_RATE_MAX, 0,
 		       NULL, msm_voip_rate_config_put),
 	SOC_SINGLE_MULTI_EXT("Voip Evrc Min Max Rate Config", SND_SOC_NOPM,
-			     0, VOC_1_RATE, 0, 2,
-			     msm_voip_evrc_min_max_rate_config_get,
+			     0, VOC_1_RATE, 0, 2, msm_voip_evrc_min_max_rate_config_get,
 			     msm_voip_evrc_min_max_rate_config_put),
 	SOC_SINGLE_EXT("Voip Dtx Mode", SND_SOC_NOPM, 0, 1, 0,
 		       msm_voip_dtx_mode_get, msm_voip_dtx_mode_put),
@@ -318,7 +316,7 @@ static int msm_pcm_voip_probe(struct snd_soc_platform *platform)
 }
 
 /* sample rate supported */
-static unsigned int supported_sample_rates[] = {8000, 16000, 32000, 48000};
+static unsigned int supported_sample_rates[] = {8000, 16000};
 
 static void voip_ssr_cb_fn(uint32_t opcode, void *private_data)
 {
@@ -549,7 +547,7 @@ static void voip_process_dl_pkt(uint8_t *voc_pkt, void *private_data)
 			if (frame_rate) {
 				if (voip_get_rate_type(prtd->mode, frame_rate,
 						       &rate_type)) {
-					pr_err("%s(): fail at getting rate_type\n",
+					pr_err("%s(): fail at getting rate_type \n",
 						__func__);
 				} else
 					prtd->rate_type = rate_type;
@@ -658,8 +656,7 @@ static void voip_process_dl_pkt(uint8_t *voc_pkt, void *private_data)
 			list_add_tail(&buf_node->list, &prtd->free_in_queue);
 		}
 		}
-		pr_debug("%s: frame.pktlen=%d\n", __func__,
-			 buf_node->frame.pktlen);
+		pr_debug("%s: frame.pktlen=%d\n", __func__, buf_node->frame.pktlen);
 
 		if (prtd->mode == MODE_PCM)
 			prtd->pcm_playback_irq_pos += buf_node->frame.pktlen;
@@ -820,19 +817,9 @@ static int msm_pcm_playback_copy(struct snd_pcm_substream *substream, int a,
 				ret = copy_from_user(&buf_node->frame.voc_pkt,
 							buf, count);
 				buf_node->frame.pktlen = count;
-			} else {
+			} else
 				ret = copy_from_user(&buf_node->frame,
 							buf, count);
-				if (buf_node->frame.pktlen >= count)
-					buf_node->frame.pktlen = count -
-					(sizeof(buf_node->frame.frm_hdr) +
-					 sizeof(buf_node->frame.pktlen));
-			}
-			if (ret) {
-				pr_err("%s: copy from user failed %d\n",
-				       __func__, ret);
-				return -EFAULT;
-			}
 			spin_lock_irqsave(&prtd->dsp_lock, dsp_flags);
 			list_add_tail(&buf_node->list, &prtd->in_queue);
 			spin_unlock_irqrestore(&prtd->dsp_lock, dsp_flags);
@@ -1056,9 +1043,8 @@ static int voip_config_vocoder(struct snd_pcm_substream *substream)
 	uint32_t evrc_min_rate_type = 0;
 	uint32_t evrc_max_rate_type = 0;
 
-	pr_debug("%s(): mode=%d, playback rate=%d, capture rate=%d\n",
-		 __func__, prtd->mode, prtd->play_samp_rate,
-		 prtd->cap_samp_rate);
+        pr_debug("%s(): mode=%d, playback sample rate=%d, capture sample rate=%d\n",
+                  __func__, prtd->mode, prtd->play_samp_rate, prtd->cap_samp_rate);
 
 	if ((runtime->format != FORMAT_S16_LE &&
 	     runtime->format != FORMAT_SPECIAL) &&
@@ -1153,16 +1139,21 @@ static int voip_config_vocoder(struct snd_pcm_substream *substream)
 	}
 	pr_debug("%s(): media_type=%d\n", __func__, media_type);
 
-	if ((prtd->play_samp_rate == 8000 && prtd->cap_samp_rate == 8000) ||
-	    (prtd->play_samp_rate == 16000 && prtd->cap_samp_rate == 16000) ||
-	    (prtd->play_samp_rate == 32000 && prtd->cap_samp_rate == 32000) ||
-	    (prtd->play_samp_rate == 48000 && prtd->cap_samp_rate == 48000)) {
+	if ((prtd->play_samp_rate == 8000) &&
+	    (prtd->cap_samp_rate == 8000))
 		voc_config_vocoder(media_type, rate_type,
-				   VSS_NETWORK_ID_VOIP,
+				   VSS_NETWORK_ID_VOIP_NB,
 				   voip_info.dtx_mode,
 				   evrc_min_rate_type,
 				   evrc_max_rate_type);
-	} else {
+	else if ((prtd->play_samp_rate == 16000) &&
+		 (prtd->cap_samp_rate == 16000))
+		voc_config_vocoder(media_type, rate_type,
+				   VSS_NETWORK_ID_VOIP_WB,
+				   voip_info.dtx_mode,
+				   evrc_min_rate_type,
+				   evrc_max_rate_type);
+	else {
 		pr_debug("%s: Invalid rate playback %d, capture %d\n",
 			 __func__, prtd->play_samp_rate,
 			 prtd->cap_samp_rate);
@@ -1245,7 +1236,7 @@ msm_pcm_capture_pointer(struct snd_pcm_substream *substream)
 static snd_pcm_uframes_t msm_pcm_pointer(struct snd_pcm_substream *substream)
 {
 	snd_pcm_uframes_t ret = 0;
-	pr_debug("%s\n", __func__);
+	 pr_debug("%s\n", __func__);
 	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK)
 		ret = msm_pcm_playback_pointer(substream);
 	else if (substream->stream == SNDRV_PCM_STREAM_CAPTURE)
@@ -1556,13 +1547,9 @@ static int voip_get_media_type(uint32_t mode, uint32_t rate_type,
 		break;
 	case MODE_PCM:
 		if (samp_rate == 8000)
-			*media_type = VSS_MEDIA_ID_PCM_8_KHZ;
-		else if (samp_rate == 16000)
-			*media_type = VSS_MEDIA_ID_PCM_16_KHZ;
-		else if (samp_rate == 32000)
-			*media_type = VSS_MEDIA_ID_PCM_32_KHZ;
+			*media_type = VSS_MEDIA_ID_PCM_NB;
 		else
-			*media_type = VSS_MEDIA_ID_PCM_48_KHZ;
+			*media_type = VSS_MEDIA_ID_PCM_WB;
 		break;
 	case MODE_IS127: /* EVRC-A */
 		*media_type = VSS_MEDIA_ID_EVRC_MODEM;
@@ -1622,7 +1609,7 @@ static struct snd_soc_platform_driver msm_soc_platform = {
 	.probe		= msm_pcm_voip_probe,
 };
 
-static int msm_pcm_probe(struct platform_device *pdev)
+static __devinit int msm_pcm_probe(struct platform_device *pdev)
 {
 	int rc;
 
@@ -1651,6 +1638,8 @@ static int msm_pcm_probe(struct platform_device *pdev)
 		       __func__, rc);
 	}
 
+	if (pdev->dev.of_node)
+		dev_set_name(&pdev->dev, "%s", "msm-voip-dsp");
 
 	pr_debug("%s: dev name %s\n", __func__, dev_name(&pdev->dev));
 	rc = snd_soc_register_platform(&pdev->dev,
@@ -1679,7 +1668,7 @@ static struct platform_driver msm_pcm_driver = {
 		.of_match_table = msm_voip_dt_match,
 	},
 	.probe = msm_pcm_probe,
-	.remove = msm_pcm_remove,
+	.remove = __devexit_p(msm_pcm_remove),
 };
 
 static int __init msm_soc_platform_init(void)

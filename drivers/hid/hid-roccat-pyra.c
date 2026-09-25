@@ -2,6 +2,7 @@
  * Roccat Pyra driver for Linux
  *
  * Copyright (c) 2010 Stefan Achatz <erazor_de@users.sourceforge.net>
+ * Copyright (C) 2017 XiaoMi, Inc.
  */
 
 /*
@@ -243,6 +244,8 @@ static ssize_t pyra_sysfs_write_settings(struct file *fp,
 		return -EINVAL;
 
 	mutex_lock(&pyra->pyra_lock);
+
+	settings = (struct pyra_settings const *)buf;
 
 	retval = pyra_set_settings(usb_dev, settings);
 	if (retval) {

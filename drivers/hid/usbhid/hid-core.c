@@ -6,6 +6,7 @@
  *  Copyright (c) 2005 Michael Haboustak <mike-@cinci.rr.com> for Concept2, Inc
  *  Copyright (c) 2007-2008 Oliver Neukum
  *  Copyright (c) 2006-2010 Jiri Kosina
+ *  Copyright (C) 2017 XiaoMi, Inc.
  */
 
 /*
@@ -437,6 +438,16 @@ static int hid_submit_ctrl(struct hid_device *hid)
  * Output interrupt completion handler.
  */
 
+static int irq_out_pump_restart(struct hid_device *hid)
+{
+	struct usbhid_device *usbhid = hid->driver_data;
+
+	if (usbhid->outhead != usbhid->outtail)
+		return hid_submit_out(hid);
+	else
+		return -1;
+}
+
 static void hid_irq_out(struct urb *urb)
 {
 	struct hid_device *hid = urb->context;
@@ -483,6 +494,15 @@ static void hid_irq_out(struct urb *urb)
 /*
  * Control pipe completion handler.
  */
+static int ctrl_pump_restart(struct hid_device *hid)
+{
+	struct usbhid_device *usbhid = hid->driver_data;
+
+	if (usbhid->ctrlhead != usbhid->ctrltail)
+		return hid_submit_ctrl(hid);
+	else
+		return -1;
+}
 
 static void hid_ctrl(struct urb *urb)
 {
@@ -1447,8 +1467,8 @@ static int hid_post_reset(struct usb_interface *intf)
 		return 1;
 	}
 	status = hid_get_class_descriptor(dev,
-				interface->desc.bInterfaceNumber,
-				HID_DT_REPORT, rdesc, hid->dev_rsize);
+			interface->desc.bInterfaceNumber,
+			HID_DT_REPORT, rdesc, hid->dev_rsize);
 	if (status < 0) {
 		dbg_hid("reading report descriptor failed (post_reset)\n");
 		kfree(rdesc);
@@ -1568,7 +1588,7 @@ static int hid_suspend(struct usb_interface *intf, pm_message_t message)
 	dev_dbg(&intf->dev, "suspend\n");
 	return status;
 
- failed:
+failed:
 	hid_resume_common(hid, driver_suspended);
 	return status;
 }

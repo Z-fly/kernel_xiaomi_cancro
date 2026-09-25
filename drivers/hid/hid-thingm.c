@@ -2,8 +2,8 @@
  * ThingM blink(1) USB RGB LED driver
  *
  * Copyright 2013 Savoir-faire Linux Inc.
- *	Vivien Didelot <vivien.didelot@savoirfairelinux.com>
- *
+ * Vivien Didelot <vivien.didelot@savoirfairelinux.com>
+ * Copyright (C) 2017 XiaoMi, Inc.
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License as
  * published by the Free Software Foundation, version 2.
@@ -97,7 +97,7 @@ static ssize_t blink1_show_rgb(struct device *dev,
 {
 	struct blink1_data *data = dev_get_drvdata(dev->parent);
 
-	return sprintf(buf, "%.6X\n", data->rgb);
+	return snprintf(buf, "%.6X\n", data->rgb);
 }
 
 static ssize_t blink1_store_rgb(struct device *dev,
@@ -128,7 +128,7 @@ static ssize_t blink1_show_fade(struct device *dev,
 {
 	struct blink1_data *data = dev_get_drvdata(dev->parent);
 
-	return sprintf(buf, "%d\n", data->fade * 10);
+	return snprintf(buf, "%d\n", data->fade * 10);
 }
 
 static ssize_t blink1_store_fade(struct device *dev,
@@ -160,7 +160,7 @@ static ssize_t blink1_show_play(struct device *dev,
 {
 	struct blink1_data *data = dev_get_drvdata(dev->parent);
 
-	return sprintf(buf, "%d\n", data->play);
+	return snprintf(buf, "%d\n", data->play);
 }
 
 static ssize_t blink1_store_play(struct device *dev,

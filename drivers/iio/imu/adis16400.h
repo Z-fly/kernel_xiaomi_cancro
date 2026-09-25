@@ -6,6 +6,7 @@
  *
  * Copyright (c) 2009 Manuel Stahl <manuel.stahl@iis.fraunhofer.de>
  * Copyright (c) 2007 Jonathan Cameron <jic23@kernel.org>
+ * Copyright (C) 2017 XiaoMi, Inc.
  *
  * Loosely based upon lis3l02dq.h
  *
@@ -165,7 +166,6 @@ struct adis16400_state {
 	int				filt_int;
 
 	struct adis adis;
-	unsigned long avail_scan_mask[2];
 };
 
 /* At the moment triggers are only used for ring buffer
@@ -190,14 +190,13 @@ enum {
 	ADIS16300_SCAN_INCLI_X,
 	ADIS16300_SCAN_INCLI_Y,
 	ADIS16400_SCAN_ADC,
-	ADIS16400_SCAN_TIMESTAMP,
 };
 
 #ifdef CONFIG_IIO_BUFFER
 
 ssize_t adis16400_read_data_from_ring(struct device *dev,
-				      struct device_attribute *attr,
-				      char *buf);
+		struct device_attribute *attr,
+		char *buf);
 
 
 int adis16400_update_scan_mode(struct iio_dev *indio_dev,

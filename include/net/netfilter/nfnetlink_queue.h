@@ -5,7 +5,7 @@
 
 struct nf_conn;
 
-#ifdef CONFIG_NETFILTER_NETLINK_QUEUE_CT
+#if defined(CONFIG_NF_CONNTRACK) || defined(CONFIG_NF_CONNTRACK_MODULE)
 struct nf_conn *nfqnl_ct_get(struct sk_buff *entskb, size_t *size,
 			     enum ip_conntrack_info *ctinfo);
 struct nf_conn *nfqnl_ct_parse(const struct sk_buff *skb,

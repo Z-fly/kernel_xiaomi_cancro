@@ -2,6 +2,7 @@
  * ADXRS450/ADXRS453 Digital Output Gyroscope Driver
  *
  * Copyright 2011 Analog Devices Inc.
+ * Copyright (C) 2017 XiaoMi, Inc.
  *
  * Licensed under the GPL-2.
  */
@@ -87,8 +88,8 @@ struct adxrs450_state {
  * @val: somewhere to pass back the value read
  **/
 static int adxrs450_spi_read_reg_16(struct iio_dev *indio_dev,
-				    u8 reg_address,
-				    u16 *val)
+		u8 reg_address,
+		u16 *val)
 {
 	struct spi_message msg;
 	struct adxrs450_state *st = iio_priv(indio_dev);
@@ -139,8 +140,8 @@ error_ret:
  * @val: value to be written.
  **/
 static int adxrs450_spi_write_reg_16(struct iio_dev *indio_dev,
-				     u8 reg_address,
-				     u16 val)
+		u8 reg_address,
+		u16 val)
 {
 	struct adxrs450_state *st = iio_priv(indio_dev);
 	u32 tx;
@@ -156,7 +157,7 @@ static int adxrs450_spi_write_reg_16(struct iio_dev *indio_dev,
 	ret = spi_write(st->us, &st->tx, sizeof(st->tx));
 	if (ret)
 		dev_err(&st->us->dev, "problem while writing 16 bit register 0x%02x\n",
-			reg_address);
+				reg_address);
 	usleep_range(100, 1000); /* enforce sequential transfer delay 0.1ms */
 	mutex_unlock(&st->buf_lock);
 	return ret;
@@ -289,10 +290,10 @@ static int adxrs450_initial_setup(struct iio_dev *indio_dev)
 }
 
 static int adxrs450_write_raw(struct iio_dev *indio_dev,
-			      struct iio_chan_spec const *chan,
-			      int val,
-			      int val2,
-			      long mask)
+		struct iio_chan_spec const *chan,
+		int val,
+		int val2,
+		long mask)
 {
 	int ret;
 	switch (mask) {
@@ -300,7 +301,7 @@ static int adxrs450_write_raw(struct iio_dev *indio_dev,
 		if (val < -0x400 || val >= 0x400)
 			return -EINVAL;
 		ret = adxrs450_spi_write_reg_16(indio_dev,
-						ADXRS450_DNC1, val);
+				ADXRS450_DNC1, val);
 		break;
 	default:
 		ret = -EINVAL;
@@ -310,10 +311,10 @@ static int adxrs450_write_raw(struct iio_dev *indio_dev,
 }
 
 static int adxrs450_read_raw(struct iio_dev *indio_dev,
-			     struct iio_chan_spec const *chan,
-			     int *val,
-			     int *val2,
-			     long mask)
+		struct iio_chan_spec const *chan,
+		int *val,
+		int *val2,
+		long mask)
 {
 	int ret;
 	s16 t;
@@ -330,7 +331,7 @@ static int adxrs450_read_raw(struct iio_dev *indio_dev,
 			break;
 		case IIO_TEMP:
 			ret = adxrs450_spi_read_reg_16(indio_dev,
-						       ADXRS450_TEMP1, &t);
+					ADXRS450_TEMP1, &t);
 			if (ret)
 				break;
 			*val = (t >> 6) + 225;

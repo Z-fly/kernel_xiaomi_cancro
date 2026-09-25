@@ -2,6 +2,7 @@
  *  HID driver for LC Power Model RC1000MCE
  *
  *  Copyright (c) 2011 Chris Schlund 
+ *  Copyright (C) 2017 XiaoMi, Inc.
  *  based on hid-topseed module
  */
 

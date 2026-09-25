@@ -3,6 +3,7 @@
  *
  *  Copyright (c) 2008-2010 Rafi Rubin
  *  Copyright (c) 2009-2010 Stephane Chatty
+ *  Copyright (C) 2017 XiaoMi, Inc.
  *
  */
 
@@ -886,8 +887,8 @@ static void ntrig_input_configured(struct hid_device *hid,
 		 * fields.
 		 */
 		input->name = (hidinput->report->field[0]->physical) ?
-							"N-Trig Touchscreen" :
-							"N-Trig MultiTouch";
+				"N-Trig Touchscreen" :
+				"N-Trig MultiTouch";
 		break;
 	}
 }

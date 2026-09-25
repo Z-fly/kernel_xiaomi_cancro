@@ -3,6 +3,7 @@
 #
 
 obj-$(CONFIG_HID_SENSOR_ACCEL_3D) += hid-sensor-accel-3d.o
+obj-$(CONFIG_HID_SENSOR_MOTION_DETECTOR) += hid-sensor-motion-detector.o
 
 obj-$(CONFIG_IIO_ST_ACCEL_3AXIS) += st_accel.o
 st_accel-y := st_accel_core.o

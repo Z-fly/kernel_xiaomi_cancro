@@ -1,4 +1,5 @@
-/* Copyright (c) 2013-2015, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2013, The Linux Foundation. All rights reserved.
+ * Copyright (C) 2017 XiaoMi, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -544,58 +545,6 @@ static void wcd9xxx_chargepump_request(struct snd_soc_codec *codec, bool on)
 	}
 }
 
-void wcd9xxx_enable_high_perf_mode(struct snd_soc_codec *codec,
-				struct wcd9xxx_clsh_cdc_data *clsh_d,
-				u8 uhqa_mode, u8 req_state, bool req_type)
-{
-	dev_dbg(codec->dev, "%s: users fclk8 %d, fclk5 %d", __func__,
-			clsh_d->ncp_users[NCP_FCLK_LEVEL_8],
-			clsh_d->ncp_users[NCP_FCLK_LEVEL_5]);
-
-	if (req_type == WCD9XXX_CLSAB_REQ_ENABLE) {
-		clsh_d->ncp_users[NCP_FCLK_LEVEL_8]++;
-		snd_soc_write(codec, WCD9XXX_A_RX_HPH_BIAS_PA,
-					WCD9XXX_A_RX_HPH_BIAS_PA__POR);
-		snd_soc_write(codec, WCD9XXX_A_RX_HPH_L_PA_CTL, 0x48);
-		snd_soc_write(codec, WCD9XXX_A_RX_HPH_R_PA_CTL, 0x48);
-		if (uhqa_mode)
-			snd_soc_update_bits(codec, WCD9XXX_A_RX_HPH_CHOP_CTL,
-						0x20, 0x00);
-		wcd9xxx_chargepump_request(codec, true);
-		wcd9xxx_enable_anc_delay(codec, true);
-		wcd9xxx_enable_buck(codec, clsh_d, false);
-		if (clsh_d->ncp_users[NCP_FCLK_LEVEL_8] > 0)
-			snd_soc_update_bits(codec, WCD9XXX_A_NCP_STATIC,
-						0x0F, 0x08);
-		snd_soc_update_bits(codec, WCD9XXX_A_NCP_STATIC, 0x30, 0x30);
-
-		/* Enable NCP and wait until settles down */
-		if (snd_soc_update_bits(codec, WCD9XXX_A_NCP_EN, 0x01, 0x01))
-			usleep_range(NCP_SETTLE_TIME_US, NCP_SETTLE_TIME_US+10);
-	} else {
-		snd_soc_update_bits(codec, WCD9XXX_A_RX_HPH_CHOP_CTL,
-					0x20, 0x20);
-		snd_soc_write(codec, WCD9XXX_A_RX_HPH_L_PA_CTL,
-					WCD9XXX_A_RX_HPH_L_PA_CTL__POR);
-		snd_soc_write(codec, WCD9XXX_A_RX_HPH_R_PA_CTL,
-					WCD9XXX_A_RX_HPH_R_PA_CTL__POR);
-		snd_soc_write(codec, WCD9XXX_A_RX_HPH_BIAS_PA, 0x57);
-		wcd9xxx_enable_buck(codec, clsh_d, true);
-		wcd9xxx_chargepump_request(codec, false);
-		wcd9xxx_enable_anc_delay(codec, false);
-		clsh_d->ncp_users[NCP_FCLK_LEVEL_8]--;
-		if (clsh_d->ncp_users[NCP_FCLK_LEVEL_8] == 0 &&
-		    clsh_d->ncp_users[NCP_FCLK_LEVEL_5] == 0)
-			snd_soc_update_bits(codec, WCD9XXX_A_NCP_EN,
-						0x01, 0x00);
-		else if (clsh_d->ncp_users[NCP_FCLK_LEVEL_8] == 0)
-			snd_soc_update_bits(codec, WCD9XXX_A_NCP_STATIC,
-						0x0F, 0x05);
-	}
-	dev_dbg(codec->dev, "%s: leave\n", __func__);
-}
-EXPORT_SYMBOL(wcd9xxx_enable_high_perf_mode);
-
 static int get_impedance_index(u32 imped)
 {
 	int i = 0;
@@ -657,29 +606,16 @@ static void wcd9xxx_clsh_comp_req(struct snd_soc_codec *codec,
 			return;
 		}
 
-		if (on) {
-			if (clsh_d->mbhc_started)
-				wcd9xxx_resmgr_add_cond_update_bits(
-						  clsh_d->resmgr,
+		if (on)
+			wcd9xxx_resmgr_add_cond_update_bits(clsh_d->resmgr,
 						  WCD9XXX_COND_HPH,
 						  WCD9XXX_A_CDC_CLSH_B1_CTL,
 						  shift, false);
-			else
-				snd_soc_update_bits(codec,
-						    WCD9XXX_A_CDC_CLSH_B1_CTL,
-						    1 << shift, 1 << shift);
-		} else {
-			if (clsh_d->mbhc_started)
-				wcd9xxx_resmgr_rm_cond_update_bits(
-						  clsh_d->resmgr,
+		else
+			wcd9xxx_resmgr_rm_cond_update_bits(clsh_d->resmgr,
 						  WCD9XXX_COND_HPH,
 						  WCD9XXX_A_CDC_CLSH_B1_CTL,
 						  shift, false);
-			else
-				snd_soc_update_bits(codec,
-						    WCD9XXX_A_CDC_CLSH_B1_CTL,
-						    1 << shift, 0 << shift);
-		}
 	}
 }
 
@@ -790,7 +726,7 @@ static void wcd9xxx_set_fclk_get_ncp(struct snd_soc_codec *codec,
 
 	/* enable NCP and wait until settles down */
 	if (snd_soc_update_bits(codec, WCD9XXX_A_NCP_EN, 0x01, 0x01))
-		usleep_range(NCP_SETTLE_TIME_US, NCP_SETTLE_TIME_US + 50);
+		usleep_range(NCP_SETTLE_TIME_US, NCP_SETTLE_TIME_US);
 	pr_debug("%s: leave\n", __func__);
 }
 
@@ -899,7 +835,7 @@ static void wcd9xxx_clsh_state_ear(struct snd_soc_codec *codec,
 		dev_dbg(codec->dev, "%s: stub fallback to ear\n", __func__);
 		wcd9xxx_set_fclk_put_ncp(codec, clsh_d, NCP_FCLK_LEVEL_8);
 		wcd9xxx_enable_buck(codec, clsh_d, false);
-		wcd9xxx_clsh_comp_req(codec, clsh_d, CLSH_COMPUTE_EAR, false);
+		wcd9xxx_clsh_comp_req(codec, clsh_d, CLSH_COMPUTE_EAR, true);
 		wcd9xxx_chargepump_request(codec, false);
 		wcd9xxx_enable_clsh_block(codec, clsh_d, false);
 	}
@@ -1076,19 +1012,6 @@ void wcd9xxx_clsh_fsm(struct snd_soc_codec *codec,
 }
 EXPORT_SYMBOL_GPL(wcd9xxx_clsh_fsm);
 
-
-void wcd9xxx_clsh_post_init(struct wcd9xxx_clsh_cdc_data *clsh,
-			    bool is_mbhc_started)
-{
-	if (!clsh) {
-		pr_err("%s: Class-H memory is NULL\n", __func__);
-		return;
-	}
-
-	clsh->mbhc_started = is_mbhc_started;
-}
-EXPORT_SYMBOL(wcd9xxx_clsh_post_init);
-
 void wcd9xxx_clsh_init(struct wcd9xxx_clsh_cdc_data *clsh,
 		       struct wcd9xxx_resmgr *resmgr)
 {
@@ -1108,7 +1031,6 @@ void wcd9xxx_clsh_init(struct wcd9xxx_clsh_cdc_data *clsh,
 						wcd9xxx_clsh_state_hph_st;
 	clsh_state_fp[WCD9XXX_CLSH_STATE_LO] = wcd9xxx_clsh_state_lo;
 
-	clsh->mbhc_started = true;
 }
 EXPORT_SYMBOL_GPL(wcd9xxx_clsh_init);
 

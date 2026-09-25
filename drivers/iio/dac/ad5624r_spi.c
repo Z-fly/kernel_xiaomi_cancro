@@ -2,6 +2,7 @@
  * AD5624R, AD5644R, AD5664R Digital to analog convertors spi driver
  *
  * Copyright 2010-2011 Analog Devices Inc.
+ * Copyright (C) 2017 XiaoMi, Inc.
  *
  * Licensed under the GPL-2.
  */
@@ -44,10 +45,10 @@ static int ad5624r_spi_write(struct spi_device *spi,
 }
 
 static int ad5624r_read_raw(struct iio_dev *indio_dev,
-			   struct iio_chan_spec const *chan,
-			   int *val,
-			   int *val2,
-			   long m)
+		struct iio_chan_spec const *chan,
+		int *val,
+		int *val2,
+		long m)
 {
 	struct ad5624r_state *st = iio_priv(indio_dev);
 	unsigned long scale_uv;
@@ -64,10 +65,10 @@ static int ad5624r_read_raw(struct iio_dev *indio_dev,
 }
 
 static int ad5624r_write_raw(struct iio_dev *indio_dev,
-			       struct iio_chan_spec const *chan,
-			       int val,
-			       int val2,
-			       long mask)
+		struct iio_chan_spec const *chan,
+		int val,
+		int val2,
+		long mask)
 {
 	struct ad5624r_state *st = iio_priv(indio_dev);
 	int ret;
@@ -124,7 +125,7 @@ static ssize_t ad5624r_read_dac_powerdown(struct iio_dev *indio_dev,
 {
 	struct ad5624r_state *st = iio_priv(indio_dev);
 
-	return sprintf(buf, "%d\n",
+	return snprintf(buf, "%d\n",
 			!!(st->pwr_down_mask & (1 << chan->channel)));
 }
 
@@ -146,8 +147,8 @@ static ssize_t ad5624r_write_dac_powerdown(struct iio_dev *indio_dev,
 		st->pwr_down_mask &= ~(1 << chan->channel);
 
 	ret = ad5624r_spi_write(st->us, AD5624R_CMD_POWERDOWN_DAC, 0,
-				(st->pwr_down_mode << 4) |
-				st->pwr_down_mask, 16);
+			(st->pwr_down_mode << 4) |
+			st->pwr_down_mask, 16);
 
 	return ret ? ret : len;
 }

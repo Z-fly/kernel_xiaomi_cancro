@@ -2,6 +2,7 @@
  * AD8366 SPI Dual-Digital Variable Gain Amplifier (VGA)
  *
  * Copyright 2012 Analog Devices Inc.
+ * Copyright (C) 2017 XiaoMi, Inc.
  *
  * Licensed under the GPL-2.
  */
@@ -31,7 +32,7 @@ struct ad8366_state {
 };
 
 static int ad8366_write(struct iio_dev *indio_dev,
-			unsigned char ch_a, char unsigned ch_b)
+		unsigned char ch_a, char unsigned ch_b)
 {
 	struct ad8366_state *st = iio_priv(indio_dev);
 	int ret;
@@ -50,10 +51,10 @@ static int ad8366_write(struct iio_dev *indio_dev,
 }
 
 static int ad8366_read_raw(struct iio_dev *indio_dev,
-			   struct iio_chan_spec const *chan,
-			   int *val,
-			   int *val2,
-			   long m)
+		struct iio_chan_spec const *chan,
+		int *val,
+		int *val2,
+		long m)
 {
 	struct ad8366_state *st = iio_priv(indio_dev);
 	int ret;
@@ -80,10 +81,10 @@ static int ad8366_read_raw(struct iio_dev *indio_dev,
 };
 
 static int ad8366_write_raw(struct iio_dev *indio_dev,
-			    struct iio_chan_spec const *chan,
-			    int val,
-			    int val2,
-			    long mask)
+		struct iio_chan_spec const *chan,
+		int val,
+		int val2,
+		long mask)
 {
 	struct ad8366_state *st = iio_priv(indio_dev);
 	unsigned code;

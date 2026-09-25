@@ -2,8 +2,8 @@
  * STMicroelectronics sensors i2c library driver
  *
  * Copyright 2012-2013 STMicroelectronics Inc.
- *
  * Denis Ciocca <denis.ciocca@st.com>
+ * Copyright (C) 2017 XiaoMi, Inc.
  *
  * Licensed under the GPL-2.
  */
@@ -26,7 +26,7 @@ static unsigned int st_sensors_i2c_get_irq(struct iio_dev *indio_dev)
 }
 
 static int st_sensors_i2c_read_byte(struct st_sensor_transfer_buffer *tb,
-				struct device *dev, u8 reg_addr, u8 *res_byte)
+		struct device *dev, u8 reg_addr, u8 *res_byte)
 {
 	int err;
 
@@ -48,11 +48,11 @@ static int st_sensors_i2c_read_multiple_byte(
 		reg_addr |= ST_SENSORS_I2C_MULTIREAD;
 
 	return i2c_smbus_read_i2c_block_data(to_i2c_client(dev),
-							reg_addr, len, data);
+			reg_addr, len, data);
 }
 
 static int st_sensors_i2c_write_byte(struct st_sensor_transfer_buffer *tb,
-				struct device *dev, u8 reg_addr, u8 data)
+		struct device *dev, u8 reg_addr, u8 data)
 {
 	return i2c_smbus_write_byte_data(to_i2c_client(dev), reg_addr, data);
 }

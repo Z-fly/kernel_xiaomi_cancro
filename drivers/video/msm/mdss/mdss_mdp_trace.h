@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2014-2015, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -17,7 +17,7 @@
 #undef TRACE_SYSTEM
 #define TRACE_SYSTEM mdss
 #undef TRACE_INCLUDE_PATH
-#define TRACE_INCLUDE_PATH .
+#define TRACE_INCLUDE_PATH ../../drivers/video/msm/mdss
 #undef TRACE_INCLUDE_FILE
 #define TRACE_INCLUDE_FILE mdss_mdp_trace
 
@@ -48,7 +48,7 @@ DECLARE_EVENT_CLASS(mdp_sspp_template,
 	TP_fast_assign(
 			__entry->num = pipe->num;
 			__entry->play_cnt = pipe->play_cnt;
-			__entry->mixer = pipe->mixer_left->num;
+			__entry->mixer = pipe->mixer->num;
 			__entry->stage = pipe->mixer_stage;
 			__entry->flags = pipe->flags;
 			__entry->format = pipe->src_fmt ?
@@ -65,7 +65,7 @@ DECLARE_EVENT_CLASS(mdp_sspp_template,
 			__entry->dst_h = pipe->dst.h;
 	),
 
-	TP_printk("pnum=%d mixer=%d play_cnt=%d flags=0x%x stage=%d format=%d img=%dx%d src=[%d,%d,%d,%d] dst=[%d,%d,%d,%d]",
+	TP_printk("num=%d mixer=%d play_cnt=%d flags=0x%x stage=%d format=%d img=%dx%d src=[%d,%d,%d,%d] dst=[%d,%d,%d,%d]",
 			__entry->num, __entry->mixer, __entry->play_cnt,
 			__entry->flags, __entry->stage,
 			__entry->format, __entry->img_w, __entry->img_h,
@@ -83,151 +83,6 @@ DEFINE_EVENT(mdp_sspp_template, mdp_sspp_set,
 DEFINE_EVENT(mdp_sspp_template, mdp_sspp_change,
 	TP_PROTO(struct mdss_mdp_pipe *pipe),
 	TP_ARGS(pipe)
-);
-
-TRACE_EVENT(mdp_wb_display,
-	TP_PROTO(u32 wb_num, u32 xin_id, u32 intf_num,
-		u32 width, u32 height, u16 dst_w, u16 dst_h, u32 fmt),
-	TP_ARGS(wb_num, xin_id, intf_num, width, height,
-		dst_w, dst_h, fmt),
-	TP_STRUCT__entry(
-			__field(u32, wb_num)
-			__field(u32, xin_id)
-			__field(u32, intf_num)
-			__field(u32, width)
-			__field(u32, height)
-			__field(u32, dst_rect_w)
-			__field(u32, dst_rect_h)
-			__field(u32, fmt)
-	),
-
-	TP_fast_assign(
-			__entry->wb_num = wb_num;
-			__entry->xin_id = xin_id;
-			__entry->intf_num = intf_num;
-			__entry->width = width;
-			__entry->height = height;
-			__entry->dst_rect_w = dst_w;
-			__entry->dst_rect_h = dst_h;
-			__entry->fmt = fmt;
-	),
-
-	TP_printk("wb=%d xin=%d intf=%d wxh=%dx%d dst=[%d,%d] fmt=%d",
-			__entry->wb_num,
-			__entry->xin_id,
-			__entry->intf_num,
-			__entry->width,
-			__entry->height,
-			__entry->dst_rect_w,
-			__entry->dst_rect_h,
-			__entry->fmt)
-);
-
-TRACE_EVENT(mdp_wb_done,
-	TP_PROTO(u32 wb_num, u32 xin_id, u32 intf_num),
-	TP_ARGS(wb_num, xin_id, intf_num),
-	TP_STRUCT__entry(
-			__field(u32, wb_num)
-			__field(u32, xin_id)
-			__field(u32, intf_num)
-	),
-	TP_fast_assign(
-			__entry->wb_num = wb_num;
-			__entry->xin_id = xin_id;
-			__entry->intf_num = intf_num;
-	),
-	TP_printk("wb=%d xin=%d intf=%d",
-			__entry->wb_num,
-			__entry->xin_id,
-			__entry->intf_num)
-);
-
-TRACE_EVENT(mdp_perf_set_wm_levels,
-	TP_PROTO(u32 pnum, u32 use_space, u32 priority_bytes, u32 wm0, u32 wm1,
-		u32 wm2, u32 mb_cnt, u32 mb_size),
-	TP_ARGS(pnum, use_space, priority_bytes, wm0, wm1, wm2, mb_cnt,
-		mb_size),
-	TP_STRUCT__entry(
-			__field(u32, pnum)
-			__field(u32, use_space)
-			__field(u32, priority_bytes)
-			__field(u32, wm0)
-			__field(u32, wm1)
-			__field(u32, wm2)
-			__field(u32, mb_cnt)
-			__field(u32, mb_size)
-	),
-	TP_fast_assign(
-			__entry->pnum = pnum;
-			__entry->use_space = use_space;
-			__entry->priority_bytes = priority_bytes;
-			__entry->wm0 = wm0;
-			__entry->wm1 = wm1;
-			__entry->wm2 = wm2;
-			__entry->mb_cnt = mb_cnt;
-			__entry->mb_size = mb_size;
-	),
-	TP_printk("pnum:%d useable_space:%d priority_bytes:%d watermark:[%d | %d | %d] nmb=%d mb_size=%d",
-			__entry->pnum, __entry->use_space,
-			__entry->priority_bytes, __entry->wm0, __entry->wm1,
-			__entry->wm2, __entry->mb_cnt, __entry->mb_size)
-);
-
-TRACE_EVENT(mdp_perf_set_ot,
-	TP_PROTO(u32 pnum, u32 xin_id, u32 rd_lim, u32 is_vbif_rt),
-	TP_ARGS(pnum, xin_id, rd_lim, is_vbif_rt),
-	TP_STRUCT__entry(
-			__field(u32, pnum)
-			__field(u32, xin_id)
-			__field(u32, rd_lim)
-			__field(u32, is_vbif_rt)
-	),
-	TP_fast_assign(
-			__entry->pnum = pnum;
-			__entry->xin_id = xin_id;
-			__entry->rd_lim = rd_lim;
-			__entry->is_vbif_rt = is_vbif_rt;
-	),
-	TP_printk("pnum:%d xin_id:%d ot:%d rt:%d",
-			__entry->pnum, __entry->xin_id, __entry->rd_lim,
-			__entry->is_vbif_rt)
-);
-
-TRACE_EVENT(mdp_perf_prefill_calc,
-	TP_PROTO(u32 pnum, u32 latency_buf, u32 ot, u32 y_buf, u32 y_scaler,
-		u32 pp_lines, u32 pp_bytes, u32 post_sc, u32 fbc_bytes,
-		u32 prefill_bytes),
-	TP_ARGS(pnum, latency_buf, ot, y_buf, y_scaler, pp_lines, pp_bytes,
-		post_sc, fbc_bytes, prefill_bytes),
-	TP_STRUCT__entry(
-			__field(u32, pnum)
-			__field(u32, latency_buf)
-			__field(u32, ot)
-			__field(u32, y_buf)
-			__field(u32, y_scaler)
-			__field(u32, pp_lines)
-			__field(u32, pp_bytes)
-			__field(u32, post_sc)
-			__field(u32, fbc_bytes)
-			__field(u32, prefill_bytes)
-	),
-	TP_fast_assign(
-			__entry->pnum = pnum;
-			__entry->latency_buf = latency_buf;
-			__entry->ot = ot;
-			__entry->y_buf = y_buf;
-			__entry->y_scaler = y_scaler;
-			__entry->pp_lines = pp_lines;
-			__entry->pp_bytes = pp_bytes;
-			__entry->post_sc = post_sc;
-			__entry->fbc_bytes = fbc_bytes;
-			__entry->prefill_bytes = prefill_bytes;
-	),
-	TP_printk("pnum:%d latency_buf:%d ot:%d y_buf:%d y_scaler:%d pp_lines:%d, pp_bytes=%d post_sc:%d fbc_bytes:%d prefill:%d",
-			__entry->pnum, __entry->latency_buf, __entry->ot,
-			__entry->y_buf, __entry->y_scaler, __entry->pp_lines,
-			__entry->pp_bytes, __entry->post_sc,
-			__entry->fbc_bytes, __entry->prefill_bytes)
 );
 
 TRACE_EVENT(mdp_mixer_update,
@@ -281,21 +136,17 @@ TRACE_EVENT(mdp_video_underrun_done,
 );
 
 TRACE_EVENT(mdp_perf_update_bus,
-	TP_PROTO(int client, unsigned long long ab_quota,
-	unsigned long long ib_quota),
-	TP_ARGS(client, ab_quota, ib_quota),
+	TP_PROTO(unsigned long long ab_quota, unsigned long long ib_quota),
+	TP_ARGS(ab_quota, ib_quota),
 	TP_STRUCT__entry(
-			__field(int, client)
 			__field(u64, ab_quota)
 			__field(u64, ib_quota)
 	),
 	TP_fast_assign(
-			__entry->client = client;
 			__entry->ab_quota = ab_quota;
 			__entry->ib_quota = ib_quota;
 	),
-	TP_printk("Request client:%d ab=%llu ib=%llu",
-			__entry->client,
+	TP_printk("ab=%llu ib=%llu",
 			__entry->ab_quota,
 			__entry->ib_quota)
 );

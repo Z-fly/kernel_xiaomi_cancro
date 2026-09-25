@@ -58,7 +58,7 @@ again:
 		if (!walk->pte_entry)
 			continue;
 
-		split_huge_page_pmd_mm(walk->mm, addr, pmd);
+		split_huge_page_pmd(walk->mm, pmd);
 		if (pmd_none_or_trans_huge_or_clear_bad(pmd))
 			goto again;
 		err = walk_pte_range(pmd, addr, next, walk);
@@ -199,10 +199,7 @@ int walk_page_range(unsigned long addr, unsigned long end,
 			 */
 			if ((vma->vm_start <= addr) &&
 			    (vma->vm_flags & VM_PFNMAP)) {
-				if (walk->pte_hole)
-					err = walk->pte_hole(addr, next, walk);
-				if (err)
-					break;
+				next = vma->vm_end;
 				pgd = pgd_offset(walk->mm, next);
 				continue;
 			}
@@ -245,7 +242,7 @@ int walk_page_range(unsigned long addr, unsigned long end,
 		if (err)
 			break;
 		pgd++;
-	} while (addr = next, addr < end);
+	} while (addr = next, addr != end);
 
 	return err;
 }

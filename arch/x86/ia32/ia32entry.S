@@ -13,8 +13,6 @@
 #include <asm/thread_info.h>	
 #include <asm/segment.h>
 #include <asm/irqflags.h>
-#include <asm/asm.h>
-#include <asm/smap.h>
 #include <linux/linkage.h>
 #include <linux/err.h>
 
@@ -147,20 +145,10 @@ ENTRY(ia32_sysenter_target)
 	SAVE_ARGS 0,1,0
  	/* no need to do an access_ok check here because rbp has been
  	   32bit zero extended */ 
-	ASM_STAC
 1:	movl	(%rbp),%ebp
-	_ASM_EXTABLE(1b,ia32_badarg)
-	ASM_CLAC
-
-	/*
-	 * Sysenter doesn't filter flags, so we need to clear NT
-	 * ourselves.  To save a few cycles, we can check whether
-	 * NT was set instead of doing an unconditional popfq.
-	 */
-	testl $X86_EFLAGS_NT,EFLAGS-ARGOFFSET(%rsp)
-	jnz sysenter_fix_flags
-sysenter_flags_fixed:
-
+ 	.section __ex_table,"a"
+ 	.quad 1b,ia32_badarg
+ 	.previous	
 	orl     $TS_COMPAT,TI_status+THREAD_INFO(%rsp,RIP-ARGOFFSET)
 	testl   $_TIF_WORK_SYSCALL_ENTRY,TI_flags+THREAD_INFO(%rsp,RIP-ARGOFFSET)
 	CFI_REMEMBER_STATE
@@ -193,8 +181,6 @@ sysexit_from_sys_call:
 	CFI_REGISTER rsp,rcx
 	TRACE_IRQS_ON
 	ENABLE_INTERRUPTS_SYSEXIT32
-
-	CFI_RESTORE_STATE
 
 #ifdef CONFIG_AUDITSYSCALL
 	.macro auditsys_entry_common
@@ -238,6 +224,7 @@ sysexit_from_sys_call:
 	.endm
 
 sysenter_auditsys:
+	CFI_RESTORE_STATE
 	auditsys_entry_common
 	movl %ebp,%r9d			/* reload 6th syscall arg */
 	jmp sysenter_dispatch
@@ -245,11 +232,6 @@ sysenter_auditsys:
 sysexit_audit:
 	auditsys_exit sysexit_from_sys_call
 #endif
-
-sysenter_fix_flags:
-	pushq_cfi $(X86_EFLAGS_IF|X86_EFLAGS_FIXED)
-	popfq_cfi
-	jmp sysenter_flags_fixed
 
 sysenter_tracesys:
 #ifdef CONFIG_AUDITSYSCALL
@@ -320,10 +302,10 @@ ENTRY(ia32_cstar_target)
 	/* no need to do an access_ok check here because r8 has been
 	   32bit zero extended */ 
 	/* hardware stack frame is complete now */	
-	ASM_STAC
 1:	movl	(%r8),%r9d
-	_ASM_EXTABLE(1b,ia32_badarg)
-	ASM_CLAC
+	.section __ex_table,"a"
+	.quad 1b,ia32_badarg
+	.previous	
 	orl     $TS_COMPAT,TI_status+THREAD_INFO(%rsp,RIP-ARGOFFSET)
 	testl   $_TIF_WORK_SYSCALL_ENTRY,TI_flags+THREAD_INFO(%rsp,RIP-ARGOFFSET)
 	CFI_REMEMBER_STATE
@@ -386,7 +368,6 @@ cstar_tracesys:
 END(ia32_cstar_target)
 				
 ia32_badarg:
-	ASM_CLAC
 	movq $-EFAULT,%rax
 	jmp ia32_sysret
 	CFI_ENDPROC
@@ -472,22 +453,20 @@ ia32_badsys:
 	ALIGN
 GLOBAL(\label)
 	leaq \func(%rip),%rax
+	leaq -ARGOFFSET+8(%rsp),\arg	/* 8 for return address */
 	jmp  ia32_ptregs_common	
 	.endm
 
 	CFI_STARTPROC32
 
-	PTREGSCALL stub32_rt_sigreturn, sys32_rt_sigreturn
-	PTREGSCALL stub32_sigreturn, sys32_sigreturn
-	PTREGSCALL stub32_execve, compat_sys_execve
-	PTREGSCALL stub32_fork, sys_fork
-	PTREGSCALL stub32_vfork, sys_vfork
-
-	ALIGN
-GLOBAL(stub32_clone)
-	leaq sys_clone(%rip),%rax
-	mov	%r8, %rcx
-	jmp  ia32_ptregs_common	
+	PTREGSCALL stub32_rt_sigreturn, sys32_rt_sigreturn, %rdi
+	PTREGSCALL stub32_sigreturn, sys32_sigreturn, %rdi
+	PTREGSCALL stub32_sigaltstack, sys32_sigaltstack, %rdx
+	PTREGSCALL stub32_execve, sys32_execve, %rcx
+	PTREGSCALL stub32_fork, sys_fork, %rdi
+	PTREGSCALL stub32_clone, sys32_clone, %rdx
+	PTREGSCALL stub32_vfork, sys_vfork, %rdi
+	PTREGSCALL stub32_iopl, sys_iopl, %rsi
 
 	ALIGN
 ia32_ptregs_common:

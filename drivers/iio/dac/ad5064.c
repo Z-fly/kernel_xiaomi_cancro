@@ -3,6 +3,7 @@
  * AD5648, AD5666, AD5668, AD5669R Digital to analog converters driver
  *
  * Copyright 2011 Analog Devices Inc.
+ * Copyright (C) 2017 XiaoMi, Inc.
  *
  * Licensed under the GPL-2.
  */
@@ -186,7 +187,7 @@ static ssize_t ad5064_read_dac_powerdown(struct iio_dev *indio_dev,
 {
 	struct ad5064_state *st = iio_priv(indio_dev);
 
-	return sprintf(buf, "%d\n", st->pwr_down[chan->channel]);
+	return snprintf(buf, "%d\n", st->pwr_down[chan->channel]);
 }
 
 static ssize_t ad5064_write_dac_powerdown(struct iio_dev *indio_dev,
@@ -222,10 +223,10 @@ static int ad5064_get_vref(struct ad5064_state *st,
 }
 
 static int ad5064_read_raw(struct iio_dev *indio_dev,
-			   struct iio_chan_spec const *chan,
-			   int *val,
-			   int *val2,
-			   long m)
+		struct iio_chan_spec const *chan,
+		int *val,
+		int *val2,
+		long m)
 {
 	struct ad5064_state *st = iio_priv(indio_dev);
 	int scale_uv;
@@ -434,7 +435,7 @@ static const char * const ad5064_vref_name(struct ad5064_state *st,
 }
 
 static int ad5064_probe(struct device *dev, enum ad5064_type type,
-			const char *name, ad5064_write_func write)
+		const char *name, ad5064_write_func write)
 {
 	struct iio_dev *indio_dev;
 	struct ad5064_state *st;
@@ -540,7 +541,7 @@ static int ad5064_spi_probe(struct spi_device *spi)
 	const struct spi_device_id *id = spi_get_device_id(spi);
 
 	return ad5064_probe(&spi->dev, id->driver_data, id->name,
-				ad5064_spi_write);
+			ad5064_spi_write);
 }
 
 static int ad5064_spi_remove(struct spi_device *spi)
@@ -612,7 +613,7 @@ static int ad5064_i2c_probe(struct i2c_client *i2c,
 	const struct i2c_device_id *id)
 {
 	return ad5064_probe(&i2c->dev, id->driver_data, id->name,
-						ad5064_i2c_write);
+			ad5064_i2c_write);
 }
 
 static int ad5064_i2c_remove(struct i2c_client *i2c)

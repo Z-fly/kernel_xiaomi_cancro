@@ -20,6 +20,14 @@
 
 #define LOOPBACK_IFINDEX	1
 
+/*
+ * ifindex generation is per-net namespace, and loopback is
+ * always the 1st device in ns (see net_dev_init), thus any
+ * loopback device should get ifindex 1
+ */
+
+#define LOOPBACK_IFINDEX	1
+
 struct flowi_common {
 	int	flowic_oif;
 	int	flowic_iif;
@@ -29,8 +37,8 @@ struct flowi_common {
 	__u8	flowic_proto;
 	__u8	flowic_flags;
 #define FLOWI_FLAG_ANYSRC		0x01
-#define FLOWI_FLAG_CAN_SLEEP		0x02
-#define FLOWI_FLAG_KNOWN_NH		0x04
+#define FLOWI_FLAG_PRECOW_METRICS	0x02
+#define FLOWI_FLAG_CAN_SLEEP		0x04
 	__u32	flowic_secid;
 	kuid_t  flowic_uid;
 };

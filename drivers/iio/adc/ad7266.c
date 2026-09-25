@@ -2,6 +2,7 @@
  * AD7266/65 SPI ADC driver
  *
  * Copyright 2012 Analog Devices Inc.
+ * Copyright (C) 2017 XiaoMi, Inc.
  *
  * Licensed under the GPL-2.
  */

@@ -236,7 +236,7 @@ static struct usb_descriptor_header *ss_eth_function[] = {
 
 static struct usb_string geth_string_defs[] = {
 	[0].s = "CDC Ethernet Subset/SAFE",
-	[1].s = "",
+	[1].s = NULL /* DYNAMIC */,
 	{  } /* end of list */
 };
 
@@ -363,8 +363,8 @@ fail:
 static void
 geth_unbind(struct usb_configuration *c, struct usb_function *f)
 {
-	geth_string_defs[0].id = 0;
 	usb_free_all_descriptors(f);
+	geth_string_defs[1].s = NULL;
 	kfree(func_to_geth(f));
 }
 
@@ -373,7 +373,6 @@ geth_unbind(struct usb_configuration *c, struct usb_function *f)
  * @c: the configuration to support the network link
  * @ethaddr: a buffer in which the ethernet address of the host side
  *	side of the link was recorded
- * @dev: eth_dev structure
  * Context: single threaded during gadget setup
  *
  * Returns zero on success, else negative errno.
@@ -381,8 +380,7 @@ geth_unbind(struct usb_configuration *c, struct usb_function *f)
  * Caller must have called @gether_setup().  Caller is also responsible
  * for calling @gether_cleanup() before module unload.
  */
-int geth_bind_config(struct usb_configuration *c, u8 ethaddr[ETH_ALEN],
-		struct eth_dev *dev)
+int geth_bind_config(struct usb_configuration *c, u8 ethaddr[ETH_ALEN])
 {
 	struct f_gether	*geth;
 	int		status;
@@ -392,11 +390,20 @@ int geth_bind_config(struct usb_configuration *c, u8 ethaddr[ETH_ALEN],
 
 	/* maybe allocate device-global string IDs */
 	if (geth_string_defs[0].id == 0) {
-		status = usb_string_ids_tab(c->cdev, geth_string_defs);
+
+		/* interface label */
+		status = usb_string_id(c->cdev);
 		if (status < 0)
 			return status;
-		subset_data_intf.iInterface = geth_string_defs[0].id;
-		ether_desc.iMACAddress = geth_string_defs[1].id;
+		geth_string_defs[0].id = status;
+		subset_data_intf.iInterface = status;
+
+		/* MAC address */
+		status = usb_string_id(c->cdev);
+		if (status < 0)
+			return status;
+		geth_string_defs[1].id = status;
+		ether_desc.iMACAddress = status;
 	}
 
 	/* allocate and initialize one new instance */
@@ -405,10 +412,12 @@ int geth_bind_config(struct usb_configuration *c, u8 ethaddr[ETH_ALEN],
 		return -ENOMEM;
 
 	/* export host's Ethernet address in CDC format */
-	snprintf(geth->ethaddr, sizeof geth->ethaddr, "%pm", ethaddr);
+	snprintf(geth->ethaddr, sizeof geth->ethaddr,
+		"%02X%02X%02X%02X%02X%02X",
+		ethaddr[0], ethaddr[1], ethaddr[2],
+		ethaddr[3], ethaddr[4], ethaddr[5]);
 	geth_string_defs[1].s = geth->ethaddr;
 
-	geth->port.ioport = dev;
 	geth->port.cdc_filter = DEFAULT_FILTER;
 
 	geth->port.func.name = "cdc_subset";
@@ -419,7 +428,9 @@ int geth_bind_config(struct usb_configuration *c, u8 ethaddr[ETH_ALEN],
 	geth->port.func.disable = geth_disable;
 
 	status = usb_add_function(c, &geth->port.func);
-	if (status)
+	if (status) {
+		geth_string_defs[1].s = NULL;
 		kfree(geth);
+	}
 	return status;
 }

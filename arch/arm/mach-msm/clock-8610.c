@@ -20,16 +20,16 @@
 #include <linux/clk.h>
 #include <linux/iopoll.h>
 #include <linux/regulator/consumer.h>
-#include <linux/regulator/rpm-smd-regulator.h>
-#include <linux/clk/msm-clock-generic.h>
-#include <soc/qcom/clock-local2.h>
-#include <soc/qcom/clock-pll.h>
-#include <soc/qcom/clock-rpm.h>
-#include <soc/qcom/clock-voter.h>
 
-#include <soc/qcom/socinfo.h>
-#include <soc/qcom/rpm-smd.h>
+#include <mach/rpm-regulator-smd.h>
+#include <mach/socinfo.h>
+#include <mach/rpm-smd.h>
+#include <mach/clock-generic.h>
 
+#include "clock-local2.h"
+#include "clock-pll.h"
+#include "clock-rpm.h"
+#include "clock-voter.h"
 #include "clock.h"
 #include "clock-dsi-8610.h"
 
@@ -2027,7 +2027,6 @@ static struct branch_clk csi1rdi_clk = {
 static struct mux_clk csi0phy_cam_mux_clk = {
 	.ops = &mux_reg_ops,
 	.en_mask = BIT(11),
-	.en_offset = MMSS_CAMSS_MISC,
 	.mask = 0x1,
 	.shift = 9,
 	.offset = MMSS_CAMSS_MISC,
@@ -2046,7 +2045,6 @@ static struct mux_clk csi0phy_cam_mux_clk = {
 static struct mux_clk csi1phy_cam_mux_clk = {
 	.ops = &mux_reg_ops,
 	.en_mask = BIT(10),
-	.en_offset = MMSS_CAMSS_MISC,
 	.mask = 0x1,
 	.shift = 8,
 	.offset = MMSS_CAMSS_MISC,
@@ -2065,7 +2063,6 @@ static struct mux_clk csi1phy_cam_mux_clk = {
 static struct mux_clk csi0pix_cam_mux_clk = {
 	.ops = &mux_reg_ops,
 	.en_mask = BIT(7),
-	.en_offset = MMSS_CAMSS_MISC,
 	.mask = 0x1,
 	.shift = 3,
 	.offset = MMSS_CAMSS_MISC,
@@ -2085,7 +2082,6 @@ static struct mux_clk csi0pix_cam_mux_clk = {
 static struct mux_clk rdi2_cam_mux_clk = {
 	.ops = &mux_reg_ops,
 	.en_mask = BIT(6),
-	.en_offset = MMSS_CAMSS_MISC,
 	.mask = 0x1,
 	.shift = 2,
 	.offset = MMSS_CAMSS_MISC,
@@ -2104,7 +2100,6 @@ static struct mux_clk rdi2_cam_mux_clk = {
 static struct mux_clk rdi1_cam_mux_clk = {
 	.ops = &mux_reg_ops,
 	.en_mask = BIT(5),
-	.en_offset = MMSS_CAMSS_MISC,
 	.mask = 0x1,
 	.shift = 1,
 	.offset = MMSS_CAMSS_MISC,
@@ -2123,7 +2118,6 @@ static struct mux_clk rdi1_cam_mux_clk = {
 static struct mux_clk rdi0_cam_mux_clk = {
 	.ops = &mux_reg_ops,
 	.en_mask = BIT(4),
-	.en_offset = MMSS_CAMSS_MISC,
 	.mask = 0x1,
 	.shift = 0,
 	.offset = MMSS_CAMSS_MISC,
@@ -2747,7 +2741,6 @@ static struct measure_clk measure_clk = {
 	.c = {
 		.dbg_name = "measure_clk",
 		.ops = &clk_ops_measure,
-		.flags = CLKFLAG_MEASURE,
 		CLK_INIT(measure_clk.c),
 	},
 	.multiplier = 1,
@@ -2795,7 +2788,6 @@ static struct clk_lookup msm_clocks_8610[] = {
 	CLK_LOOKUP("mem_clk",	bimc_acpu_a_clk.c,	""),
 	CLK_LOOKUP("bus_clk",	mmss_s0_axi_clk.c,	"msm_mmss_noc"),
 	CLK_LOOKUP("bus_a_clk",	mmss_s0_axi_clk.c,	"msm_mmss_noc"),
-	CLK_LOOKUP("bus_clk",   mmssnoc_ahb_clk.c,      ""),
 
 	/* CoreSight clocks */
 	CLK_LOOKUP("core_clk", qdss_clk.c, "fc326000.tmc"),
@@ -3146,16 +3138,10 @@ static struct clk_lookup msm_clocks_8610[] = {
 	CLK_LOOKUP("bus_clk",      gcc_ce1_axi_clk.c,  "qseecom"),
 	CLK_LOOKUP("core_clk_src", ce1_clk_src.c,      "qseecom"),
 
-	/* Crypto clocks */
-	CLK_LOOKUP("scm_core_clk", gcc_ce1_clk.c, "fe200000.qcom,lpass"),
-	CLK_LOOKUP("scm_iface_clk", gcc_ce1_ahb_clk.c, "fe200000.qcom,lpass"),
-	CLK_LOOKUP("scm_bus_clk", gcc_ce1_axi_clk.c, "fe200000.qcom,lpass"),
-	CLK_LOOKUP("scm_core_clk_src", ce1_clk_src.c, "fe200000.qcom,lpass"),
-
-	CLK_LOOKUP("scm_core_clk", gcc_ce1_clk.c, "fb21b000.qcom,pronto"),
-	CLK_LOOKUP("scm_iface_clk", gcc_ce1_ahb_clk.c, "fb21b000.qcom,pronto"),
-	CLK_LOOKUP("scm_bus_clk",  gcc_ce1_axi_clk.c, "fb21b000.qcom,pronto"),
-	CLK_LOOKUP("scm_core_clk_src", ce1_clk_src.c, "fb21b000.qcom,pronto"),
+	CLK_LOOKUP("core_clk",     gcc_ce1_clk.c,      "scm"),
+	CLK_LOOKUP("iface_clk",    gcc_ce1_ahb_clk.c,  "scm"),
+	CLK_LOOKUP("bus_clk",      gcc_ce1_axi_clk.c,  "scm"),
+	CLK_LOOKUP("core_clk_src", ce1_clk_src.c,      "scm"),
 
 	/* GUD Clocks */
 	CLK_LOOKUP("core_clk",     gcc_ce1_clk.c,      "mcd"),

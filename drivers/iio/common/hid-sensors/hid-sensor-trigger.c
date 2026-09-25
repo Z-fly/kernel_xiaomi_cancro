@@ -1,6 +1,8 @@
 /*
  * HID Sensors Driver
  * Copyright (c) 2012, Intel Corporation.
+ * Copyright (c) 2013, Movea SA, Jean-Baptiste Maneyrol <jbmaneyrol@movea.com>
+ * Copyright (C) 2017 XiaoMi, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms and conditions of the GNU General Public License,
@@ -29,22 +31,20 @@
 #include "hid-sensor-trigger.h"
 
 static int hid_sensor_data_rdy_trigger_set_state(struct iio_trigger *trig,
-						bool state)
+		bool state)
 {
 	struct hid_sensor_common *st = iio_trigger_get_drvdata(trig);
-	int state_val;
+	s32 state_val;
 
-	state_val = state ? 1 : 0;
-	if (IS_ENABLED(CONFIG_HID_SENSOR_ENUM_BASE_QUIRKS))
-		++state_val;
+	if (state)
+		state_val = HID_USAGE_SENSOR_PROP_POWER_STATE_D0_FULL_POWER;
+	else
+		state_val = HID_USAGE_SENSOR_PROP_POWER_STATE_D4_POWER_OFF;
+
 	st->data_ready = state;
-	sensor_hub_set_feature(st->hsdev, st->power_state.report_id,
-					st->power_state.index,
-					(s32)state_val);
-
-	sensor_hub_set_feature(st->hsdev, st->report_state.report_id,
-					st->report_state.index,
-					(s32)state_val);
+	state_val = hid_sensor_common_enum_write(&st->power_state, state_val);
+	sensor_hub_set_feature(st->hsdev, st->report_id,
+			st->power_state.index, &state_val, 1);
 
 	return 0;
 }
@@ -63,7 +63,7 @@ static const struct iio_trigger_ops hid_sensor_trigger_ops = {
 };
 
 int hid_sensor_setup_trigger(struct iio_dev *indio_dev, const char *name,
-				struct hid_sensor_common *attrb)
+		struct hid_sensor_common *attrb)
 {
 	int ret;
 	struct iio_trigger *trig;

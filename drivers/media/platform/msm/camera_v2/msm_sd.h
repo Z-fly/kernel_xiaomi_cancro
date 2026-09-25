@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2015, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2013, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -35,8 +35,6 @@ struct msm_sd_close_ioctl {
 #define MSM_SD_SHUTDOWN \
 	_IOWR('V', BASE_VIDIOC_PRIVATE + 29, struct msm_sd_close_ioctl)
 
-#define MSM_SD_NOTIFY_FREEZE \
-	_IOWR('V', BASE_VIDIOC_PRIVATE + 30, struct msm_sd_close_ioctl)
 /*
  * This is used to install Sequence in msm_sd_register.
  * During msm_close, proper close sequence will be triggered.
@@ -73,7 +71,6 @@ struct msm_sd_req_vb2_q {
 		unsigned int stream_id);
 	int (*buf_done)(struct vb2_buffer *vb2_buf, int session_id,
 		unsigned int stream_id);
-	int (*flush_buf)(int session_id, unsigned int stream_id);
 };
 
 #define MSM_SD_NOTIFY_GET_SD 0x00000001

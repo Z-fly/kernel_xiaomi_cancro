@@ -18,8 +18,6 @@
 #include "util.h"
 #include "callchain.h"
 
-__thread struct callchain_cursor callchain_cursor;
-
 bool ip_callchain__valid(struct ip_callchain *chain,
 			 const union perf_event *event)
 {
@@ -93,7 +91,7 @@ __sort_chain_flat(struct rb_root *rb_root, struct callchain_node *node,
  */
 static void
 sort_chain_flat(struct rb_root *rb_root, struct callchain_root *root,
-		u64 min_hit, struct callchain_param *param __maybe_unused)
+		u64 min_hit, struct callchain_param *param __used)
 {
 	__sort_chain_flat(rb_root, &root->node, min_hit);
 }
@@ -115,7 +113,7 @@ static void __sort_chain_graph_abs(struct callchain_node *node,
 
 static void
 sort_chain_graph_abs(struct rb_root *rb_root, struct callchain_root *chain_root,
-		     u64 min_hit, struct callchain_param *param __maybe_unused)
+		     u64 min_hit, struct callchain_param *param __used)
 {
 	__sort_chain_graph_abs(&chain_root->node, min_hit);
 	rb_root->rb_node = chain_root->node.rb_root.rb_node;
@@ -140,7 +138,7 @@ static void __sort_chain_graph_rel(struct callchain_node *node,
 
 static void
 sort_chain_graph_rel(struct rb_root *rb_root, struct callchain_root *chain_root,
-		     u64 min_hit __maybe_unused, struct callchain_param *param)
+		     u64 min_hit __used, struct callchain_param *param)
 {
 	__sort_chain_graph_rel(&chain_root->node, param->min_percent / 100.0);
 	rb_root->rb_node = chain_root->node.rb_root.rb_node;
@@ -444,7 +442,7 @@ int callchain_cursor_append(struct callchain_cursor *cursor,
 	struct callchain_cursor_node *node = *cursor->last;
 
 	if (!node) {
-		node = calloc(1, sizeof(*node));
+		node = calloc(sizeof(*node), 1);
 		if (!node)
 			return -ENOMEM;
 

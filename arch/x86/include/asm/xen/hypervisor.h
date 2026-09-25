@@ -33,6 +33,7 @@
 #ifndef _ASM_X86_XEN_HYPERVISOR_H
 #define _ASM_X86_XEN_HYPERVISOR_H
 
+/* arch/i386/kernel/setup.c */
 extern struct shared_info *HYPERVISOR_shared_info;
 extern struct start_info *xen_start_info;
 
@@ -70,5 +71,7 @@ static inline bool xen_x2apic_para_available(void)
 	return (xen_cpuid_base() != 0);
 }
 #endif
+
+extern void xen_set_iopl_mask(unsigned mask);
 
 #endif /* _ASM_X86_XEN_HYPERVISOR_H */

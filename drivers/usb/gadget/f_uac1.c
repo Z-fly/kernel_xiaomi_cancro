@@ -1,7 +1,7 @@
 /*
  * f_audio.c -- USB Audio class function driver
  *
- * Copyright (c) 2012-2015, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2013, The Linux Foundation. All rights reserved.
  * Copyright (C) 2008 Bryan Wu <cooloney@kernel.org>
  * Copyright (C) 2008 Analog Devices, Inc
  *
@@ -42,7 +42,7 @@ static int req_playback_count = 48;
 module_param(req_playback_count, int, S_IRUGO);
 MODULE_PARM_DESC(req_playback_count, "ISO OUT endpoint (playback) request count");
 
-static int audio_playback_buf_size = 64 * PLAYBACK_EP_MAX_PACKET_SIZE;
+static int audio_playback_buf_size = 256*32;
 module_param(audio_playback_buf_size, int, S_IRUGO);
 MODULE_PARM_DESC(audio_playback_buf_size, "Audio buffer size");
 
@@ -55,16 +55,13 @@ static int req_capture_count = 48;
 module_param(req_capture_count, int, S_IRUGO);
 MODULE_PARM_DESC(req_capture_count, "ISO IN endpoint (capture) request count");
 
-static int audio_capture_buf_size = 64 * CAPTURE_EP_MAX_PACKET_SIZE;
+static int audio_capture_buf_size = 256*32;
 module_param(audio_capture_buf_size, int, S_IRUGO);
 MODULE_PARM_DESC(audio_capture_buf_size, "Microphone Audio buffer size");
 
-static int audio_playback_realtime = 1;
-module_param(audio_playback_realtime, int, S_IRUGO);
-MODULE_PARM_DESC(audio_playback_realtime, "Drop packets on overruns");
-
 static int generic_set_cmd(struct usb_audio_control *con, u8 cmd, int value);
 static int generic_get_cmd(struct usb_audio_control *con, u8 cmd);
+
 
 #define SPEAKER_INPUT_TERMINAL_ID	3
 #define SPEAKER_OUTPUT_TERMINAL_ID	4
@@ -256,13 +253,6 @@ static struct usb_endpoint_descriptor speaker_as_ep_out_desc = {
 	.bInterval		= 4,
 };
 
-static struct usb_ss_ep_comp_descriptor speaker_as_ep_out_comp_desc = {
-	 .bLength =		 sizeof(speaker_as_ep_out_comp_desc),
-	 .bDescriptorType =	 USB_DT_SS_ENDPOINT_COMP,
-
-	 .wBytesPerInterval =	cpu_to_le16(1024),
-};
-
 /* Class-specific AS ISO OUT Endpoint Descriptor */
 static struct uac_iso_endpoint_descriptor speaker_as_iso_out_desc  = {
 	.bLength		= UAC_ISO_ENDPOINT_DESC_SIZE,
@@ -343,13 +333,6 @@ static struct usb_endpoint_descriptor microphone_as_ep_in_desc = {
 	.bInterval		= 4,
 };
 
-static struct usb_ss_ep_comp_descriptor microphone_as_ep_in_comp_desc = {
-	 .bLength =		 sizeof(microphone_as_ep_in_comp_desc),
-	 .bDescriptorType =	 USB_DT_SS_ENDPOINT_COMP,
-
-	 .wBytesPerInterval =	cpu_to_le16(1024),
-};
-
  /* Class-specific AS ISO OUT Endpoint Descriptor */
 static struct uac_iso_endpoint_descriptor microphone_as_iso_in_desc  = {
 	.bLength		= UAC_ISO_ENDPOINT_DESC_SIZE,
@@ -375,24 +358,9 @@ static struct usb_audio_control_selector microphone_as_iso_in = {
 	.desc = (struct usb_descriptor_header *)&microphone_as_iso_in_desc,
 };
 
-static struct usb_interface_assoc_descriptor
-audio_iad_descriptor = {
-	.bLength =		sizeof(audio_iad_descriptor),
-	.bDescriptorType =	USB_DT_INTERFACE_ASSOCIATION,
-
-	.bFirstInterface =	0, /* updated at bind */
-	.bInterfaceCount =	3,
-	.bFunctionClass =	USB_CLASS_AUDIO,
-	.bFunctionSubClass =	0,
-	.bFunctionProtocol =	UAC_VERSION_1,
-};
-
-
 /*--------------------------------- */
 
 static struct usb_descriptor_header *f_audio_desc[]  = {
-	(struct usb_descriptor_header *)&audio_iad_descriptor,
-
 	(struct usb_descriptor_header *)&uac1_ac_interface_desc,
 	(struct usb_descriptor_header *)&uac1_ac_header_desc,
 
@@ -414,37 +382,6 @@ static struct usb_descriptor_header *f_audio_desc[]  = {
 	(struct usb_descriptor_header *)&speaker_as_header_desc,
 	(struct usb_descriptor_header *)&speaker_as_type_i_desc,
 	(struct usb_descriptor_header *)&speaker_as_ep_out_desc,
-	(struct usb_descriptor_header *)&speaker_as_iso_out_desc,
-
-	NULL,
-};
-
-static struct usb_descriptor_header *f_audio_ss_desc[]  = {
-	(struct usb_descriptor_header *)&audio_iad_descriptor,
-
-	(struct usb_descriptor_header *)&uac1_ac_interface_desc,
-	(struct usb_descriptor_header *)&uac1_ac_header_desc,
-
-	(struct usb_descriptor_header *)&microphone_input_terminal_desc,
-	(struct usb_descriptor_header *)&microphone_output_terminal_desc,
-
-	(struct usb_descriptor_header *)&speaker_input_terminal_desc,
-	(struct usb_descriptor_header *)&speaker_output_terminal_desc,
-
-	(struct usb_descriptor_header *)&microphone_as_interface_alt_0_desc,
-	(struct usb_descriptor_header *)&microphone_as_interface_alt_1_desc,
-	(struct usb_descriptor_header *)&microphone_as_header_desc,
-	(struct usb_descriptor_header *)&microphone_as_type_i_desc,
-	(struct usb_descriptor_header *)&microphone_as_ep_in_desc,
-	(struct usb_descriptor_header *)&microphone_as_ep_in_comp_desc,
-	(struct usb_descriptor_header *)&microphone_as_iso_in_desc,
-
-	(struct usb_descriptor_header *)&speaker_as_interface_alt_0_desc,
-	(struct usb_descriptor_header *)&speaker_as_interface_alt_1_desc,
-	(struct usb_descriptor_header *)&speaker_as_header_desc,
-	(struct usb_descriptor_header *)&speaker_as_type_i_desc,
-	(struct usb_descriptor_header *)&speaker_as_ep_out_desc,
-	(struct usb_descriptor_header *)&speaker_as_ep_out_comp_desc,
 	(struct usb_descriptor_header *)&speaker_as_iso_out_desc,
 
 	NULL,
@@ -550,7 +487,6 @@ static void f_audio_playback_work(struct work_struct *data)
 	unsigned long flags;
 	int res = 0;
 
-	pr_debug("%s: started\n", __func__);
 	spin_lock_irqsave(&audio->playback_lock, flags);
 	if (list_empty(&audio->play_queue)) {
 		pr_err("playback_buf is empty");
@@ -569,7 +505,6 @@ static void f_audio_playback_work(struct work_struct *data)
 		pr_err("copying failed");
 
 	f_audio_buffer_free(play_buf);
-	pr_debug("%s: Done\n", __func__);
 }
 
 static int
@@ -577,7 +512,6 @@ f_audio_playback_ep_complete(struct usb_ep *ep, struct usb_request *req)
 {
 	struct f_audio *audio = req->context;
 	struct f_audio_buf *copy_buf = audio->playback_copy_buf;
-	unsigned long flags;
 	int err;
 
 	if (!copy_buf)
@@ -587,15 +521,7 @@ f_audio_playback_ep_complete(struct usb_ep *ep, struct usb_request *req)
 	if (audio_playback_buf_size - copy_buf->actual < req->actual) {
 		pr_debug("audio_playback_buf_size %d - copy_buf->actual %d, req->actual %d",
 			audio_playback_buf_size, copy_buf->actual, req->actual);
-		spin_lock_irqsave(&audio->playback_lock, flags);
-		if (!list_empty(&audio->play_queue) &&
-					audio_playback_realtime) {
-			pr_debug("over-runs, audio write slow.. drop the packet\n");
-			f_audio_buffer_free(copy_buf);
-		} else {
-			list_add_tail(&copy_buf->list, &audio->play_queue);
-		}
-		spin_unlock_irqrestore(&audio->playback_lock, flags);
+		list_add_tail(&copy_buf->list, &audio->play_queue);
 		schedule_work(&audio->playback_work);
 		copy_buf = f_audio_buffer_alloc(audio_playback_buf_size);
 		if (IS_ERR(copy_buf)) {
@@ -603,8 +529,6 @@ f_audio_playback_ep_complete(struct usb_ep *ep, struct usb_request *req)
 			return -ENOMEM;
 		}
 	}
-
-	pr_debug("Playback %d bytes", req->actual);
 
 	memcpy(copy_buf->buf + copy_buf->actual, req->buf, req->actual);
 	copy_buf->actual += req->actual;
@@ -624,15 +548,6 @@ static void f_audio_capture_work(struct work_struct *data)
 	struct f_audio_buf *capture_buf;
 	unsigned long flags;
 	int res = 0;
-
-	pr_debug("%s Started\n", __func__);
-	spin_lock_irqsave(&audio->capture_lock, flags);
-	if (!list_empty(&audio->capture_queue)) {
-		spin_unlock_irqrestore(&audio->capture_lock, flags);
-		pr_debug("%s !! buffer already filled\n", __func__);
-		return;
-	}
-	spin_unlock_irqrestore(&audio->capture_lock, flags);
 
 	capture_buf = f_audio_buffer_alloc(audio_capture_buf_size);
 	if (capture_buf <= 0) {
@@ -664,18 +579,12 @@ f_audio_capture_ep_complete(struct usb_ep *ep, struct usb_request *req)
 		spin_lock_irqsave(&audio->capture_lock, flags);
 		if (list_empty(&audio->capture_queue)) {
 			spin_unlock_irqrestore(&audio->capture_lock, flags);
-			pr_debug("%s no data from Audio to send\n", __func__);
 			schedule_work(&audio->capture_work);
-			memset(req->buf, 0, req_capture_buf_size);
 			goto done;
 		}
 		copy_buf = list_first_entry(&audio->capture_queue,
 						struct f_audio_buf, list);
 		list_del(&copy_buf->list);
-
-		if (list_empty(&audio->capture_queue))
-			schedule_work(&audio->capture_work);
-
 		audio->capture_copy_buf = copy_buf;
 		spin_unlock_irqrestore(&audio->capture_lock, flags);
 	}
@@ -790,7 +699,6 @@ static int audio_get_intf_req(struct usb_function *f,
 
 	req->context = audio;
 	req->complete = f_audio_complete;
-	len = min_t(size_t, sizeof(value), len);
 	memcpy(req->buf, &value, len);
 
 	return len;
@@ -999,13 +907,6 @@ static int f_audio_set_alt(struct usb_function *f, unsigned intf, unsigned alt)
 	pr_debug("intf %d, alt %d\n", intf, alt);
 
 	if (intf == uac1_ac_header_desc.baInterfaceNr[0]) {
-		if (audio->alt_intf[0] == alt) {
-			pr_debug("Alt interface is already set to %d. Do nothing.\n",
-				alt);
-
-			return 0;
-		}
-
 		if (alt == 1) {
 			err = usb_ep_enable(in_ep);
 			if (err) {
@@ -1053,13 +954,6 @@ static int f_audio_set_alt(struct usb_function *f, unsigned intf, unsigned alt)
 		}
 		audio->alt_intf[0] = alt;
 	} else if (intf == uac1_ac_header_desc.baInterfaceNr[1]) {
-		if (audio->alt_intf[1] == alt) {
-			pr_debug("Alt interface is already set to %d. Do nothing.\n",
-				alt);
-
-			return 0;
-		}
-
 		if (alt == 1) {
 			err = usb_ep_enable(out_ep);
 			if (err) {
@@ -1148,14 +1042,10 @@ static void f_audio_build_desc(struct f_audio *audio)
 	rate = u_audio_get_playback_rate(card);
 	sam_freq = speaker_as_type_i_desc.tSamFreq[0];
 	memcpy(sam_freq, &rate, 3);
-	/* Update maxP as per sample rate, bInterval assumed as 1msec */
-	speaker_as_ep_out_desc.wMaxPacketSize = (rate / 1000) * 2;
 
 	rate = u_audio_get_capture_rate(card);
 	sam_freq = microphone_as_type_i_desc.tSamFreq[0];
 	memcpy(sam_freq, &rate, 3);
-	/* Update maxP as per sample rate, bInterval assumed as 1msec */
-	microphone_as_ep_in_desc.wMaxPacketSize = (rate / 1000) * 2;
 
 	/* Todo: Set Sample bits and other parameters */
 
@@ -1182,7 +1072,6 @@ f_audio_bind(struct usb_configuration *c, struct usb_function *f)
 		goto fail;
 	}
 	uac1_ac_interface_desc.bInterfaceNumber = status;
-	audio_iad_descriptor.bFirstInterface = status;
 
 	status = -ENOMEM;
 
@@ -1239,8 +1128,7 @@ f_audio_bind(struct usb_configuration *c, struct usb_function *f)
 	speaker_as_iso_out.id = epaddr;
 
 	/* copy descriptors, and track endpoint copies */
-	status = usb_assign_descriptors(f, f_audio_desc, f_audio_desc,
-					f_audio_ss_desc);
+	status = usb_assign_descriptors(f, f_audio_desc, f_audio_desc, NULL);
 	if (status)
 		goto fail;
 	return 0;
@@ -1256,7 +1144,6 @@ f_audio_unbind(struct usb_configuration *c, struct usb_function *f)
 {
 	struct f_audio *audio = func_to_audio(f);
 
-	gaudio_cleanup();
 	usb_free_all_descriptors(f);
 	kfree(audio);
 }
@@ -1361,19 +1248,20 @@ int audio_bind_config(struct usb_configuration *c)
 	/* set up ASLA audio devices */
 	status = gaudio_setup(&audio->card);
 	if (status < 0)
-		goto fail;
+		goto add_fail;
 
 	status = usb_add_function(c, &audio->card.func);
 	if (status) {
 		pr_err("%s: Failed to add usb audio function, err = %d",
 			__func__, status);
-		goto fail;
+		goto setup_fail;
 	}
 
 	return status;
 
-fail:
+add_fail:
 	gaudio_cleanup();
+setup_fail:
 	kfree(audio);
 	return status;
 }

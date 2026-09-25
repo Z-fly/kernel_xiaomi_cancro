@@ -1,8 +1,8 @@
 /***************************************************************************
  *   Copyright (C) 2010-2012 by Bruno Prémont <bonbons@linux-vserver.org>  *
- *                                                                         *
  *   Based on Logitech G13 driver (v0.4)                                   *
- *     Copyright (C) 2009 by Rick L. Vinyard, Jr. <rvinyard@cs.nmsu.edu>   *
+ *   Copyright (C) 2009 by Rick L. Vinyard, Jr. <rvinyard@cs.nmsu.edu>     *
+ *   Copyright (C) 2017 XiaoMi, Inc.                                       * 
  *                                                                         *
  *   This program is free software: you can redistribute it and/or modify  *
  *   it under the terms of the GNU General Public License as published by  *
@@ -306,4 +306,4 @@ static inline void picolcd_exit_cir(struct picolcd_data *data)
 
 int picolcd_reset(struct hid_device *hdev);
 struct picolcd_pending *picolcd_send_and_wait(struct hid_device *hdev,
-			int report_id, const u8 *raw_data, int size);
+		int report_id, const u8 *raw_data, int size);

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2014-2015, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -31,7 +31,7 @@ struct msm_rng_device {
 	void __iomem *base;
 	struct clk *prng_clk;
 	uint32_t qrng_perf_client;
-	struct mutex rng_lock;
+	struct  semaphore drbg_sem;
 	struct fips_drbg_ctx_s *drbg_ctx;
 	int    fips140_drbg_enabled;
 };
@@ -42,6 +42,6 @@ struct msm_rng_device {
  *  directory and retuns it back to caller.
  *
  */
-int msm_rng_direct_read(struct msm_rng_device *msm_rng_dev,
-				void *data, size_t max);
+int msm_rng_direct_read(struct msm_rng_device *msm_rng_dev, void *data);
+
 #endif

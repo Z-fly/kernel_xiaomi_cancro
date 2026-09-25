@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2015, 2017 The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2013, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -30,20 +30,13 @@
 #include <media/videobuf2-msm-mem.h>
 #include <media/msmb_camera.h>
 
-/* Setting MAX timeout to 6.5seconds considering
- * backend will operate @ .6fps in certain usecases
- * like Long exposure usecase and isp needs max of 2 frames
- * to stop the hardware which will be around 3 seconds*/
-#define MSM_POST_EVT_TIMEOUT 6500
+#define MSM_POST_EVT_TIMEOUT 5000
 #define MSM_POST_EVT_NOTIMEOUT 0xFFFFFFFF
-#define MSM_CAMERA_STREAM_CNT_BITS  32
-
-#define CAMERA_DISABLE_PC_LATENCY 100
-#define CAMERA_ENABLE_PC_LATENCY PM_QOS_DEFAULT_VALUE
 
 struct msm_video_device {
 	struct video_device *vdev;
 	atomic_t opened;
+	atomic_t stream_cnt;
 };
 
 struct msm_queue_head {
@@ -107,11 +100,7 @@ struct msm_session {
 	 * session struct msm_stream */
 	struct msm_queue_head stream_q;
 	struct mutex lock;
-	struct mutex close_lock;
-	rwlock_t stream_rwlock;
 };
-
-void msm_pm_qos_update_request(int val);
 
 int msm_post_event(struct v4l2_event *event, int timeout);
 int  msm_create_session(unsigned int session, struct video_device *vdev);
@@ -122,12 +111,10 @@ int msm_create_stream(unsigned int session_id,
 void msm_delete_stream(unsigned int session_id, unsigned int stream_id);
 int  msm_create_command_ack_q(unsigned int session_id, unsigned int stream_id);
 void msm_delete_command_ack_q(unsigned int session_id, unsigned int stream_id);
-struct msm_session *msm_get_session(unsigned int session_id);
-struct msm_stream *msm_get_stream(struct msm_session *session,
+struct msm_stream *msm_get_stream(unsigned int session_id,
 	unsigned int stream_id);
 struct vb2_queue *msm_get_stream_vb2q(unsigned int session_id,
 	unsigned int stream_id);
 struct msm_stream *msm_get_stream_from_vb2q(struct vb2_queue *q);
-struct msm_session *msm_get_session_from_vb2q(struct vb2_queue *q);
 struct msm_session *msm_session_find(unsigned int session_id);
 #endif /*_MSM_H */

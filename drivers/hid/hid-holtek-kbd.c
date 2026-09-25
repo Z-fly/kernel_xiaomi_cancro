@@ -1,6 +1,7 @@
 /*
  * HID driver for Holtek keyboard
  * Copyright (c) 2012 Tom Harwood
+ * Copyright (C) 2017 XiaoMi, Inc.
 */
 
 /*

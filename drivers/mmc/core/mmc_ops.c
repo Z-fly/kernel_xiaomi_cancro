@@ -232,10 +232,6 @@ mmc_send_cxd_native(struct mmc_host *host, u32 arg, u32 *cxd, int opcode)
 	return 0;
 }
 
-/*
- * NOTE: void *buf, caller for the buf is required to use DMA-capable
- * buffer or on-stack buffer (with some overhead in callee).
- */
 static int
 mmc_send_cxd_data(struct mmc_card *card, struct mmc_host *host,
 		u32 opcode, void *buf, unsigned len)
@@ -245,19 +241,13 @@ mmc_send_cxd_data(struct mmc_card *card, struct mmc_host *host,
 	struct mmc_data data = {0};
 	struct scatterlist sg;
 	void *data_buf;
-	int is_on_stack;
 
-	is_on_stack = object_is_on_stack(buf);
-	if (is_on_stack) {
-		/*
-		 * dma onto stack is unsafe/nonportable, but callers to this
-		 * routine normally provide temporary on-stack buffers ...
-		 */
-		data_buf = kmalloc(len, GFP_KERNEL);
-		if (!data_buf)
-			return -ENOMEM;
-	} else
-		data_buf = buf;
+	/* dma onto stack is unsafe/nonportable, but callers to this
+	 * routine normally provide temporary on-stack buffers ...
+	 */
+	data_buf = kmalloc(len, GFP_KERNEL);
+	if (data_buf == NULL)
+		return -ENOMEM;
 
 	mrq.cmd = &cmd;
 	mrq.data = &data;
@@ -292,10 +282,8 @@ mmc_send_cxd_data(struct mmc_card *card, struct mmc_host *host,
 
 	mmc_wait_for_req(host, &mrq);
 
-	if (is_on_stack) {
-		memcpy(buf, data_buf, len);
-		kfree(data_buf);
-	}
+	memcpy(buf, data_buf, len);
+	kfree(data_buf);
 
 	if (cmd.error)
 		return cmd.error;
@@ -308,32 +296,24 @@ mmc_send_cxd_data(struct mmc_card *card, struct mmc_host *host,
 int mmc_send_csd(struct mmc_card *card, u32 *csd)
 {
 	int ret, i;
-	u32 *csd_tmp;
 
 	if (!mmc_host_is_spi(card->host))
 		return mmc_send_cxd_native(card->host, card->rca << 16,
 				csd, MMC_SEND_CSD);
 
-	csd_tmp = kmalloc(16, GFP_KERNEL);
-	if (!csd_tmp)
-		return -ENOMEM;
-
-	ret = mmc_send_cxd_data(card, card->host, MMC_SEND_CSD, csd_tmp, 16);
+	ret = mmc_send_cxd_data(card, card->host, MMC_SEND_CSD, csd, 16);
 	if (ret)
-		goto err;
+		return ret;
 
 	for (i = 0;i < 4;i++)
-		csd[i] = be32_to_cpu(csd_tmp[i]);
+		csd[i] = be32_to_cpu(csd[i]);
 
-err:
-	kfree(csd_tmp);
-	return ret;
+	return 0;
 }
 
 int mmc_send_cid(struct mmc_host *host, u32 *cid)
 {
 	int ret, i;
-	u32 *cid_tmp;
 
 	if (!mmc_host_is_spi(host)) {
 		if (!host->card)
@@ -342,20 +322,14 @@ int mmc_send_cid(struct mmc_host *host, u32 *cid)
 				cid, MMC_SEND_CID);
 	}
 
-	cid_tmp = kmalloc(16, GFP_KERNEL);
-	if (!cid_tmp)
-		return -ENOMEM;
-
-	ret = mmc_send_cxd_data(NULL, host, MMC_SEND_CID, cid_tmp, 16);
+	ret = mmc_send_cxd_data(NULL, host, MMC_SEND_CID, cid, 16);
 	if (ret)
-		goto err;
+		return ret;
 
 	for (i = 0;i < 4;i++)
-		cid[i] = be32_to_cpu(cid_tmp[i]);
+		cid[i] = be32_to_cpu(cid[i]);
 
-err:
-	kfree(cid_tmp);
-	return ret;
+	return 0;
 }
 
 int mmc_send_ext_csd(struct mmc_card *card, u8 *ext_csd)
@@ -396,45 +370,6 @@ int mmc_spi_set_crc(struct mmc_host *host, int use_crc)
 }
 
 /**
- *	mmc_prepare_switch - helper; prepare to modify EXT_CSD register
- *	@card: the MMC card associated with the data transfer
- *	@set: cmd set values
- *	@index: EXT_CSD register index
- *	@value: value to program into EXT_CSD register
- *	@tout_ms: timeout (ms) for operation performed by register write,
- *                   timeout of zero implies maximum possible timeout
- *	@use_busy_signal: use the busy signal as response type
- *
- *	Helper to prepare to modify EXT_CSD register for selected card.
- */
-
-static inline void mmc_prepare_switch(struct mmc_command *cmd, u8 index,
-				      u8 value, u8 set, unsigned int tout_ms,
-				      bool use_busy_signal)
-{
-	cmd->opcode = MMC_SWITCH;
-	cmd->arg = (MMC_SWITCH_MODE_WRITE_BYTE << 24) |
-		  (index << 16) |
-		  (value << 8) |
-		  set;
-	cmd->flags = MMC_CMD_AC;
-	cmd->cmd_timeout_ms = tout_ms;
-	if (use_busy_signal)
-		cmd->flags |= MMC_RSP_SPI_R1B | MMC_RSP_R1B;
-	else
-		cmd->flags |= MMC_RSP_SPI_R1 | MMC_RSP_R1;
-}
-
-int __mmc_switch_cmdq_mode(struct mmc_command *cmd, u8 set, u8 index, u8 value,
-			   unsigned int timeout_ms, bool use_busy_signal,
-			   bool ignore_timeout)
-{
-	mmc_prepare_switch(cmd, index, value, set, timeout_ms, use_busy_signal);
-	return 0;
-}
-EXPORT_SYMBOL(__mmc_switch_cmdq_mode);
-
-/**
  *	__mmc_switch - modify EXT_CSD register
  *	@card: the MMC card associated with the data transfer
  *	@set: cmd set values
@@ -459,10 +394,18 @@ int __mmc_switch(struct mmc_card *card, u8 set, u8 index, u8 value,
 	BUG_ON(!card);
 	BUG_ON(!card->host);
 
+	cmd.opcode = MMC_SWITCH;
+	cmd.arg = (MMC_SWITCH_MODE_WRITE_BYTE << 24) |
+		  (index << 16) |
+		  (value << 8) |
+		  set;
+	cmd.flags = MMC_CMD_AC;
+	if (use_busy_signal)
+		cmd.flags |= MMC_RSP_SPI_R1B | MMC_RSP_R1B;
+	else
+		cmd.flags |= MMC_RSP_SPI_R1 | MMC_RSP_R1;
 
 
-	mmc_prepare_switch(&cmd, index, value, set, timeout_ms,
-			   use_busy_signal);
 	cmd.cmd_timeout_ms = timeout_ms;
 	cmd.ignore_timeout = ignore_timeout;
 
@@ -682,21 +625,3 @@ int mmc_send_hpi_cmd(struct mmc_card *card, u32 *status)
 
 	return 0;
 }
-
-int mmc_discard_queue(struct mmc_host *host, u32 tasks)
-{
-	struct mmc_command cmd = {0};
-
-	cmd.opcode = MMC_CMDQ_TASK_MGMT;
-	if (tasks) {
-		cmd.arg = DISCARD_TASK;
-		cmd.arg |= (tasks << 16);
-	} else {
-		cmd.arg = DISCARD_QUEUE;
-	}
-
-	cmd.flags = MMC_RSP_R1B | MMC_CMD_AC;
-
-	return mmc_wait_for_cmd(host, &cmd, 0);
-}
-EXPORT_SYMBOL(mmc_discard_queue);

@@ -1,4 +1,5 @@
 /* Copyright (c) 2012-2016, The Linux Foundation. All rights reserved.
+ * Copyright (C) 2017 XiaoMi, Inc.
 
 * This program is free software; you can redistribute it and/or modify
 * it under the terms of the GNU General Public License version 2 and
@@ -24,7 +25,7 @@
 #include <linux/of.h>
 #include <linux/wait.h>
 #include <linux/sched.h>
-#include <linux/qdsp6v2/apr.h>
+#include <mach/qdsp6v2/apr.h>
 #include <sound/q6core.h>
 
 #define DEVICE_NAME "avtimer"
@@ -56,6 +57,7 @@ struct avtimer_t {
 	struct class *avtimer_class;
 	struct mutex avtimer_lock;
 	int avtimer_open_cnt;
+	struct dev_avtimer_data avtimer_pdata;
 	struct delayed_work ssr_dwork;
 	wait_queue_head_t adsp_resp_wait;
 	int enable_timer_resp_recieved;
@@ -73,12 +75,13 @@ static int32_t aprv2_core_fn_q(struct apr_client_data *data, void *priv)
 {
 	uint32_t *payload1;
 
+	pr_debug("%s: core msg: payload len = %u, apr resp opcode = 0x%X\n",
+		__func__, data->payload_size, data->opcode);
+
 	if (!data) {
 		pr_err("%s: Invalid params\n", __func__);
 		return -EINVAL;
 	}
-	pr_debug("%s: core msg: payload len = %u, apr resp opcode = 0x%X\n",
-		__func__, data->payload_size, data->opcode);
 
 	switch (data->opcode) {
 
@@ -361,7 +364,6 @@ static long avtimer_ioctl(struct file *file, unsigned int ioctl_num,
 
 static const struct file_operations avtimer_fops = {
 	.unlocked_ioctl = avtimer_ioctl,
-	.compat_ioctl = avtimer_ioctl,
 	.open = avtimer_open,
 	.release = avtimer_release
 };
@@ -479,7 +481,7 @@ unmap:
 
 }
 
-static int dev_avtimer_remove(struct platform_device *pdev)
+static int __devexit dev_avtimer_remove(struct platform_device *pdev)
 {
 	pr_debug("%s: dev_avtimer_remove\n", __func__);
 

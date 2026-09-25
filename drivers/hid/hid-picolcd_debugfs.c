@@ -1,8 +1,10 @@
 /***************************************************************************
  *   Copyright (C) 2010-2012 by Bruno Prémont <bonbons@linux-vserver.org>  *
+ *
  *                                                                         *
  *   Based on Logitech G13 driver (v0.4)                                   *
- *     Copyright (C) 2009 by Rick L. Vinyard, Jr. <rvinyard@cs.nmsu.edu>   *
+ *   Copyright (C) 2009 by Rick L. Vinyard, Jr. <rvinyard@cs.nmsu.edu>     *
+ *   Copyright (C) 2017 XiaoMi, Inc.                                       *
  *                                                                         *
  *   This program is free software: you can redistribute it and/or modify  *
  *   it under the terms of the GNU General Public License as published by  *
@@ -414,7 +416,7 @@ void picolcd_debug_out_report(struct picolcd_data *data,
 	}
 
 	snprintf(buff, BUFF_SZ, "\nout report %d (size %d) =  ",
-			report->id, raw_size);
+		report->id, raw_size);
 	hid_debug_event(hdev, buff);
 	raw_data[0] = report->id;
 	hid_output_report(report, raw_data);
@@ -425,7 +427,7 @@ void picolcd_debug_out_report(struct picolcd_data *data,
 	case REPORT_LED_STATE:
 		/* 1 data byte with GPO state */
 		snprintf(buff, BUFF_SZ, "out report %s (%d, size=%d)\n",
-			"REPORT_LED_STATE", report->id, raw_size-1);
+				"REPORT_LED_STATE", report->id, raw_size-1);
 		hid_debug_event(hdev, buff);
 		snprintf(buff, BUFF_SZ, "\tGPO state: 0x%02x\n", raw_data[1]);
 		hid_debug_event(hdev, buff);
@@ -433,7 +435,7 @@ void picolcd_debug_out_report(struct picolcd_data *data,
 	case REPORT_BRIGHTNESS:
 		/* 1 data byte with brightness */
 		snprintf(buff, BUFF_SZ, "out report %s (%d, size=%d)\n",
-			"REPORT_BRIGHTNESS", report->id, raw_size-1);
+				"REPORT_BRIGHTNESS", report->id, raw_size-1);
 		hid_debug_event(hdev, buff);
 		snprintf(buff, BUFF_SZ, "\tBrightness: 0x%02x\n", raw_data[1]);
 		hid_debug_event(hdev, buff);
@@ -441,7 +443,7 @@ void picolcd_debug_out_report(struct picolcd_data *data,
 	case REPORT_CONTRAST:
 		/* 1 data byte with contrast */
 		snprintf(buff, BUFF_SZ, "out report %s (%d, size=%d)\n",
-			"REPORT_CONTRAST", report->id, raw_size-1);
+				"REPORT_CONTRAST", report->id, raw_size-1);
 		hid_debug_event(hdev, buff);
 		snprintf(buff, BUFF_SZ, "\tContrast: 0x%02x\n", raw_data[1]);
 		hid_debug_event(hdev, buff);
@@ -449,7 +451,7 @@ void picolcd_debug_out_report(struct picolcd_data *data,
 	case REPORT_RESET:
 		/* 2 data bytes with reset duration in ms */
 		snprintf(buff, BUFF_SZ, "out report %s (%d, size=%d)\n",
-			"REPORT_RESET", report->id, raw_size-1);
+				"REPORT_RESET", report->id, raw_size-1);
 		hid_debug_event(hdev, buff);
 		snprintf(buff, BUFF_SZ, "\tDuration: 0x%02x%02x (%dms)\n",
 				raw_data[2], raw_data[1], raw_data[2] << 8 | raw_data[1]);
@@ -458,28 +460,28 @@ void picolcd_debug_out_report(struct picolcd_data *data,
 	case REPORT_LCD_CMD:
 		/* 63 data bytes with LCD commands */
 		snprintf(buff, BUFF_SZ, "out report %s (%d, size=%d)\n",
-			"REPORT_LCD_CMD", report->id, raw_size-1);
+				"REPORT_LCD_CMD", report->id, raw_size-1);
 		hid_debug_event(hdev, buff);
 		/* TODO: format decoding */
 		break;
 	case REPORT_LCD_DATA:
 		/* 63 data bytes with LCD data */
 		snprintf(buff, BUFF_SZ, "out report %s (%d, size=%d)\n",
-			"REPORT_LCD_CMD", report->id, raw_size-1);
+				"REPORT_LCD_CMD", report->id, raw_size-1);
 		/* TODO: format decoding */
 		hid_debug_event(hdev, buff);
 		break;
 	case REPORT_LCD_CMD_DATA:
 		/* 63 data bytes with LCD commands and data */
 		snprintf(buff, BUFF_SZ, "out report %s (%d, size=%d)\n",
-			"REPORT_LCD_CMD", report->id, raw_size-1);
+				"REPORT_LCD_CMD", report->id, raw_size-1);
 		/* TODO: format decoding */
 		hid_debug_event(hdev, buff);
 		break;
 	case REPORT_EE_READ:
 		/* 3 data bytes with read area description */
 		snprintf(buff, BUFF_SZ, "out report %s (%d, size=%d)\n",
-			"REPORT_EE_READ", report->id, raw_size-1);
+				"REPORT_EE_READ", report->id, raw_size-1);
 		hid_debug_event(hdev, buff);
 		snprintf(buff, BUFF_SZ, "\tData address: 0x%02x%02x\n",
 				raw_data[2], raw_data[1]);
@@ -490,7 +492,7 @@ void picolcd_debug_out_report(struct picolcd_data *data,
 	case REPORT_EE_WRITE:
 		/* 3+1..20 data bytes with write area description */
 		snprintf(buff, BUFF_SZ, "out report %s (%d, size=%d)\n",
-			"REPORT_EE_WRITE", report->id, raw_size-1);
+				"REPORT_EE_WRITE", report->id, raw_size-1);
 		hid_debug_event(hdev, buff);
 		snprintf(buff, BUFF_SZ, "\tData address: 0x%02x%02x\n",
 				raw_data[2], raw_data[1]);
@@ -512,7 +514,7 @@ void picolcd_debug_out_report(struct picolcd_data *data,
 	case REPORT_BL_ERASE_MEMORY:
 		/* 3 data bytes with pointer inside erase block */
 		snprintf(buff, BUFF_SZ, "out report %s (%d, size=%d)\n",
-			"REPORT_ERASE_MEMORY", report->id, raw_size-1);
+				"REPORT_ERASE_MEMORY", report->id, raw_size-1);
 		hid_debug_event(hdev, buff);
 		switch (data->addr_sz) {
 		case 2:
@@ -532,7 +534,7 @@ void picolcd_debug_out_report(struct picolcd_data *data,
 	case REPORT_BL_READ_MEMORY:
 		/* 4 data bytes with read area description */
 		snprintf(buff, BUFF_SZ, "out report %s (%d, size=%d)\n",
-			"REPORT_READ_MEMORY", report->id, raw_size-1);
+				"REPORT_READ_MEMORY", report->id, raw_size-1);
 		hid_debug_event(hdev, buff);
 		switch (data->addr_sz) {
 		case 2:
@@ -556,7 +558,7 @@ void picolcd_debug_out_report(struct picolcd_data *data,
 	case REPORT_BL_WRITE_MEMORY:
 		/* 4+1..32 data bytes with write adrea description */
 		snprintf(buff, BUFF_SZ, "out report %s (%d, size=%d)\n",
-			"REPORT_WRITE_MEMORY", report->id, raw_size-1);
+				"REPORT_WRITE_MEMORY", report->id, raw_size-1);
 		hid_debug_event(hdev, buff);
 		switch (data->addr_sz) {
 		case 2:
@@ -601,7 +603,7 @@ void picolcd_debug_out_report(struct picolcd_data *data,
 		break;
 	case REPORT_EXIT_KEYBOARD:
 		snprintf(buff, BUFF_SZ, "out report %s (%d, size=%d)\n",
-			"REPORT_EXIT_KEYBOARD", report->id, raw_size-1);
+				"REPORT_EXIT_KEYBOARD", report->id, raw_size-1);
 		hid_debug_event(hdev, buff);
 		snprintf(buff, BUFF_SZ, "\tRestart delay: %dms (0x%02x%02x)\n",
 				raw_data[1] | (raw_data[2] << 8),
@@ -610,27 +612,27 @@ void picolcd_debug_out_report(struct picolcd_data *data,
 		break;
 	case REPORT_VERSION:
 		snprintf(buff, BUFF_SZ, "out report %s (%d, size=%d)\n",
-			"REPORT_VERSION", report->id, raw_size-1);
+				"REPORT_VERSION", report->id, raw_size-1);
 		hid_debug_event(hdev, buff);
 		break;
 	case REPORT_DEVID:
 		snprintf(buff, BUFF_SZ, "out report %s (%d, size=%d)\n",
-			"REPORT_DEVID", report->id, raw_size-1);
+				"REPORT_DEVID", report->id, raw_size-1);
 		hid_debug_event(hdev, buff);
 		break;
 	case REPORT_SPLASH_SIZE:
 		snprintf(buff, BUFF_SZ, "out report %s (%d, size=%d)\n",
-			"REPORT_SPLASH_SIZE", report->id, raw_size-1);
+				"REPORT_SPLASH_SIZE", report->id, raw_size-1);
 		hid_debug_event(hdev, buff);
 		break;
 	case REPORT_HOOK_VERSION:
 		snprintf(buff, BUFF_SZ, "out report %s (%d, size=%d)\n",
-			"REPORT_HOOK_VERSION", report->id, raw_size-1);
+				"REPORT_HOOK_VERSION", report->id, raw_size-1);
 		hid_debug_event(hdev, buff);
 		break;
 	case REPORT_EXIT_FLASHER:
 		snprintf(buff, BUFF_SZ, "out report %s (%d, size=%d)\n",
-			"REPORT_VERSION", report->id, raw_size-1);
+				"REPORT_VERSION", report->id, raw_size-1);
 		hid_debug_event(hdev, buff);
 		snprintf(buff, BUFF_SZ, "\tRestart delay: %dms (0x%02x%02x)\n",
 				raw_data[1] | (raw_data[2] << 8),
@@ -639,7 +641,7 @@ void picolcd_debug_out_report(struct picolcd_data *data,
 		break;
 	default:
 		snprintf(buff, BUFF_SZ, "out report %s (%d, size=%d)\n",
-			"<unknown>", report->id, raw_size-1);
+				"<unknown>", report->id, raw_size-1);
 		hid_debug_event(hdev, buff);
 		break;
 	}
@@ -680,7 +682,7 @@ void picolcd_debug_raw_event(struct picolcd_data *data,
 	case REPORT_KEY_STATE:
 		/* 2 data bytes with key state */
 		snprintf(buff, BUFF_SZ, "report %s (%d, size=%d)\n",
-			"REPORT_KEY_STATE", report->id, size-1);
+				"REPORT_KEY_STATE", report->id, size-1);
 		hid_debug_event(hdev, buff);
 		if (raw_data[1] == 0)
 			snprintf(buff, BUFF_SZ, "\tNo key pressed\n");
@@ -695,7 +697,7 @@ void picolcd_debug_raw_event(struct picolcd_data *data,
 	case REPORT_IR_DATA:
 		/* Up to 20 byes of IR scancode data */
 		snprintf(buff, BUFF_SZ, "report %s (%d, size=%d)\n",
-			"REPORT_IR_DATA", report->id, size-1);
+				"REPORT_IR_DATA", report->id, size-1);
 		hid_debug_event(hdev, buff);
 		if (raw_data[1] == 0) {
 			snprintf(buff, BUFF_SZ, "\tUnexpectedly 0 data length\n");
@@ -738,7 +740,7 @@ void picolcd_debug_raw_event(struct picolcd_data *data,
 	case REPORT_MEMORY:
 		/* Data buffer in response to REPORT_READ_MEMORY or REPORT_WRTIE_MEMORY */
 		snprintf(buff, BUFF_SZ, "report %s (%d, size=%d)\n",
-			"REPORT_MEMORY", report->id, size-1);
+				"REPORT_MEMORY", report->id, size-1);
 		hid_debug_event(hdev, buff);
 		switch (data->addr_sz) {
 		case 2:
@@ -780,7 +782,7 @@ void picolcd_debug_raw_event(struct picolcd_data *data,
 		break;
 	case REPORT_VERSION:
 		snprintf(buff, BUFF_SZ, "report %s (%d, size=%d)\n",
-			"REPORT_VERSION", report->id, size-1);
+				"REPORT_VERSION", report->id, size-1);
 		hid_debug_event(hdev, buff);
 		snprintf(buff, BUFF_SZ, "\tFirmware version: %d.%d\n",
 				raw_data[2], raw_data[1]);
@@ -788,25 +790,25 @@ void picolcd_debug_raw_event(struct picolcd_data *data,
 		break;
 	case REPORT_BL_ERASE_MEMORY:
 		snprintf(buff, BUFF_SZ, "report %s (%d, size=%d)\n",
-			"REPORT_BL_ERASE_MEMORY", report->id, size-1);
+				"REPORT_BL_ERASE_MEMORY", report->id, size-1);
 		hid_debug_event(hdev, buff);
 		/* TODO */
 		break;
 	case REPORT_BL_READ_MEMORY:
 		snprintf(buff, BUFF_SZ, "report %s (%d, size=%d)\n",
-			"REPORT_BL_READ_MEMORY", report->id, size-1);
+				"REPORT_BL_READ_MEMORY", report->id, size-1);
 		hid_debug_event(hdev, buff);
 		/* TODO */
 		break;
 	case REPORT_BL_WRITE_MEMORY:
 		snprintf(buff, BUFF_SZ, "report %s (%d, size=%d)\n",
-			"REPORT_BL_WRITE_MEMORY", report->id, size-1);
+				"REPORT_BL_WRITE_MEMORY", report->id, size-1);
 		hid_debug_event(hdev, buff);
 		/* TODO */
 		break;
 	case REPORT_DEVID:
 		snprintf(buff, BUFF_SZ, "report %s (%d, size=%d)\n",
-			"REPORT_DEVID", report->id, size-1);
+				"REPORT_DEVID", report->id, size-1);
 		hid_debug_event(hdev, buff);
 		snprintf(buff, BUFF_SZ, "\tSerial: 0x%02x%02x%02x%02x\n",
 				raw_data[1], raw_data[2], raw_data[3], raw_data[4]);
@@ -817,7 +819,7 @@ void picolcd_debug_raw_event(struct picolcd_data *data,
 		break;
 	case REPORT_SPLASH_SIZE:
 		snprintf(buff, BUFF_SZ, "report %s (%d, size=%d)\n",
-			"REPORT_SPLASH_SIZE", report->id, size-1);
+				"REPORT_SPLASH_SIZE", report->id, size-1);
 		hid_debug_event(hdev, buff);
 		snprintf(buff, BUFF_SZ, "\tTotal splash space: %d\n",
 				(raw_data[2] << 8) | raw_data[1]);
@@ -828,7 +830,7 @@ void picolcd_debug_raw_event(struct picolcd_data *data,
 		break;
 	case REPORT_HOOK_VERSION:
 		snprintf(buff, BUFF_SZ, "report %s (%d, size=%d)\n",
-			"REPORT_HOOK_VERSION", report->id, size-1);
+				"REPORT_HOOK_VERSION", report->id, size-1);
 		hid_debug_event(hdev, buff);
 		snprintf(buff, BUFF_SZ, "\tFirmware version: %d.%d\n",
 				raw_data[1], raw_data[2]);
@@ -836,7 +838,7 @@ void picolcd_debug_raw_event(struct picolcd_data *data,
 		break;
 	default:
 		snprintf(buff, BUFF_SZ, "report %s (%d, size=%d)\n",
-			"<unknown>", report->id, size-1);
+				"<unknown>", report->id, size-1);
 		hid_debug_event(hdev, buff);
 		break;
 	}

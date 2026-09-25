@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2014-2015, The Linux Foundation. All rights reserved.
+ * Copyright (C) 2017 XiaoMi, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -12,6 +13,7 @@
  *
  */
 #include <linux/slab.h>
+#include <linux/module.h>
 #include <linux/ioctl.h>
 #include <linux/bitops.h>
 #include <sound/hwdep.h>
@@ -20,17 +22,15 @@
 #include "wcdcal-hwdep.h"
 
 const int cal_size_info[WCD9XXX_MAX_CAL] = {
-	[WCD9XXX_ANC_CAL] = 16384,
+	[WCD9XXX_ANC_CAL] = 4096,
 	[WCD9XXX_MBHC_CAL] = 4096,
 	[WCD9XXX_MAD_CAL] = 4096,
-	[WCD9XXX_VBAT_CAL] = 72,
 };
 
 const char *cal_name_info[WCD9XXX_MAX_CAL] = {
 	[WCD9XXX_ANC_CAL] = "anc",
 	[WCD9XXX_MBHC_CAL] = "mbhc",
 	[WCD9XXX_MAD_CAL] = "mad",
-	[WCD9XXX_VBAT_CAL] = "vbat",
 };
 
 struct firmware_cal *wcdcal_get_fw_cal(struct fw_info *fw_data,

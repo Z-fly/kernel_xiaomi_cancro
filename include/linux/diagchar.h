@@ -20,11 +20,10 @@
 #define DEINIT_TYPE		0x00000010
 #define USER_SPACE_DATA_TYPE	0x00000020
 #define DCI_DATA_TYPE		0x00000040
-#define USER_SPACE_RAW_DATA_TYPE	0x00000080
+#define CALLBACK_DATA_TYPE	0x00000080
 #define DCI_LOG_MASKS_TYPE	0x00000100
 #define DCI_EVENT_MASKS_TYPE	0x00000200
 #define DCI_PKT_TYPE		0x00000400
-#define HDLC_SUPPORT_TYPE	0x00001000
 
 #define USB_MODE			1
 #define MEMORY_DEVICE_MODE		2
@@ -32,14 +31,11 @@
 #define UART_MODE			4
 #define SOCKET_MODE			5
 #define CALLBACK_MODE			6
-
 /* different values that go in for diag_data_type */
-
 #define DATA_TYPE_EVENT         	0
 #define DATA_TYPE_F3            	1
 #define DATA_TYPE_LOG           	2
 #define DATA_TYPE_RESPONSE      	3
-#define DATA_TYPE_DELAYED_RESPONSE	4
 #define DATA_TYPE_DCI_LOG		0x00000100
 #define DATA_TYPE_DCI_EVENT		0x00000200
 
@@ -61,10 +57,6 @@
 #define DIAG_IOCTL_REMOTE_DEV		32
 #define DIAG_IOCTL_VOTE_REAL_TIME	33
 #define DIAG_IOCTL_GET_REAL_TIME	34
-#define DIAG_IOCTL_PERIPHERAL_BUF_CONFIG	35
-#define DIAG_IOCTL_PERIPHERAL_BUF_DRAIN		36
-#define DIAG_IOCTL_REGISTER_CALLBACK	37
-#define DIAG_IOCTL_HDLC_TOGGLE	38
 
 /* PC Tools IDs */
 #define APQ8060_TOOLS_ID	4062
@@ -78,16 +70,6 @@
 #define MSM8627_TOOLS_ID	4080
 #define MSM8227_TOOLS_ID	4081
 #define MSM8974_TOOLS_ID	4083
-#define APQ8074_TOOLS_ID	4090
-#define MSM8916_TOOLS_ID	4094
-#define APQ8084_TOOLS_ID	4095
-#define MSM8994_TOOLS_ID	4097
-#define MSM8939_TOOLS_ID	4103
-#define APQ8026_TOOLS_ID	4104
-#define MSM8909_TOOLS_ID	4108
-#define MSM8992_TOOLS_ID	4111
-#define MSM8952_TOOLS_ID	4110
-#define MSM8929_TOOLS_ID	4113
 
 #define MSG_MASK_0			(0x00000001)
 #define MSG_MASK_1			(0x00000002)
@@ -143,7 +125,7 @@ the appropriate macros. */
 /* This needs to be modified manually now, when we add
  a new RANGE of SSIDs to the msg_mask_tbl */
 #define MSG_MASK_TBL_CNT		25
-#define APPS_EVENT_LAST_ID		0x0AA2
+#define EVENT_LAST_ID		0x0AA2
 
 #define MSG_SSID_0			0
 #define MSG_SSID_0_LAST			116
@@ -195,6 +177,12 @@ the appropriate macros. */
 #define MSG_SSID_23_LAST		10415
 #define MSG_SSID_24			0xC000
 #define MSG_SSID_24_LAST		0xC063
+
+struct diagpkt_delay_params {
+	void *rsp_ptr;
+	int size;
+	int *num_bytes_ptr;
+};
 
 static const uint32_t msg_bld_masks_0[] = {
 	MSG_LVL_LOW,
@@ -823,7 +811,5 @@ static const uint32_t log_code_last_tbl[] = {
 #define LOG_GET_ITEM_NUM(xx_code)	(xx_code & 0x0FFF)
 #define LOG_GET_EQUIP_ID(xx_code)	((xx_code & 0xF000) >> 12)
 #define LOG_ITEMS_TO_SIZE(num_items)	((num_items+7)/8)
-#define LOG_SIZE_TO_ITEMS(size)		((8*size) - 7)
-#define EVENT_COUNT_TO_BYTES(count)	((count/8) + 1)
 
 #endif

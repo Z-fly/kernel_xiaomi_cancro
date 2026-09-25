@@ -3,9 +3,9 @@
  *
  * Copyright (C) 2003-2008 Alan Stern
  * Copyright (C) 2009 Samsung Electronics
+ * Copyright (C) 2017 XiaoMi, Inc.
  *                    Author: Michal Nazarewicz <mina86@mina86.com>
  * All rights reserved.
- * Copyright (C) 2015 XiaoMi, Inc.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -45,12 +45,12 @@
  * function for a USB device, it also illustrates a technique of
  * double-buffering for increased throughput.
  *
- * For more information about MSF and in particular its module
- * parameters and sysfs interface read the
- * <Documentation/usb/mass-storage.txt> file.
- */
-
-/*
+ * Function supports multiple logical units (LUNs).  Backing storage
+ * for each LUN is provided by a regular file or a block device.
+ * Access for each LUN can be limited to read-only.  Moreover, the
+ * function can indicate that LUN is removable and/or CD-ROM.  (The
+ * later implies read-only access.)
+ *
  * MSF is configured by specifying a fsg_config structure.  It has the
  * following fields:
  *
@@ -76,6 +76,25 @@
  *	->nofua		Flag specifying that FUA flag in SCSI WRITE(10,12)
  *				commands for this LUN shall be ignored.
  *
+ *	lun_name_format	A printf-like format for names of the LUN
+ *				devices.  This determines how the
+ *				directory in sysfs will be named.
+ *				Unless you are using several MSFs in
+ *				a single gadget (as opposed to single
+ *				MSF in many configurations) you may
+ *				leave it as NULL (in which case
+ *				"lun%d" will be used).  In the format
+ *				you can use "%d" to index LUNs for
+ *				MSF's with more than one LUN.  (Beware
+ *				that there is only one integer given
+ *				as an argument for the format and
+ *				specifying invalid format may cause
+ *				unspecified behaviour.)
+ *	thread_name	Name of the kernel thread process used by the
+ *				MSF.  You can safely set it to NULL
+ *				(in which case default "file-storage"
+ *				will be used).
+ *
  *	vendor_name
  *	product_name
  *	release		Information used as a reply to INQUIRY
@@ -95,6 +114,62 @@
  * structure causes error).  The CD-ROM emulation includes a single
  * data track and no audio tracks; hence there need be only one
  * backing file per LUN.
+ *
+ *
+ * MSF includes support for module parameters.  If gadget using it
+ * decides to use it, the following module parameters will be
+ * available:
+ *
+ *	file=filename[,filename...]
+ *			Names of the files or block devices used for
+ *				backing storage.
+ *	ro=b[,b...]	Default false, boolean for read-only access.
+ *	removable=b[,b...]
+ *			Default true, boolean for removable media.
+ *	cdrom=b[,b...]	Default false, boolean for whether to emulate
+ *				a CD-ROM drive.
+ *	nofua=b[,b...]	Default false, booleans for ignore FUA flag
+ *				in SCSI WRITE(10,12) commands
+ *	luns=N		Default N = number of filenames, number of
+ *				LUNs to support.
+ *	stall		Default determined according to the type of
+ *				USB device controller (usually true),
+ *				boolean to permit the driver to halt
+ *				bulk endpoints.
+ *
+ * The module parameters may be prefixed with some string.  You need
+ * to consult gadget's documentation or source to verify whether it is
+ * using those module parameters and if it does what are the prefixes
+ * (look for FSG_MODULE_PARAMETERS() macro usage, what's inside it is
+ * the prefix).
+ *
+ *
+ * Requirements are modest; only a bulk-in and a bulk-out endpoint are
+ * needed.  The memory requirement amounts to two 16K buffers, size
+ * configurable by a parameter.  Support is included for both
+ * full-speed and high-speed operation.
+ *
+ * Note that the driver is slightly non-portable in that it assumes a
+ * single memory/DMA buffer will be useable for bulk-in, bulk-out, and
+ * interrupt-in endpoints.  With most device controllers this isn't an
+ * issue, but there may be some with hardware restrictions that prevent
+ * a buffer from being used by more than one endpoint.
+ *
+ *
+ * The pathnames of the backing files and the ro settings are
+ * available in the attribute files "file" and "ro" in the lun<n> (or
+ * to be more precise in a directory which name comes from
+ * "lun_name_format" option!) subdirectory of the gadget's sysfs
+ * directory.  If the "removable" option is set, writing to these
+ * files will simulate ejecting/loading the medium (writing an empty
+ * line means eject) and adjusting a write-enable tab.  Changes to the
+ * ro setting are not allowed when the medium is loaded or if CD-ROM
+ * emulation is being used.
+ *
+ * When a LUN receive an "eject" SCSI request (Start/Stop Unit),
+ * if the LUN is removable, the backing file is released to simulate
+ * ejection.
+ *
  *
  * This function is heavily based on "File-backed Storage Gadget" by
  * Alan Stern which in turn is heavily based on "Gadget Zero" by David
@@ -137,7 +212,7 @@
  * In normal operation the main thread is started during the gadget's
  * fsg_bind() callback and stopped during fsg_unbind().  But it can
  * also exit when it receives a signal, and there's no point leaving
- * the gadget running when the thread is dead.  As of this moment, MSF
+ * the gadget running when the thread is dead.  At of this moment, MSF
  * provides no way to deregister the gadget when thread dies -- maybe
  * a callback functions is needed.
  *
@@ -214,6 +289,7 @@
 #include <linux/spinlock.h>
 #include <linux/string.h>
 #include <linux/freezer.h>
+#include <linux/utsname.h>
 
 #include <linux/usb/ch9.h>
 #include <linux/usb/gadget.h>
@@ -229,22 +305,17 @@
 
 static const char fsg_string_interface[] = "Mass Storage";
 
+#define FSG_NO_DEVICE_STRINGS    1
+#define FSG_NO_OTG               1
+#define FSG_NO_INTR_EP           1
+
 #include "storage_common.c"
 
 #ifdef CONFIG_USB_CSW_HACK
 static int write_error_after_csw_sent;
-static int must_report_residue;
 static int csw_hack_sent;
 #endif
 /*-------------------------------------------------------------------------*/
-
-/*If USB mass storage vfs operation is stuck for more than 10 sec
-host will initiate the reset. Configure the timer with 9 sec to print
-the error message before host is intiating the resume on it.*/
-#define MSC_VFS_TIMER_PERIOD_MS	9000
-static int msc_vfs_timer_period_ms = MSC_VFS_TIMER_PERIOD_MS;
-module_param(msc_vfs_timer_period_ms, int, S_IRUGO | S_IWUSR);
-MODULE_PARM_DESC(msc_vfs_timer_period_ms, "Set period for MSC VFS timer");
 
 struct fsg_dev;
 struct fsg_common;
@@ -259,6 +330,20 @@ struct fsg_operations {
 	 * set).
 	 */
 	int (*thread_exits)(struct fsg_common *common);
+
+	/*
+	 * Called prior to ejection.  Negative return means error,
+	 * zero means to continue with ejection, positive means not to
+	 * eject.
+	 */
+	int (*pre_eject)(struct fsg_common *common,
+			 struct fsg_lun *lun, int num);
+	/*
+	 * Called after ejection.  Negative return means error, zero
+	 * or positive is just a success.
+	 */
+	int (*post_eject)(struct fsg_common *common,
+			  struct fsg_lun *lun, int num);
 };
 
 /* Data shared by all the FSG instances. */
@@ -324,7 +409,6 @@ struct fsg_common {
 	char inquiry_string[8 + 16 + 4 + 1];
 
 	struct kref		ref;
-	struct timer_list	vfs_timer;
 };
 
 struct fsg_config {
@@ -337,6 +421,9 @@ struct fsg_config {
 		char nofua;
 	} luns[FSG_MAX_LUNS];
 
+	const char		*lun_name_format;
+	const char		*thread_name;
+
 	/* Callback functions. */
 	const struct fsg_operations	*ops;
 	/* Gadget's private data. */
@@ -344,6 +431,7 @@ struct fsg_config {
 
 	const char *vendor_name;		/*  8 characters or less */
 	const char *product_name;		/* 16 characters or less */
+	u16 release;
 
 	char			can_stall;
 };
@@ -364,26 +452,6 @@ struct fsg_dev {
 	struct usb_ep		*bulk_in;
 	struct usb_ep		*bulk_out;
 };
-
-static void msc_usb_vfs_timer_func(unsigned long data)
-{
-	struct fsg_common *common = (struct fsg_common *) data;
-
-	switch (common->data_dir) {
-	case DATA_DIR_FROM_HOST:
-		dev_err(&common->curlun->dev,
-				"usb mass storage stuck in vfs_write\n");
-		break;
-	case DATA_DIR_TO_HOST:
-		dev_err(&common->curlun->dev,
-				"usb mass storage stuck in vfs_read\n");
-		break;
-	default:
-		dev_err(&common->curlun->dev,
-				"usb mass storage stuck in vfs_sync\n");
-		break;
-	}
-}
 
 static inline int __fsg_is_set(struct fsg_common *common,
 			       const char *func, unsigned line)
@@ -775,12 +843,9 @@ static int do_read(struct fsg_common *common)
 #ifdef CONFIG_USB_MSC_PROFILING
 		start = ktime_get();
 #endif
-		mod_timer(&common->vfs_timer, jiffies +
-			msecs_to_jiffies(msc_vfs_timer_period_ms));
 		nread = vfs_read(curlun->filp,
 				 (char __user *)bh->buf,
 				 amount, &file_offset_tmp);
-		del_timer_sync(&common->vfs_timer);
 		VLDBG(curlun, "file read %u @ %llu -> %d\n", amount,
 		     (unsigned long long) file_offset, (int) nread);
 #ifdef CONFIG_USB_MSC_PROFILING
@@ -998,12 +1063,9 @@ static int do_write(struct fsg_common *common)
 #ifdef CONFIG_USB_MSC_PROFILING
 			start = ktime_get();
 #endif
-			mod_timer(&common->vfs_timer, jiffies +
-				msecs_to_jiffies(msc_vfs_timer_period_ms));
 			nwritten = vfs_write(curlun->filp,
 					     (char __user *)bh->buf,
 					     amount, &file_offset_tmp);
-			del_timer_sync(&common->vfs_timer);
 			VLDBG(curlun, "file write %u @ %llu -> %d\n", amount,
 			      (unsigned long long)file_offset, (int)nwritten);
 #ifdef CONFIG_USB_MSC_PROFILING
@@ -1046,16 +1108,6 @@ write_error:
 			if ((nwritten == amount) && !csw_hack_sent) {
 				if (write_error_after_csw_sent)
 					break;
-
-				/*
-				 * If residue still exists and nothing left to
-				 * write, device must send correct residue to
-				 * host in this case.
-				 */
-				if (!amount_left_to_write && common->residue) {
-					must_report_residue = 1;
-					break;
-				}
 				/*
 				 * Check if any of the buffer is in the
 				 * busy state, if any buffer is in busy state,
@@ -1103,12 +1155,9 @@ static int do_synchronize_cache(struct fsg_common *common)
 
 	/* We ignore the requested LBA and write out all file's
 	 * dirty data buffers. */
-	mod_timer(&common->vfs_timer, jiffies +
-		msecs_to_jiffies(msc_vfs_timer_period_ms));
 	rc = fsg_lun_fsync_sub(curlun);
 	if (rc)
 		curlun->sense_data = SS_WRITE_ERROR;
-	del_timer_sync(&common->vfs_timer);
 	return 0;
 }
 
@@ -1118,7 +1167,7 @@ static int do_synchronize_cache(struct fsg_common *common)
 static void invalidate_sub(struct fsg_lun *curlun)
 {
 	struct file	*filp = curlun->filp;
-	struct inode	*inode = file_inode(filp);
+	struct inode	*inode = filp->f_path.dentry->d_inode;
 	unsigned long	rc;
 
 	rc = invalidate_mapping_pages(inode->i_mapping, 0, -1);
@@ -1164,10 +1213,7 @@ static int do_verify(struct fsg_common *common)
 	file_offset = ((loff_t) lba) << curlun->blkbits;
 
 	/* Write out all the dirty buffers before invalidating them */
-	mod_timer(&common->vfs_timer, jiffies +
-		msecs_to_jiffies(msc_vfs_timer_period_ms));
 	fsg_lun_fsync_sub(curlun);
-	del_timer_sync(&common->vfs_timer);
 	if (signal_pending(current))
 		return -EINTR;
 
@@ -1197,12 +1243,9 @@ static int do_verify(struct fsg_common *common)
 
 		/* Perform the read */
 		file_offset_tmp = file_offset;
-		mod_timer(&common->vfs_timer, jiffies +
-			msecs_to_jiffies(msc_vfs_timer_period_ms));
 		nread = vfs_read(curlun->filp,
 				(char __user *) bh->buf,
 				amount, &file_offset_tmp);
-		del_timer_sync(&common->vfs_timer);
 		VLDBG(curlun, "file read %u @ %llu -> %d\n", amount,
 				(unsigned long long) file_offset,
 				(int) nread);
@@ -1507,13 +1550,26 @@ static int do_start_stop(struct fsg_common *common)
 	if (!loej)
 		return 0;
 
+	/* Simulate an unload/eject */
+	if (common->ops && common->ops->pre_eject) {
+		int r = common->ops->pre_eject(common, curlun,
+					       curlun - common->luns);
+		if (unlikely(r < 0))
+			return r;
+		else if (r)
+			return 0;
+	}
+
 	up_read(&common->filesem);
 	down_write(&common->filesem);
 	fsg_lun_close(curlun);
 	up_write(&common->filesem);
 	down_read(&common->filesem);
 
-	return 0;
+	return common->ops && common->ops->post_eject
+		? min(0, common->ops->post_eject(common, curlun,
+						 curlun - common->luns))
+		: 0;
 }
 
 static int do_prevent_allow(struct fsg_common *common)
@@ -1533,12 +1589,8 @@ static int do_prevent_allow(struct fsg_common *common)
 		curlun->sense_data = SS_INVALID_FIELD_IN_CDB;
 		return -EINVAL;
 	}
-	if (!curlun->nofua && curlun->prevent_medium_removal && !prevent) {
-		mod_timer(&common->vfs_timer, jiffies +
-			msecs_to_jiffies(msc_vfs_timer_period_ms));
+	if (!curlun->nofua && curlun->prevent_medium_removal && !prevent)
 		fsg_lun_fsync_sub(curlun);
-		del_timer_sync(&common->vfs_timer);
-	}
 	curlun->prevent_medium_removal = prevent;
 	return 0;
 }
@@ -1827,9 +1879,8 @@ static int send_status(struct fsg_common *common)
 	 * writing on to storage media, need to set
 	 * residue to zero,assuming that write will succeed.
 	 */
-	if (write_error_after_csw_sent || must_report_residue) {
+	if (write_error_after_csw_sent) {
 		write_error_after_csw_sent = 0;
-		must_report_residue = 0;
 		csw->Residue = cpu_to_le32(common->residue);
 	} else
 		csw->Residue = 0;
@@ -1860,7 +1911,7 @@ static int check_command(struct fsg_common *common, int cmnd_size,
 			 int needs_medium, const char *name)
 {
 	int			i;
-	unsigned int		lun = common->cmnd[1] >> 5;
+	int			lun = common->cmnd[1] >> 5;
 	static const char	dirletter[4] = {'u', 'o', 'i', 'n'};
 	char			hdlen[20];
 	struct fsg_lun		*curlun;
@@ -1926,7 +1977,7 @@ static int check_command(struct fsg_common *common, int cmnd_size,
 
 	/* Check that the LUN values are consistent */
 	if (common->lun != lun)
-		DBG(common, "using LUN %u from CBW, not LUN %u from CDB\n",
+		DBG(common, "using LUN %d from CBW, not LUN %d from CDB\n",
 		    common->lun, lun);
 
 	/* Check the LUN */
@@ -1946,7 +1997,7 @@ static int check_command(struct fsg_common *common, int cmnd_size,
 		 */
 		if (common->cmnd[0] != INQUIRY &&
 		    common->cmnd[0] != REQUEST_SENSE) {
-			DBG(common, "unsupported LUN %u\n", common->lun);
+			DBG(common, "unsupported LUN %d\n", common->lun);
 			return -EINVAL;
 		}
 	}
@@ -2344,7 +2395,7 @@ static int received_cbw(struct fsg_dev *fsg, struct fsg_buffhd *bh)
 	if (common->data_size == 0)
 		common->data_dir = DATA_DIR_NONE;
 	common->lun = cbw->Lun;
-	if (common->lun < common->nluns)
+	if (common->lun >= 0 && common->lun < common->nluns)
 		common->curlun = &common->luns[common->lun];
 	else
 		common->curlun = NULL;
@@ -2796,15 +2847,10 @@ static int fsg_main_thread(void *common_)
 
 /*************************** DEVICE ATTRIBUTES ***************************/
 
+/* Write permission is checked per LUN in store_*() functions. */
 static DEVICE_ATTR(ro, 0644, fsg_show_ro, fsg_store_ro);
 static DEVICE_ATTR(nofua, 0644, fsg_show_nofua, fsg_store_nofua);
 static DEVICE_ATTR(file, 0644, fsg_show_file, fsg_store_file);
-
-static struct device_attribute dev_attr_ro_cdrom =
-	__ATTR(ro, 0444, fsg_show_ro, NULL);
-static struct device_attribute dev_attr_file_nonremovable =
-	__ATTR(file, 0644, fsg_show_file, fsg_store_file);
-
 #ifdef CONFIG_USB_MSC_PROFILING
 static DEVICE_ATTR(perf, 0644, fsg_show_perf, fsg_store_perf);
 #endif
@@ -2828,95 +2874,6 @@ static inline void fsg_common_put(struct fsg_common *common)
 	kref_put(&common->ref, fsg_common_release);
 }
 
-/*
- * This function creates device entry for LUN and its related paramters.
-*/
-static int create_lun_device(struct fsg_common *common,
-				struct usb_composite_dev *cdev,
-				struct fsg_config *cfg,
-				int add_lun_index)
-{
-	struct usb_gadget *gadget = cdev->gadget;
-	struct fsg_lun *curlun = common->luns;
-	struct fsg_lun_config *lcfg = cfg->luns;
-	int rc = 0, i;
-	int nluns = cfg->nluns;
-
-	/*
-	 * Check if index is non-zero, increment current lun_config
-	 * and cur_lun pointers.
-	 */
-	lcfg += add_lun_index;
-	curlun += add_lun_index;
-
-	for (i = add_lun_index; i < nluns; ++i, ++curlun, ++lcfg) {
-		curlun->cdrom = !!lcfg->cdrom;
-		curlun->ro = lcfg->cdrom || lcfg->ro;
-		curlun->initially_ro = curlun->ro;
-		curlun->removable = lcfg->removable;
-		curlun->nofua = lcfg->nofua;
-		curlun->dev.release = fsg_lun_release;
-		curlun->dev.parent = &gadget->dev;
-		/* curlun->dev.driver = &fsg_driver.driver; XXX */
-		dev_set_drvdata(&curlun->dev, &common->filesem);
-		dev_set_name(&curlun->dev, "lun%d", i);
-
-		rc = device_register(&curlun->dev);
-		if (rc) {
-			pr_err("failed to register LUN%d: %d\n", i, rc);
-			common->nluns = i;
-			put_device(&curlun->dev);
-			goto error_release;
-		}
-
-		rc = device_create_file(&curlun->dev,
-					curlun->cdrom
-				      ? &dev_attr_ro_cdrom
-				      : &dev_attr_ro);
-		if (rc)
-			goto error_luns;
-
-		rc = device_create_file(&curlun->dev,
-					curlun->removable
-				      ? &dev_attr_file
-				      : &dev_attr_file_nonremovable);
-		if (rc)
-			goto error_luns;
-
-		rc = device_create_file(&curlun->dev, &dev_attr_nofua);
-		if (rc)
-			goto error_luns;
-
-#ifdef CONFIG_USB_MSC_PROFILING
-		rc = device_create_file(&curlun->dev, &dev_attr_perf);
-		if (rc)
-			pr_err("failed to create perf sysfs node:%d\n", rc);
-#endif
-		if (lcfg->filename) {
-			rc = fsg_lun_open(curlun, lcfg->filename);
-			if (rc) {
-				pr_err("failed to open lun file.\n");
-				goto error_luns;
-			}
-		} else if (!curlun->removable && !curlun->cdrom) {
-			ERROR(common, "no file given for LUN%d\n", i);
-			rc = -EINVAL;
-			goto error_luns;
-		}
-	}
-
-	common->nluns = nluns;
-	return rc;
-
-error_luns:
-	common->nluns = i;
-error_release:
-	common->state = FSG_STATE_TERMINATED;
-	fsg_common_release(&common->ref);
-
-	return rc;
-}
-
 static struct fsg_common *fsg_common_init(struct fsg_common *common,
 					  struct usb_composite_dev *cdev,
 					  struct fsg_config *cfg)
@@ -2924,6 +2881,7 @@ static struct fsg_common *fsg_common_init(struct fsg_common *common,
 	struct usb_gadget *gadget = cdev->gadget;
 	struct fsg_buffhd *bh;
 	struct fsg_lun *curlun;
+	struct fsg_lun_config *lcfg;
 	int nluns, i, rc;
 	char *pathbuf;
 
@@ -2969,7 +2927,7 @@ static struct fsg_common *fsg_common_init(struct fsg_common *common,
 	 * Create the LUNs, open their backing files, and register the
 	 * LUN devices in sysfs.
 	 */
-	curlun = kcalloc(FSG_MAX_LUNS, sizeof(*curlun), GFP_KERNEL);
+	curlun = kcalloc(nluns, sizeof(*curlun), GFP_KERNEL);
 	if (unlikely(!curlun)) {
 		rc = -ENOMEM;
 		goto error_release;
@@ -2977,9 +2935,57 @@ static struct fsg_common *fsg_common_init(struct fsg_common *common,
 	common->luns = curlun;
 
 	init_rwsem(&common->filesem);
-	rc = create_lun_device(common, cdev, cfg, 0);
-	if (rc != 0)
-		goto error;
+
+	for (i = 0, lcfg = cfg->luns; i < nluns; ++i, ++curlun, ++lcfg) {
+		curlun->cdrom = !!lcfg->cdrom;
+		curlun->ro = lcfg->cdrom || lcfg->ro;
+		curlun->initially_ro = curlun->ro;
+		curlun->removable = lcfg->removable;
+		curlun->nofua = lcfg->nofua;
+		curlun->dev.release = fsg_lun_release;
+		curlun->dev.parent = &gadget->dev;
+		/* curlun->dev.driver = &fsg_driver.driver; XXX */
+		dev_set_drvdata(&curlun->dev, &common->filesem);
+		dev_set_name(&curlun->dev,
+			     cfg->lun_name_format
+			   ? cfg->lun_name_format
+			   : "lun%d",
+			     i);
+
+		rc = device_register(&curlun->dev);
+		if (rc) {
+			INFO(common, "failed to register LUN%d: %d\n", i, rc);
+			common->nluns = i;
+			put_device(&curlun->dev);
+			goto error_release;
+		}
+
+		rc = device_create_file(&curlun->dev, &dev_attr_ro);
+		if (rc)
+			goto error_luns;
+		rc = device_create_file(&curlun->dev, &dev_attr_file);
+		if (rc)
+			goto error_luns;
+		rc = device_create_file(&curlun->dev, &dev_attr_nofua);
+		if (rc)
+			goto error_luns;
+#ifdef CONFIG_USB_MSC_PROFILING
+		rc = device_create_file(&curlun->dev, &dev_attr_perf);
+		if (rc)
+			dev_err(&gadget->dev, "failed to create sysfs entry:"
+				"(dev_attr_perf) error: %d\n", rc);
+#endif
+		if (lcfg->filename) {
+			rc = fsg_lun_open(curlun, lcfg->filename);
+			if (rc)
+				goto error_luns;
+		} else if (!curlun->removable && !curlun->cdrom) {
+			ERROR(common, "no file given for LUN%d\n", i);
+			rc = -EINVAL;
+			goto error_luns;
+		}
+	}
+	common->nluns = nluns;
 
 	/* Data buffers cyclic list */
 	bh = common->buffhds;
@@ -2989,8 +2995,7 @@ static struct fsg_common *fsg_common_init(struct fsg_common *common,
 		bh->next = bh + 1;
 		++bh;
 buffhds_first_it:
-		bh->buf = kmalloc(FSG_BUFLEN + (gadget->extra_buf_alloc),
-				GFP_KERNEL);
+		bh->buf = kmalloc(FSG_BUFLEN, GFP_KERNEL);
 		if (unlikely(!bh->buf)) {
 			rc = -ENOMEM;
 			goto error_release;
@@ -2999,7 +3004,18 @@ buffhds_first_it:
 	bh->next = common->buffhds;
 
 	/* Prepare inquiryString */
-	i = get_default_bcdDevice();
+	if (cfg->release != 0xffff) {
+		i = cfg->release;
+	} else {
+		i = usb_gadget_controller_number(gadget);
+		if (i >= 0) {
+			i = 0x0300 + i;
+		} else {
+			WARNING(common, "controller '%s' not recognized\n",
+				gadget->name);
+			i = 0x0399;
+		}
+	}
 	snprintf(common->inquiry_string, sizeof common->inquiry_string,
 		 "%-8s%-16s%04x", cfg->vendor_name ?: "Linux",
 		 /* Assume product name dependent on the first LUN */
@@ -3021,7 +3037,8 @@ buffhds_first_it:
 
 	/* Tell the thread to start working */
 	common->thread_task =
-		kthread_create(fsg_main_thread, common, "file-storage");
+		kthread_create(fsg_main_thread, common,
+			       cfg->thread_name ?: "file-storage");
 	if (IS_ERR(common->thread_task)) {
 		rc = PTR_ERR(common->thread_task);
 		goto error_release;
@@ -3061,11 +3078,12 @@ buffhds_first_it:
 
 	return common;
 
+error_luns:
+	common->nluns = i + 1;
 error_release:
 	common->state = FSG_STATE_TERMINATED;	/* The thread is dead */
 	/* Call fsg_common_release() directly, ref might be not initialised. */
 	fsg_common_release(&common->ref);
-error:
 	return ERR_PTR(rc);
 }
 
@@ -3089,14 +3107,8 @@ static void fsg_common_release(struct kref *ref)
 			device_remove_file(&lun->dev, &dev_attr_perf);
 #endif
 			device_remove_file(&lun->dev, &dev_attr_nofua);
-			device_remove_file(&lun->dev,
-					   lun->cdrom
-					 ? &dev_attr_ro_cdrom
-					 : &dev_attr_ro);
-			device_remove_file(&lun->dev,
-					   lun->removable
-					 ? &dev_attr_file
-					 : &dev_attr_file_nonremovable);
+			device_remove_file(&lun->dev, &dev_attr_ro);
+			device_remove_file(&lun->dev, &dev_attr_file);
 			fsg_lun_close(lun);
 			device_unregister(&lun->dev);
 		}
@@ -3234,8 +3246,6 @@ static int fsg_bind_config(struct usb_composite_dev *cdev,
 	fsg->function.disable     = fsg_disable;
 
 	fsg->common               = common;
-	setup_timer(&common->vfs_timer, msc_usb_vfs_timer_func,
-			(unsigned long) common);
 	/*
 	 * Our caller holds a reference to common structure so we
 	 * don't have to be worry about it being freed until we return
@@ -3250,6 +3260,13 @@ static int fsg_bind_config(struct usb_composite_dev *cdev,
 	else
 		fsg_common_get(fsg->common);
 	return rc;
+}
+
+static inline int __deprecated __maybe_unused
+fsg_add(struct usb_composite_dev *cdev, struct usb_configuration *c,
+	struct fsg_common *common)
+{
+	return fsg_bind_config(cdev, c, common);
 }
 
 
@@ -3309,7 +3326,8 @@ fsg_config_from_params(struct fsg_config *cfg,
 	for (i = 0, lun = cfg->luns; i < cfg->nluns; ++i, ++lun) {
 		lun->ro = !!params->ro[i];
 		lun->cdrom = !!params->cdrom[i];
-		lun->removable = !!params->removable[i];
+		lun->removable = /* Removable by default */
+			params->removable_count <= i || params->removable[i];
 		lun->filename =
 			params->file_count > i && params->file[i][0]
 			? params->file[i]
@@ -3317,8 +3335,11 @@ fsg_config_from_params(struct fsg_config *cfg,
 	}
 
 	/* Let MSF use defaults */
+	cfg->lun_name_format = 0;
+	cfg->thread_name = 0;
 	cfg->vendor_name = 0;
 	cfg->product_name = 0;
+	cfg->release = 0xffff;
 
 	cfg->ops = NULL;
 	cfg->private_data = NULL;
@@ -3342,26 +3363,3 @@ fsg_common_from_params(struct fsg_common *common,
 	return fsg_common_init(common, cdev, &cfg);
 }
 
-/*
- * This API allows to add luns devices when MSC is being enabled.
- */
-static int fsg_add_lun(struct fsg_common *common,
-			struct usb_composite_dev *cdev,
-			struct fsg_config *cfg,
-			int add_luns)
-{
-	int nluns, rc = 0;
-	int total_luns;
-
-	if (add_luns) {
-		nluns = common->nluns;
-		total_luns = nluns + add_luns;
-		pr_debug("total_luns:%d\n", total_luns);
-		cfg->nluns = total_luns;
-		rc = create_lun_device(common, cdev, cfg, nluns);
-		if (rc)
-			pr_err("Failed device lun creation.\n");
-	}
-
-	return rc;
-}

@@ -2,6 +2,7 @@
  * Remote Controller core header
  *
  * Copyright (C) 2009-2010 by Mauro Carvalho Chehab <mchehab@redhat.com>
+ * Copyright (C) 2017 XiaoMi, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -50,8 +51,7 @@ enum rc_driver_type {
  * @input_dev: the input child device used to communicate events to userspace
  * @driver_type: specifies if protocol decoding is done in hardware or software
  * @idle: used to keep track of RX state
- * @allowed_protos: bitmask with the supported RC_BIT_* protocols
- * @enabled_protocols: bitmask with the enabled RC_BIT_* protocols
+ * @allowed_protos: bitmask with the supported RC_TYPE_* protocols
  * @scanmask: some hardware decoders are not capable of providing the full
  *	scancode to the application. As this is a hardware limit, we can't do
  *	anything with it. Yet, as the same keycode table can be used with other
@@ -100,7 +100,6 @@ struct rc_dev {
 	enum rc_driver_type		driver_type;
 	bool				idle;
 	u64				allowed_protos;
-	u64				enabled_protocols;
 	u32				scanmask;
 	void				*priv;
 	spinlock_t			keylock;
@@ -115,8 +114,8 @@ struct rc_dev {
 	u32				max_timeout;
 	u32				rx_resolution;
 	u32				tx_resolution;
-    u32				open_count;
-	int				(*change_protocol)(struct rc_dev *dev, u64 *rc_type);
+	u32				open_count;
+	int				(*change_protocol)(struct rc_dev *dev, u64 rc_type);
 	int				(*open)(struct rc_dev *dev);
 	void				(*close)(struct rc_dev *dev);
 	int				(*s_tx_mask)(struct rc_dev *dev, u32 mask);
@@ -199,6 +198,8 @@ static inline void init_ir_raw_event(struct ir_raw_event *ev)
 void ir_raw_event_handle(struct rc_dev *dev);
 int ir_raw_event_store(struct rc_dev *dev, struct ir_raw_event *ev);
 int ir_raw_event_store_edge(struct rc_dev *dev, enum raw_event_type type);
+int ir_raw_event_store_edge_with_adjust(struct rc_dev *dev,
+				enum raw_event_type type, s32 ns);
 int ir_raw_event_store_with_filter(struct rc_dev *dev,
 				struct ir_raw_event *ev);
 void ir_raw_event_set_idle(struct rc_dev *dev, bool idle);

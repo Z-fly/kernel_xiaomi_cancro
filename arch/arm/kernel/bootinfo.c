@@ -1,7 +1,7 @@
 /*
  * bootinfo.c
  *
- * Copyright (C) 2015 XiaoMi, Inc.
+ * Copyright (C) 2017 XiaoMi, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -13,6 +13,7 @@
 #include <linux/init.h>
 #include <linux/fs.h>
 #include <linux/string.h>
+#include <linux/sysdev.h>
 #include <asm/setup.h>
 #include <asm/bootinfo.h>
 #include <linux/bitops.h>
@@ -37,7 +38,7 @@ static const char * const reset_reasons[RS_REASON_MAX] = {
 	[RS_REASON_EVENT_OTHER]		= "other",
 };
 
-static struct kobject *bootinfo_kobj = NULL;
+static struct kobject *bootinfo_kobj;
 static powerup_reason_t powerup_reason;
 static unsigned int hw_version;
 
@@ -51,18 +52,18 @@ static struct kobj_attribute _name##_attr = {	\
 	.store	= NULL,				\
 }
 
-#define bootinfo_func_init(type,name,initval)   \
-	    static type name = (initval);       \
-	    type get_##name(void)               \
-	    {                                   \
-	        return name;                    \
-	    }                                   \
-	    void set_##name(type __##name)      \
-	    {                                   \
-	        name = __##name;                \
-	    }                                   \
-	    EXPORT_SYMBOL(set_##name);          \
-	    EXPORT_SYMBOL(get_##name);
+#define bootinfo_func_init(type, name, initval)   \
+static type name = (initval);       \
+	type get_##name(void)               \
+	{                                   \
+		return name;                    \
+	}                                   \
+	void set_##name(type __##name)      \
+	{                                   \
+		name = __##name;                \
+	}                                   \
+	EXPORT_SYMBOL(set_##name);          \
+	EXPORT_SYMBOL(get_##name);
 
 int is_abnormal_powerup(void)
 {
@@ -70,7 +71,7 @@ int is_abnormal_powerup(void)
 	return pu_reason & (RESTART_EVENT_KPANIC | RESTART_EVENT_WDOG | RESTART_EVENT_OTHER);
 }
 
-static ssize_t powerup_reason_show(struct kobject *kobj, struct kobj_attribute *attr, char * buf)
+static ssize_t powerup_reason_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
 {
 	char *s = buf;
 	u32 pu_reason;
@@ -95,8 +96,7 @@ static ssize_t powerup_reason_show(struct kobject *kobj, struct kobj_attribute *
 				pu_reason_index = PU_REASON_EVENT_LPK;
 			else
 				pu_reason_index = PU_REASON_EVENT_HWRST;
-		}
-		else if (pu_reason & BIT(PU_REASON_EVENT_SMPL))
+		} else if (pu_reason & BIT(PU_REASON_EVENT_SMPL))
 			pu_reason_index = PU_REASON_EVENT_SMPL;
 		else if (pu_reason & BIT(PU_REASON_EVENT_RTC))
 			pu_reason_index = PU_REASON_EVENT_RTC;
@@ -106,7 +106,7 @@ static ssize_t powerup_reason_show(struct kobject *kobj, struct kobj_attribute *
 			pu_reason_index = PU_REASON_EVENT_DC_CHG;
 		else if (pu_reason & BIT(PU_REASON_EVENT_KPD))
 			pu_reason_index = PU_REASON_EVENT_KPD;
-		if (pu_reason_index < PU_REASON_MAX && pu_reason_index >=0) {
+		if (pu_reason_index < PU_REASON_MAX && pu_reason_index >= 0) {
 			s += sprintf(s, "%s", powerup_reasons[pu_reason_index]);
 			printk(KERN_DEBUG "%s: pu_reason [0x%x] index %d\n",
 				__func__, pu_reason, pu_reason_index);
@@ -115,10 +115,10 @@ static ssize_t powerup_reason_show(struct kobject *kobj, struct kobj_attribute *
 	}
 	s += sprintf(s, "unknown reboot");
 out:
-	return (s - buf);
+	return s - buf;
 }
 
-static ssize_t powerup_reason_details_show(struct kobject *kobj, struct kobj_attribute *attr, char * buf)
+static ssize_t powerup_reason_details_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
 {
 	u32 pu_reason;
 
@@ -127,7 +127,7 @@ static ssize_t powerup_reason_details_show(struct kobject *kobj, struct kobj_att
 	return sprintf(buf, "0x%x\n", pu_reason);
 }
 
-static ssize_t hw_version_show(struct kobject *kobj, struct kobj_attribute *attr, char * buf)
+static ssize_t hw_version_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
 {
 	u32 hw_version;
 
@@ -142,16 +142,18 @@ bootinfo_attr(hw_version);
 bootinfo_func_init(u32, powerup_reason, 0);
 bootinfo_func_init(u32, hw_version, 0);
 
-unsigned int get_hw_version_major(void) {
-	return ((get_hw_version() & HW_MAJOR_VERSION_MASK) >> HW_MAJOR_VERSION_SHIFT);
+unsigned int get_hw_version_major(void)
+{
+	return (get_hw_version() & HW_MAJOR_VERSION_MASK) >> HW_MAJOR_VERSION_SHIFT;
 }
 EXPORT_SYMBOL(get_hw_version_major);
 
-unsigned int get_hw_version_minor(void) {
-	return ((get_hw_version() & HW_MINOR_VERSION_MASK) >> HW_MINOR_VERSION_SHIFT);
+unsigned int get_hw_version_minor(void)
+{
+	return (get_hw_version() & HW_MINOR_VERSION_MASK) >> HW_MINOR_VERSION_SHIFT;
 }
 
-static struct attribute * g[] = {
+static struct attribute *g[] = {
 	&powerup_reason_attr.attr,
 	&powerup_reason_details_attr.attr,
 	&hw_version_attr.attr,

@@ -1,5 +1,4 @@
-/*
- * Copyright (c) 2012-2015, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2013, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -28,10 +27,9 @@
 #include <linux/slab.h>
 #include <linux/printk.h>
 #include <linux/msm_ion.h>
-#include <soc/qcom/scm.h>
-#include <soc/qcom/socinfo.h>
-
 #include <asm/smcmod.h>
+#include <mach/scm.h>
+#include <mach/socinfo.h>
 
 static DEFINE_MUTEX(ioctl_lock);
 
@@ -140,7 +138,7 @@ static int smcmod_send_buf_cmd(struct smcmod_buf_req *reqp)
 		return -EINVAL;
 
 	/* create an ion client */
-	ion_clientp = msm_ion_client_create("smcmod");
+	ion_clientp = msm_ion_client_create(UINT_MAX, "smcmod");
 
 	/* check for errors */
 	if (IS_ERR_OR_NULL(ion_clientp))
@@ -270,7 +268,7 @@ static int smcmod_send_cipher_cmd(struct smcmod_cipher_req *reqp)
 		return -EINVAL;
 
 	/* create an ion client */
-	ion_clientp = msm_ion_client_create("smcmod");
+	ion_clientp = msm_ion_client_create(UINT_MAX, "smcmod");
 
 	/* check for errors */
 	if (IS_ERR_OR_NULL(ion_clientp))
@@ -300,11 +298,6 @@ static int smcmod_send_cipher_cmd(struct smcmod_cipher_req *reqp)
 			ret = -EINVAL;
 			goto buf_cleanup;
 		}
-	}
-
-	if (IS_ERR_OR_NULL(ion_key_handlep)) {
-		ret = -EINVAL;
-		goto buf_cleanup;
 	}
 
 	/* import the plain text buffer and get the physical address */
@@ -419,7 +412,7 @@ static int smcmod_send_msg_digest_cmd(struct smcmod_msg_digest_req *reqp)
 		return -EINVAL;
 
 	/* create an ion client */
-	ion_clientp = msm_ion_client_create("smcmod");
+	ion_clientp = msm_ion_client_create(UINT_MAX, "smcmod");
 
 	/* check for errors */
 	if (IS_ERR_OR_NULL(ion_clientp))
@@ -447,11 +440,6 @@ static int smcmod_send_msg_digest_cmd(struct smcmod_msg_digest_req *reqp)
 			ret = -EINVAL;
 			goto buf_cleanup;
 		}
-	}
-
-	if (IS_ERR_OR_NULL(ion_key_handlep)) {
-		ret = -EINVAL;
-		goto buf_cleanup;
 	}
 
 	/* import the input buffer and get the physical address */
@@ -541,7 +529,7 @@ static int smcmod_send_dec_cmd(struct smcmod_decrypt_req *reqp)
 		u32 args[3];
 	} rsp;
 
-	ion_clientp = msm_ion_client_create("smcmod");
+	ion_clientp = msm_ion_client_create(UINT_MAX, "smcmod");
 	if (IS_ERR_OR_NULL(ion_clientp))
 		return PTR_ERR(ion_clientp);
 
@@ -835,7 +823,7 @@ static void __exit smcmod_exit(void)
 	misc_deregister(&smcmod_misc_dev);
 }
 
-MODULE_DESCRIPTION("Qualcomm Technologies, Inc. SMC Module");
+MODULE_DESCRIPTION("Qualcomm SMC Module");
 MODULE_LICENSE("GPL v2");
 
 module_init(smcmod_init);

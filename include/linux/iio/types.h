@@ -1,6 +1,7 @@
 /* industrial I/O data types needed both in and out of kernel
  *
  * Copyright (c) 2008 Jonathan Cameron
+ * Copyright (C) 2017 XiaoMi, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License version 2 as published by
@@ -29,6 +30,9 @@ enum iio_chan_type {
 	IIO_ALTVOLTAGE,
 	IIO_CCT,
 	IIO_PRESSURE,
+	IIO_HUMIDITY,
+	IIO_CUSTOM,
+	IIO_EVENT,
 };
 
 enum iio_modifier {
@@ -36,6 +40,7 @@ enum iio_modifier {
 	IIO_MOD_X,
 	IIO_MOD_Y,
 	IIO_MOD_Z,
+	IIO_MOD_W,
 	IIO_MOD_X_AND_Y,
 	IIO_MOD_X_AND_Z,
 	IIO_MOD_Y_AND_Z,

@@ -8,7 +8,7 @@
 #ifndef LINUX_MMC_CORE_H
 #define LINUX_MMC_CORE_H
 
-#include <uapi/linux/mmc/core.h>
+#ifdef __KERNEL__
 #include <linux/interrupt.h>
 #include <linux/completion.h>
 
@@ -24,6 +24,40 @@ struct mmc_command {
 #define MMC_CMD23_ARG_TAG_REQ	(1 << 29)
 	u32			resp[4];
 	unsigned int		flags;		/* expected response type */
+#endif /* __KERNEL__ */
+#define MMC_RSP_PRESENT	(1 << 0)
+#define MMC_RSP_136	(1 << 1)		/* 136 bit response */
+#define MMC_RSP_CRC	(1 << 2)		/* expect valid crc */
+#define MMC_RSP_BUSY	(1 << 3)		/* card may send busy */
+#define MMC_RSP_OPCODE	(1 << 4)		/* response contains opcode */
+
+#define MMC_CMD_MASK	(3 << 5)		/* non-SPI command type */
+#define MMC_CMD_AC	(0 << 5)
+#define MMC_CMD_ADTC	(1 << 5)
+#define MMC_CMD_BC	(2 << 5)
+#define MMC_CMD_BCR	(3 << 5)
+
+#define MMC_RSP_SPI_S1	(1 << 7)		/* one status byte */
+#define MMC_RSP_SPI_S2	(1 << 8)		/* second byte */
+#define MMC_RSP_SPI_B4	(1 << 9)		/* four data bytes */
+#define MMC_RSP_SPI_BUSY (1 << 10)		/* card may send busy */
+
+/*
+ * These are the native response types, and correspond to valid bit
+ * patterns of the above flags.  One additional valid pattern
+ * is all zeros, which means we don't expect a response.
+ */
+#define MMC_RSP_NONE	(0)
+#define MMC_RSP_R1	(MMC_RSP_PRESENT|MMC_RSP_CRC|MMC_RSP_OPCODE)
+#define MMC_RSP_R1B	(MMC_RSP_PRESENT|MMC_RSP_CRC|MMC_RSP_OPCODE|MMC_RSP_BUSY)
+#define MMC_RSP_R2	(MMC_RSP_PRESENT|MMC_RSP_136|MMC_RSP_CRC)
+#define MMC_RSP_R3	(MMC_RSP_PRESENT)
+#define MMC_RSP_R4	(MMC_RSP_PRESENT)
+#define MMC_RSP_R5	(MMC_RSP_PRESENT|MMC_RSP_CRC|MMC_RSP_OPCODE)
+#define MMC_RSP_R6	(MMC_RSP_PRESENT|MMC_RSP_CRC|MMC_RSP_OPCODE)
+#define MMC_RSP_R7	(MMC_RSP_PRESENT|MMC_RSP_CRC|MMC_RSP_OPCODE)
+
+#ifdef __KERNEL__
 #define mmc_resp_type(cmd)	((cmd)->flags & (MMC_RSP_PRESENT|MMC_RSP_136|MMC_RSP_CRC|MMC_RSP_BUSY|MMC_RSP_OPCODE))
 
 /*
@@ -65,8 +99,6 @@ struct mmc_command {
  */
 
 	unsigned int		cmd_timeout_ms;	/* in milliseconds */
-	/* Set this flag only for sanitize request */
-	bool			sanitize_busy;
 	/* Set this flag only for commands which can be HPIed */
 	bool			ignore_timeout;
 
@@ -107,29 +139,11 @@ struct mmc_request {
 	struct completion	completion;
 	void			(*done)(struct mmc_request *);/* completion function */
 	struct mmc_host		*host;
-	struct mmc_cmdq_req	*cmdq_req;
-	struct request *req;
-	ktime_t			io_start;
-	int			lat_hist_enabled;
 };
 
 struct mmc_card;
 struct mmc_async_req;
-struct mmc_cmdq_req;
 
-extern int mmc_cmdq_discard_queue(struct mmc_host *host, u32 tasks);
-extern int mmc_cmdq_halt(struct mmc_host *host, bool enable);
-extern int mmc_cmdq_halt_on_empty_queue(struct mmc_host *host);
-extern void mmc_cmdq_post_req(struct mmc_host *host, int tag, int err,
-				bool is_dcmd);
-extern int mmc_cmdq_start_req(struct mmc_host *host,
-			      struct mmc_cmdq_req *cmdq_req);
-extern int mmc_cmdq_prepare_flush(struct mmc_command *cmd);
-extern int mmc_cmdq_wait_for_dcmd(struct mmc_host *host,
-			struct mmc_cmdq_req *cmdq_req);
-extern int mmc_cmdq_erase(struct mmc_cmdq_req *cmdq_req,
-	      struct mmc_card *card, unsigned int from, unsigned int nr,
-	      unsigned int arg);
 extern int mmc_stop_bkops(struct mmc_card *);
 extern int mmc_read_bkops_status(struct mmc_card *);
 extern bool mmc_card_is_prog_state(struct mmc_card *);
@@ -147,15 +161,10 @@ extern void mmc_start_idle_time_bkops(struct work_struct *work);
 extern void mmc_bkops_completion_polling(struct work_struct *work);
 extern int __mmc_switch(struct mmc_card *, u8, u8, u8, unsigned int, bool,
 			bool);
-extern int __mmc_switch_cmdq_mode(struct mmc_command *cmd, u8 set, u8 index,
-				  u8 value, unsigned int timeout_ms,
-				  bool use_busy_signal, bool ignore_timeout);
 extern int mmc_switch(struct mmc_card *, u8, u8, u8, unsigned int);
 extern int mmc_switch_ignore_timeout(struct mmc_card *, u8, u8, u8,
 				     unsigned int);
 extern int mmc_send_ext_csd(struct mmc_card *card, u8 *ext_csd);
-extern void mmc_clk_scaling(struct mmc_host *host, bool from_wq);
-extern void mmc_update_clk_scaling(struct mmc_host *host, bool is_cmdq_dcmd);
 
 #define MMC_ERASE_ARG		0x00000000
 #define MMC_SECURE_ERASE_ARG	0x80000000
@@ -182,7 +191,6 @@ extern int mmc_set_blocklen(struct mmc_card *card, unsigned int blocklen);
 extern int mmc_set_blockcount(struct mmc_card *card, unsigned int blockcount,
 			      bool is_rel_write);
 extern int mmc_hw_reset(struct mmc_host *host);
-extern int mmc_cmdq_hw_reset(struct mmc_host *host);
 extern int mmc_hw_reset_check(struct mmc_host *host);
 extern int mmc_can_reset(struct mmc_card *card);
 
@@ -214,4 +222,5 @@ static inline void mmc_claim_host(struct mmc_host *host)
 
 extern u32 mmc_vddrange_to_ocrmask(int vdd_min, int vdd_max);
 
+#endif /* __KERNEL__ */
 #endif /* LINUX_MMC_CORE_H */

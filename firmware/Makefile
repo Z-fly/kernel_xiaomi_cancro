@@ -12,7 +12,7 @@ fw-external-y := $(subst ",,$(CONFIG_EXTRA_FIRMWARE))
 # There are three cases to care about:
 # 1. Building kernel with CONFIG_FIRMWARE_IN_KERNEL=y -- $(fw-shipped-y) should
 #    include the firmware files to include, according to .config
-# 2. 'make modules_install', which will install firmware for modules, and
+# 2. 'make modules_install', which will install firmware for modules, and 
 #    _also_ for the in-kernel drivers when CONFIG_FIRMWARE_IN_KERNEL=n
 # 3. 'make firmware_install', which installs all firmware, unconditionally.
 
@@ -26,6 +26,7 @@ fw-shipped- += acenic/tg1.bin
 else
 acenic-objs := acenic/tg1.bin acenic/tg2.bin
 endif
+fw-shipped-$(CONFIG_3C359) += 3com/3C359.bin
 fw-shipped-$(CONFIG_ACENIC) += $(acenic-objs)
 fw-shipped-$(CONFIG_ADAPTEC_STARFIRE) += adaptec/starfire_rx.bin \
 					 adaptec/starfire_tx.bin
@@ -40,8 +41,10 @@ fw-shipped-$(CONFIG_BNX2) += bnx2/bnx2-mips-09-6.2.1a.fw \
 			     bnx2/bnx2-mips-06-6.2.1.fw \
 			     bnx2/bnx2-rv2p-06-6.0.15.fw
 fw-shipped-$(CONFIG_CASSINI) += sun/cassini.bin
+fw-shipped-$(CONFIG_COMPUTONE) += intelliport2.bin
 fw-shipped-$(CONFIG_CHELSIO_T3) += cxgb3/t3b_psram-1.1.0.bin \
 				   cxgb3/t3c_psram-1.1.0.bin \
+				   cxgb3/t3fw-7.10.0.bin \
 				   cxgb3/ael2005_opt_edc.bin \
 				   cxgb3/ael2005_twx_edc.bin \
 				   cxgb3/ael2020_twx_edc.bin
@@ -83,6 +86,7 @@ fw-shipped-$(CONFIG_SCSI_QLOGIC_1280) += qlogic/1040.bin qlogic/1280.bin \
 					 qlogic/12160.bin
 fw-shipped-$(CONFIG_SCSI_QLOGICPTI) += qlogic/isp1000.bin
 fw-shipped-$(CONFIG_INFINIBAND_QIB) += qlogic/sd7220.fw
+fw-shipped-$(CONFIG_SMCTR) += tr_smctr.bin
 fw-shipped-$(CONFIG_SND_KORG1212) += korg/k1212.dsp
 fw-shipped-$(CONFIG_SND_MAESTRO3) += ess/maestro3_assp_kernel.fw \
 				     ess/maestro3_assp_minisrc.fw
@@ -97,6 +101,7 @@ fw-shipped-$(CONFIG_TEHUTI) += tehuti/bdx.bin
 fw-shipped-$(CONFIG_TIGON3) += tigon/tg3.bin tigon/tg3_tso.bin \
 			       tigon/tg3_tso5.bin
 fw-shipped-$(CONFIG_TYPHOON) += 3com/typhoon.bin
+fw-shipped-$(CONFIG_USB_DABUSB) += dabusb/firmware.fw dabusb/bitstream.bin
 fw-shipped-$(CONFIG_USB_EMI26) += emi26/loader.fw emi26/firmware.fw \
 				  emi26/bitstream.fw
 fw-shipped-$(CONFIG_USB_EMI62) += emi62/loader.fw emi62/bitstream.fw \
@@ -135,15 +140,16 @@ fw-shipped-$(CONFIG_USB_SERIAL_XIRCOM) += keyspan_pda/xircom_pgs.fw
 fw-shipped-$(CONFIG_USB_VICAM) += vicam/firmware.fw
 fw-shipped-$(CONFIG_VIDEO_CPIA2) += cpia2/stv0672_vp4.bin
 fw-shipped-$(CONFIG_YAM) += yam/1200.bin yam/9600.bin
-fw-shipped-$(CONFIG_TOUCHSCREEN_ATMEL_MXT_XIAOMI) += mxt_double_diamond_config.fw \
+fw-shipped-$(CONFIG_TOUCHSCREEN_ATMEL_MXT) += mxt_double_diamond_config.fw \
 	mxt_wintek_diamond_config_v20.fw mxt_wintek_diamond_config_v30_sharp.fw \
-	mxt_wintek_diamond_config_v30_lg.fw mxT540SC20.fw mxT540SC30.fw mxt_640t_config_revc.fw \
+	mxt_wintek_diamond_config_v30_lg.fw mxT540SC20.fw mxT540SC30.fw
+fw-shipped-$(CONFIG_TOUCHSCREEN_ATMEL_640T) += mxt_640t_config_revc.fw \
 	mxt_640t_config_revd.fw \
 	mxt_640t_ofilm_config.fw \
 	mxt_640t_biel_config.fw \
 	mxt_640t_laibao_config.fw \
 	mxt_640t_x5_biel_config.fw \
-	mxT640T0512.fw mxT640T1022.fw mxT640T10AA.fw mxT640T15AA.fw
+	mxT640T10AA.fw mxT640T15AA.fw
 fw-shipped-$(CONFIG_TOUCHSCREEN_SYNAPTICS_DSX) += synaptics_update.fw \
 	synaptics_update_wintek.fw synaptics_update_incell.fw
 fw-shipped-$(CONFIG_TOUCHSCREEN_ST_FTS) += fts_biel_config_sharp.fw \
@@ -231,7 +237,7 @@ $(obj)/%: $(obj)/%.ihex | $(objtree)/$(obj)/$$(dir %)
 # Don't depend on ihex2fw if we're installing and it already exists.
 # Putting it after | in the dependencies doesn't seem sufficient when
 # we're installing after a cross-compile, because ihex2fw has dependencies
-# on stuff like /usr/lib/gcc/ppc64-redhat-linux/4.3.0/include/stddef.h and
+# on stuff like /usr/lib/gcc/ppc64-redhat-linux/4.3.0/include/stddef.h and 
 # thus wants to be rebuilt. Which it can't be, if the prebuilt kernel tree
 # is exported read-only for someone to run 'make install'.
 ifeq ($(INSTALL):$(wildcard $(obj)/ihex2fw),install:$(obj)/ihex2fw)

@@ -15,8 +15,8 @@ struct iio_cb_buffer {
 static int iio_buffer_cb_store_to(struct iio_buffer *buffer, u8 *data)
 {
 	struct iio_cb_buffer *cb_buff = container_of(buffer,
-						     struct iio_cb_buffer,
-						     buffer);
+			struct iio_cb_buffer,
+			buffer);
 
 	return cb_buff->cb(data, cb_buff->private);
 }
@@ -26,9 +26,9 @@ static struct iio_buffer_access_funcs iio_cb_access = {
 };
 
 struct iio_cb_buffer *iio_channel_get_all_cb(struct device *dev,
-					     int (*cb)(u8 *data,
-						       void *private),
-					     void *private)
+		int (*cb)(u8 *data,
+		void *private),
+		void *private)
 {
 	int ret;
 	struct iio_cb_buffer *cb_buff;
@@ -55,7 +55,7 @@ struct iio_cb_buffer *iio_channel_get_all_cb(struct device *dev,
 	indio_dev = cb_buff->channels[0].indio_dev;
 	cb_buff->buffer.scan_mask
 		= kcalloc(BITS_TO_LONGS(indio_dev->masklength), sizeof(long),
-			  GFP_KERNEL);
+				GFP_KERNEL);
 	if (cb_buff->buffer.scan_mask == NULL) {
 		ret = -ENOMEM;
 		goto error_release_channels;
@@ -87,8 +87,8 @@ EXPORT_SYMBOL_GPL(iio_channel_get_all_cb);
 int iio_channel_start_all_cb(struct iio_cb_buffer *cb_buff)
 {
 	return iio_update_buffers(cb_buff->channels[0].indio_dev,
-				  &cb_buff->buffer,
-				  NULL);
+			&cb_buff->buffer,
+			NULL);
 }
 EXPORT_SYMBOL_GPL(iio_channel_start_all_cb);
 

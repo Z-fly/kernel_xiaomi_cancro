@@ -192,6 +192,9 @@ int v9fs_uflags2omode(int uflags, int extended)
 		break;
 	}
 
+	if (uflags & O_TRUNC)
+		ret |= P9_OTRUNC;
+
 	if (extended) {
 		if (uflags & O_EXCL)
 			ret |= P9_OEXCL;
@@ -225,9 +228,9 @@ v9fs_blank_wstat(struct p9_wstat *wstat)
 	wstat->uid = NULL;
 	wstat->gid = NULL;
 	wstat->muid = NULL;
-	wstat->n_uid = INVALID_UID;
-	wstat->n_gid = INVALID_GID;
-	wstat->n_muid = INVALID_UID;
+	wstat->n_uid = ~0;
+	wstat->n_gid = ~0;
+	wstat->n_muid = ~0;
 	wstat->extension = NULL;
 }
 
@@ -444,9 +447,9 @@ void v9fs_evict_inode(struct inode *inode)
 {
 	struct v9fs_inode *v9inode = V9FS_I(inode);
 
-	truncate_inode_pages(inode->i_mapping, 0);
-	clear_inode(inode);
-	filemap_fdatawrite(inode->i_mapping);
+	truncate_inode_pages(&inode->i_data, 0);
+	end_writeback(inode);
+	filemap_fdatawrite(&inode->i_data);
 
 #ifdef CONFIG_9P_FSCACHE
 	v9fs_cache_inode_put_cookie(inode);
@@ -537,8 +540,7 @@ static struct inode *v9fs_qid_iget(struct super_block *sb,
 	unlock_new_inode(inode);
 	return inode;
 error:
-	unlock_new_inode(inode);
-	iput(inode);
+	iget_failed(inode);
 	return ERR_PTR(retval);
 
 }
@@ -692,7 +694,9 @@ v9fs_create(struct v9fs_session_info *v9ses, struct inode *dir,
 				   "inode creation failed %d\n", err);
 			goto error;
 		}
-		v9fs_fid_add(dentry, fid);
+		err = v9fs_fid_add(dentry, fid);
+		if (err < 0)
+			goto error;
 		d_instantiate(dentry, inode);
 	}
 	return ofid;
@@ -788,6 +792,7 @@ struct dentry *v9fs_vfs_lookup(struct inode *dir, struct dentry *dentry,
 	struct p9_fid *dfid, *fid;
 	struct inode *inode;
 	char *name;
+	int result = 0;
 
 	p9_debug(P9_DEBUG_VFS, "dir: %p dentry: (%s) %p flags: %x\n",
 		 dir, dentry->d_name.name, dentry, flags);
@@ -805,11 +810,13 @@ struct dentry *v9fs_vfs_lookup(struct inode *dir, struct dentry *dentry,
 	name = (char *) dentry->d_name.name;
 	fid = p9_client_walk(dfid, 1, &name, 1);
 	if (IS_ERR(fid)) {
-		if (fid == ERR_PTR(-ENOENT)) {
-			d_add(dentry, NULL);
-			return NULL;
+		result = PTR_ERR(fid);
+		if (result == -ENOENT) {
+			inode = NULL;
+			goto inst_out;
 		}
-		return ERR_CAST(fid);
+
+		return ERR_PTR(result);
 	}
 	/*
 	 * Make sure we don't use a wrong inode due to parallel
@@ -821,9 +828,14 @@ struct dentry *v9fs_vfs_lookup(struct inode *dir, struct dentry *dentry,
 	else
 		inode = v9fs_get_new_inode_from_fid(v9ses, fid, dir->i_sb);
 	if (IS_ERR(inode)) {
-		p9_client_clunk(fid);
-		return ERR_CAST(inode);
+		result = PTR_ERR(inode);
+		inode = NULL;
+		goto error;
 	}
+	result = v9fs_fid_add(dentry, fid);
+	if (result < 0)
+		goto error_iput;
+inst_out:
 	/*
 	 * If we had a rename on the server and a parallel lookup
 	 * for the new name, then make sure we instantiate with
@@ -832,13 +844,15 @@ struct dentry *v9fs_vfs_lookup(struct inode *dir, struct dentry *dentry,
 	 * k/b.
 	 */
 	res = d_materialise_unique(dentry, inode);
-	if (!res)
-		v9fs_fid_add(dentry, fid);
-	else if (!IS_ERR(res))
-		v9fs_fid_add(res, fid);
-	else
-		p9_client_clunk(fid);
-	return res;
+	if (!IS_ERR(res))
+		return res;
+	result = PTR_ERR(res);
+error_iput:
+	iput(inode);
+error:
+	p9_client_clunk(fid);
+
+	return ERR_PTR(result);
 }
 
 static int
@@ -1261,12 +1275,12 @@ static int v9fs_readlink(struct dentry *dentry, char *buffer, int buflen)
 	}
 
 	/* copy extension buffer into buffer */
-	retval = min(strlen(st->extension)+1, (size_t)buflen);
-	memcpy(buffer, st->extension, retval);
+	strncpy(buffer, st->extension, buflen);
 
-	p9_debug(P9_DEBUG_VFS, "%s -> %s (%.*s)\n",
-		 dentry->d_name.name, st->extension, buflen, buffer);
+	p9_debug(P9_DEBUG_VFS, "%s -> %s (%s)\n",
+		 dentry->d_name.name, st->extension, buffer);
 
+	retval = strnlen(buffer, buflen);
 done:
 	p9stat_free(st);
 	kfree(st);

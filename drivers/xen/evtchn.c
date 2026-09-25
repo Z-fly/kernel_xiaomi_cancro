@@ -527,10 +527,10 @@ static int __init evtchn_init(void)
 
 	spin_lock_init(&port_user_lock);
 
-	/* Create '/dev/xen/evtchn'. */
+	/* Create '/dev/misc/evtchn'. */
 	err = misc_register(&evtchn_miscdev);
 	if (err != 0) {
-		printk(KERN_ERR "Could not register /dev/xen/evtchn\n");
+		printk(KERN_ALERT "Could not register /dev/misc/evtchn\n");
 		return err;
 	}
 

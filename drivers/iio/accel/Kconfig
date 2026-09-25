@@ -14,6 +14,17 @@ config HID_SENSOR_ACCEL_3D
 	  Say yes here to build support for the HID SENSOR
 	  accelerometers 3D.
 
+config HID_SENSOR_MOTION_DETECTOR
+	depends on HID_SENSOR_HUB
+	select IIO_BUFFER
+	select IIO_TRIGGERED_BUFFER
+	select HID_SENSOR_IIO_COMMON
+	select HID_SENSOR_IIO_TRIGGER
+	tristate "HID Motion Detector"
+	help
+	  Say yes here to build support for the HID Sensor
+	  Motion Detector.
+
 config KXSD9
 	tristate "Kionix KXSD9 Accelerometer Driver"
 	depends on SPI
@@ -28,7 +39,6 @@ config IIO_ST_ACCEL_3AXIS
 	select IIO_ST_ACCEL_I2C_3AXIS if (I2C)
 	select IIO_ST_ACCEL_SPI_3AXIS if (SPI_MASTER)
 	select IIO_TRIGGERED_BUFFER if (IIO_BUFFER)
-	select IIO_ST_ACCEL_BUFFER if (IIO_TRIGGERED_BUFFER)
 	help
 	  Say yes here to build support for STMicroelectronics accelerometers:
 	  LSM303DLH, LSM303DLHC, LIS3DH, LSM330D, LSM330DL, LSM330DLC,

@@ -2,6 +2,7 @@
  * adjd_s311.c - Support for ADJD-S311-CR999 digital color sensor
  *
  * Copyright (C) 2012 Peter Meerwald <pmeerw@pmeerw.net>
+ * Copyright (C) 2017 XiaoMi, Inc.
  *
  * This file is subject to the terms and conditions of version 2 of
  * the GNU General Public License.  See the file COPYING in the main
@@ -133,7 +134,7 @@ static ssize_t adjd_s311_read_int_time(struct iio_dev *indio_dev,
 	if (ret < 0)
 		return ret;
 
-	return sprintf(buf, "%d\n", ret & ADJD_S311_INT_MASK);
+	return snprintf(buf, "%d\n", ret & ADJD_S311_INT_MASK);
 }
 
 static ssize_t adjd_s311_write_int_time(struct iio_dev *indio_dev,
@@ -224,21 +225,22 @@ static const struct iio_chan_spec adjd_s311_channels[] = {
 };
 
 static int adjd_s311_read_raw(struct iio_dev *indio_dev,
-			   struct iio_chan_spec const *chan,
-			   int *val, int *val2, long mask)
+		struct iio_chan_spec const *chan,
+		int *val, int *val2, long mask)
 {
 	struct adjd_s311_data *data = iio_priv(indio_dev);
 	int ret;
 
 	switch (mask) {
 	case IIO_CHAN_INFO_RAW:
-		ret = adjd_s311_read_data(indio_dev, chan->address, val);
+		ret = adjd_s311_read_data(indio_dev,
+				ADJD_S311_DATA_REG(chan->address), val);
 		if (ret < 0)
 			return ret;
 		return IIO_VAL_INT;
 	case IIO_CHAN_INFO_HARDWAREGAIN:
 		ret = i2c_smbus_read_byte_data(data->client,
-			ADJD_S311_CAP_REG(chan->address));
+				ADJD_S311_CAP_REG(chan->address));
 		if (ret < 0)
 			return ret;
 		*val = ret & ADJD_S311_CAP_MASK;
@@ -248,8 +250,8 @@ static int adjd_s311_read_raw(struct iio_dev *indio_dev,
 }
 
 static int adjd_s311_write_raw(struct iio_dev *indio_dev,
-			       struct iio_chan_spec const *chan,
-			       int val, int val2, long mask)
+		struct iio_chan_spec const *chan,
+		int val, int val2, long mask)
 {
 	struct adjd_s311_data *data = iio_priv(indio_dev);
 	int ret;
@@ -260,7 +262,7 @@ static int adjd_s311_write_raw(struct iio_dev *indio_dev,
 			return -EINVAL;
 
 		ret = i2c_smbus_write_byte_data(data->client,
-			ADJD_S311_CAP_REG(chan->address), val);
+				ADJD_S311_CAP_REG(chan->address), val);
 		return ret;
 	}
 	return -EINVAL;
@@ -287,7 +289,7 @@ static const struct iio_info adjd_s311_info = {
 };
 
 static int adjd_s311_probe(struct i2c_client *client,
-			   const struct i2c_device_id *id)
+		const struct i2c_device_id *id)
 {
 	struct adjd_s311_data *data;
 	struct iio_dev *indio_dev;

@@ -5,6 +5,7 @@
  *  Speed Force Wireless (WiiWheel)
  *
  *  Copyright (c) 2010 Simon Wood <simon@mungewell.org>
+ *  Copyright (C) 2017 XiaoMi, Inc.
  */
 
 /*
@@ -157,7 +158,7 @@ static __s32 lg4ff_adjust_dfp_x_axis(__s32 value, __u16 range)
 }
 
 int lg4ff_adjust_input_event(struct hid_device *hid, struct hid_field *field,
-			     struct hid_usage *usage, __s32 value, struct lg_drv_data *drv_data)
+		struct hid_usage *usage, __s32 value, struct lg_drv_data *drv_data)
 {
 	struct lg4ff_device_entry *entry = drv_data->device_props;
 	__s32 new_value = 0;
@@ -218,46 +219,12 @@ static void hid_lg4ff_set_autocenter_default(struct input_dev *dev, u16 magnitud
 	struct list_head *report_list = &hid->report_enum[HID_OUTPUT_REPORT].report_list;
 	struct hid_report *report = list_entry(report_list->next, struct hid_report, list);
 	__s32 *value = report->field[0]->value;
-	__u32 expand_a, expand_b;
-
-	/* De-activate Auto-Center */
-	if (magnitude == 0) {
-		value[0] = 0xf5;
-		value[1] = 0x00;
-		value[2] = 0x00;
-		value[3] = 0x00;
-		value[4] = 0x00;
-		value[5] = 0x00;
-		value[6] = 0x00;
-
-		hid_hw_request(hid, report, HID_REQ_SET_REPORT);
-		return;
-	}
-
-	if (magnitude <= 0xaaaa) {
-		expand_a = 0x0c * magnitude;
-		expand_b = 0x80 * magnitude;
-	} else {
-		expand_a = (0x0c * 0xaaaa) + 0x06 * (magnitude - 0xaaaa);
-		expand_b = (0x80 * 0xaaaa) + 0xff * (magnitude - 0xaaaa);
-	}
 
 	value[0] = 0xfe;
 	value[1] = 0x0d;
-	value[2] = expand_a / 0xaaaa;
-	value[3] = expand_a / 0xaaaa;
-	value[4] = expand_b / 0xaaaa;
-	value[5] = 0x00;
-	value[6] = 0x00;
-
-	hid_hw_request(hid, report, HID_REQ_SET_REPORT);
-
-	/* Activate Auto-Center */
-	value[0] = 0x14;
-	value[1] = 0x00;
-	value[2] = 0x00;
-	value[3] = 0x00;
-	value[4] = 0x00;
+	value[2] = magnitude >> 13;
+	value[3] = magnitude >> 13;
+	value[4] = magnitude >> 8;
 	value[5] = 0x00;
 	value[6] = 0x00;
 
@@ -450,7 +417,7 @@ static void lg4ff_set_leds(struct hid_device *hid, __u8 leds)
 }
 
 static void lg4ff_led_set_brightness(struct led_classdev *led_cdev,
-			enum led_brightness value)
+		enum led_brightness value)
 {
 	struct device *dev = led_cdev->dev->parent;
 	struct hid_device *hid = container_of(dev, struct hid_device, dev);
@@ -574,11 +541,22 @@ int lg4ff_init(struct hid_device *hid)
 	if (error)
 		return error;
 
+	/* Check if autocentering is available and
+	 * set the centering force to zero by default */
+	if (test_bit(FF_AUTOCENTER, dev->ffbit)) {
+		if (rev_maj == FFEX_REV_MAJ && rev_min == FFEX_REV_MIN)	/* Formula Force EX expects different autocentering command */
+			dev->ff->set_autocenter = hid_lg4ff_set_autocenter_ffex;
+		else
+			dev->ff->set_autocenter = hid_lg4ff_set_autocenter_default;
+
+		dev->ff->set_autocenter(dev, 0);
+	}
+
 	/* Get private driver data */
 	drv_data = hid_get_drvdata(hid);
 	if (!drv_data) {
 		hid_err(hid, "Cannot add device, private driver data not allocated\n");
-		return -1;
+		return -EPERM;
 	}
 
 	/* Initialize device properties */
@@ -593,17 +571,6 @@ int lg4ff_init(struct hid_device *hid)
 	entry->min_range = lg4ff_devices[i].min_range;
 	entry->max_range = lg4ff_devices[i].max_range;
 	entry->set_range = lg4ff_devices[i].set_range;
-
-	/* Check if autocentering is available and
-	 * set the centering force to zero by default */
-	if (test_bit(FF_AUTOCENTER, dev->ffbit)) {
-		if (rev_maj == FFEX_REV_MAJ && rev_min == FFEX_REV_MIN)	/* Formula Force EX expects different autocentering command */
-			dev->ff->set_autocenter = hid_lg4ff_set_autocenter_ffex;
-		else
-			dev->ff->set_autocenter = hid_lg4ff_set_autocenter_default;
-
-		dev->ff->set_autocenter(dev, 0);
-	}
 
 	/* Create sysfs interface */
 	error = device_create_file(&hid->dev, &dev_attr_range);
@@ -683,7 +650,7 @@ int lg4ff_deinit(struct hid_device *hid)
 	drv_data = hid_get_drvdata(hid);
 	if (!drv_data) {
 		hid_err(hid, "Error while deinitializing device, no private driver data.\n");
-		return -1;
+		return -EPERM;
 	}
 	entry = drv_data->device_props;
 	if (!entry) {

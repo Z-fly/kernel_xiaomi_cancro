@@ -9,7 +9,6 @@
 #include <linux/mnt_namespace.h>
 #include <linux/mount.h>
 #include <linux/fs.h>
-#include <linux/nsproxy.h>
 #include "internal.h"
 #include "pnode.h"
 
@@ -83,8 +82,7 @@ static int do_make_slave(struct mount *mnt)
 		if (peer_mnt == mnt)
 			peer_mnt = NULL;
 	}
-	if (mnt->mnt_group_id && IS_MNT_SHARED(mnt) &&
-	    list_empty(&mnt->mnt_share))
+	if (IS_MNT_SHARED(mnt) && list_empty(&mnt->mnt_share))
 		mnt_release_group_id(mnt);
 
 	list_del_init(&mnt->mnt_share);
@@ -197,9 +195,8 @@ static struct mount *next_group(struct mount *m, struct mount *origin)
 }
 
 /* all accesses are serialized by namespace_sem */
-static struct user_namespace *user_ns;
 static struct mount *last_dest, *last_source, *dest_master;
-static struct mountpoint *mp;
+static struct dentry *mp_dentry;
 static struct list_head *list;
 
 static int propagate_one(struct mount *m)
@@ -210,7 +207,7 @@ static int propagate_one(struct mount *m)
 	if (IS_MNT_NEW(m))
 		return 0;
 	/* skip if mountpoint isn't covered by it */
-	if (!is_subdir(mp->m_dentry, m->mnt.mnt_root))
+	if (!is_subdir(mp_dentry, m->mnt.mnt_root))
 		return 0;
 	if (m->mnt_group_id == last_dest->mnt_group_id) {
 		type = CL_MAKE_SHARED;
@@ -236,19 +233,16 @@ static int propagate_one(struct mount *m)
 			type |= CL_MAKE_SHARED;
 	}
 		
-	/* Notice when we are propagating across user namespaces */
-	if (m->mnt_ns->user_ns != user_ns)
-		type |= CL_UNPRIVILEGED;
 	child = copy_tree(last_source, last_source->mnt.mnt_root, type);
 	if (IS_ERR(child))
 		return PTR_ERR(child);
-	mnt_set_mountpoint(m, mp, child);
+	mnt_set_mountpoint(m, mp_dentry, child);
 	last_dest = m;
 	last_source = child;
 	if (m->mnt_master != dest_master) {
-		br_write_lock(&vfsmount_lock);
+		br_write_lock(vfsmount_lock);
 		SET_MNT_MARK(m->mnt_master);
-		br_write_unlock(&vfsmount_lock);
+		br_write_unlock(vfsmount_lock);
 	}
 	list_add_tail(&child->mnt_hash, list);
 	return 0;
@@ -267,7 +261,7 @@ static int propagate_one(struct mount *m)
  * @source_mnt: source mount.
  * @tree_list : list of heads of trees to be attached.
  */
-int propagate_mnt(struct mount *dest_mnt, struct mountpoint *dest_mp,
+int propagate_mnt(struct mount *dest_mnt, struct dentry *dest_dentry,
 		    struct mount *source_mnt, struct list_head *tree_list)
 {
 	struct mount *m, *n;
@@ -278,10 +272,9 @@ int propagate_mnt(struct mount *dest_mnt, struct mountpoint *dest_mp,
 	 * propagate_one(); everything is serialized by namespace_sem,
 	 * so globals will do just fine.
 	 */
-	user_ns = current->nsproxy->mnt_ns->user_ns;
 	last_dest = dest_mnt;
 	last_source = source_mnt;
-	mp = dest_mp;
+	mp_dentry = dest_dentry;
 	list = tree_list;
 	dest_master = dest_mnt->mnt_master;
 
@@ -305,13 +298,13 @@ int propagate_mnt(struct mount *dest_mnt, struct mountpoint *dest_mp,
 		} while (n != m);
 	}
 out:
-	br_write_lock(&vfsmount_lock);
+	br_write_lock(vfsmount_lock);
 	list_for_each_entry(n, tree_list, mnt_hash) {
 		m = n->mnt_parent;
 		if (m->mnt_master != dest_mnt->mnt_master)
 			CLEAR_MNT_MARK(m->mnt_master);
 	}
-	br_write_unlock(&vfsmount_lock);
+	br_write_unlock(vfsmount_lock);
 	return ret;
 }
 
@@ -381,8 +374,10 @@ static void __propagate_umount(struct mount *mnt)
 		 * umount the child only if the child has no
 		 * other children
 		 */
-		if (child && list_empty(&child->mnt_mounts))
+		if (child && list_empty(&child->mnt_mounts)) {
+			list_del_init(&child->mnt_child);
 			list_move_tail(&child->mnt_hash, &mnt->mnt_hash);
+		}
 	}
 }
 

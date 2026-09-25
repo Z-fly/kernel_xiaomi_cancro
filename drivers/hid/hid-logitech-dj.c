@@ -2,6 +2,7 @@
  *  HID driver for Logitech Unifying receivers
  *
  *  Copyright (c) 2011 Logitech
+ *  Copyright (C) 2017 XiaoMi, Inc.
  */
 
 /*
@@ -27,6 +28,7 @@
 #include <linux/module.h>
 #include <linux/usb.h>
 #include <asm/unaligned.h>
+#include "usbhid/usbhid.h"
 #include "hid-ids.h"
 #include "hid-logitech-dj.h"
 
@@ -234,6 +236,12 @@ static void logi_dj_recv_add_djhid_device(struct dj_receiver_dev *djrcv_dev,
 	    SPFUNCTION_DEVICE_LIST_EMPTY) {
 		dbg_hid("%s: device list is empty\n", __func__);
 		djrcv_dev->querying_devices = false;
+		return;
+	}
+
+	if (djrcv_dev->paired_dj_devices[dj_report->device_index]) {
+		/* The device is already known. No need to reallocate it. */
+		dbg_hid("%s: device is already known\n", __func__);
 		return;
 	}
 
@@ -632,7 +640,7 @@ static int logi_dj_ll_input_event(struct input_dev *dev, unsigned int type,
 	data = hid_alloc_report_buf(field->report, GFP_KERNEL);
 	if (!data) {
 		dev_warn(&dev->dev, "failed to allocate report buf memory\n");
-		return -1;
+		return -EPERM;
 	}
 
 	hid_output_report(field->report, &data[0]);
@@ -798,7 +806,7 @@ static int logi_dj_probe(struct hid_device *hdev,
 	}
 
 	if (!hid_validate_values(hdev, HID_OUTPUT_REPORT, REPORT_ID_DJ_SHORT,
-				 0, DJREPORT_SHORT_LENGTH - 1)) {
+			0, DJREPORT_SHORT_LENGTH - 1)) {
 		retval = -ENODEV;
 		goto hid_parse_fail;
 	}

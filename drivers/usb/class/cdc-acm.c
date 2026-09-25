@@ -39,6 +39,7 @@
 #include <linux/serial.h>
 #include <linux/tty_driver.h>
 #include <linux/tty_flip.h>
+#include <linux/serial.h>
 #include <linux/module.h>
 #include <linux/mutex.h>
 #include <linux/uaccess.h>
@@ -299,6 +300,7 @@ static void acm_ctrl_irq(struct urb *urb)
 {
 	struct acm *acm = urb->context;
 	struct usb_cdc_notification *dr = urb->transfer_buffer;
+	struct tty_struct *tty;
 	unsigned char *data;
 	int newctrl;
 	int retval;
@@ -333,12 +335,17 @@ static void acm_ctrl_irq(struct urb *urb)
 		break;
 
 	case USB_CDC_NOTIFY_SERIAL_STATE:
+		tty = tty_port_tty_get(&acm->port);
 		newctrl = get_unaligned_le16(data);
 
-		if (!acm->clocal && (acm->ctrlin & ~newctrl & ACM_CTRL_DCD)) {
-			dev_dbg(&acm->control->dev, "%s - calling hangup\n",
-					__func__);
-			tty_port_tty_hangup(&acm->port, false);
+		if (tty) {
+			if (!acm->clocal &&
+				(acm->ctrlin & ~newctrl & ACM_CTRL_DCD)) {
+				dev_dbg(&acm->control->dev,
+					"%s - calling hangup\n", __func__);
+				tty_hangup(tty);
+			}
+			tty_kref_put(tty);
 		}
 
 		acm->ctrlin = newctrl;
@@ -411,12 +418,19 @@ static int acm_submit_read_urbs(struct acm *acm, gfp_t mem_flags)
 
 static void acm_process_read_urb(struct acm *acm, struct urb *urb)
 {
+	struct tty_struct *tty;
+
 	if (!urb->actual_length)
 		return;
 
-	tty_insert_flip_string(&acm->port, urb->transfer_buffer,
-			urb->actual_length);
-	tty_flip_buffer_push(&acm->port);
+	tty = tty_port_tty_get(&acm->port);
+	if (!tty)
+		return;
+
+	tty_insert_flip_string(tty, urb->transfer_buffer, urb->actual_length);
+	tty_flip_buffer_push(tty);
+
+	tty_kref_put(tty);
 }
 
 static void acm_read_bulk_callback(struct urb *urb)
@@ -476,10 +490,15 @@ static void acm_write_bulk(struct urb *urb)
 static void acm_softint(struct work_struct *work)
 {
 	struct acm *acm = container_of(work, struct acm, work);
+	struct tty_struct *tty;
 
 	dev_vdbg(&acm->data->dev, "%s\n", __func__);
 
-	tty_port_tty_wakeup(&acm->port);
+	tty = tty_port_tty_get(&acm->port);
+	if (!tty)
+		return;
+	tty_wakeup(tty);
+	tty_kref_put(tty);
 }
 
 /*
@@ -852,11 +871,19 @@ static int acm_tty_ioctl(struct tty_struct *tty,
 	return rv;
 }
 
+static const __u32 acm_tty_speed[] = {
+	0, 50, 75, 110, 134, 150, 200, 300, 600,
+	1200, 1800, 2400, 4800, 9600, 19200, 38400,
+	57600, 115200, 230400, 460800, 500000, 576000,
+	921600, 1000000, 1152000, 1500000, 2000000,
+	2500000, 3000000, 3500000, 4000000
+};
+
 static void acm_tty_set_termios(struct tty_struct *tty,
 						struct ktermios *termios_old)
 {
 	struct acm *acm = tty->driver_data;
-	struct ktermios *termios = &tty->termios;
+	struct ktermios *termios = tty->termios;
 	struct usb_cdc_line_coding newline;
 	int newctrl = acm->ctrlout;
 
@@ -981,22 +1008,20 @@ static int acm_probe(struct usb_interface *intf,
 	unsigned long quirks;
 	int num_rx_buf;
 	int i;
+	unsigned int elength = 0;
 	int combined_interfaces = 0;
-	struct device *tty_dev;
-	int rv = -ENOMEM;
 
 	/* normal quirks */
 	quirks = (unsigned long)id->driver_info;
-
-	if (quirks == IGNORE_DEVICE)
-		return -ENODEV;
-
 	num_rx_buf = (quirks == SINGLE_RX_URB) ? 1 : ACM_NR;
 
 	/* handle quirks deadly to normal probing*/
 	if (quirks == NO_UNION_NORMAL) {
 		data_interface = usb_ifnum_to_if(usb_dev, 1);
 		control_interface = usb_ifnum_to_if(usb_dev, 0);
+		/* we would crash */
+		if (!data_interface || !control_interface)
+			return -ENODEV;
 		goto skip_normal_probe;
 	}
 
@@ -1022,6 +1047,12 @@ static int acm_probe(struct usb_interface *intf,
 	}
 
 	while (buflen > 0) {
+		elength = buffer[0];
+		if (!elength) {
+			dev_err(&intf->dev, "skipping garbage byte\n");
+			elength = 1;
+			goto next_desc;
+		}
 		if (buffer[1] != USB_DT_CS_INTERFACE) {
 			dev_err(&intf->dev, "skipping garbage\n");
 			goto next_desc;
@@ -1029,6 +1060,8 @@ static int acm_probe(struct usb_interface *intf,
 
 		switch (buffer[2]) {
 		case USB_CDC_UNION_TYPE: /* we've found it */
+			if (elength < sizeof(struct usb_cdc_union_desc))
+				goto next_desc;
 			if (union_header) {
 				dev_err(&intf->dev, "More than one "
 					"union descriptor, skipping ...\n");
@@ -1037,31 +1070,38 @@ static int acm_probe(struct usb_interface *intf,
 			union_header = (struct usb_cdc_union_desc *)buffer;
 			break;
 		case USB_CDC_COUNTRY_TYPE: /* export through sysfs*/
+			if (elength < sizeof(struct usb_cdc_country_functional_desc))
+				goto next_desc;
 			cfd = (struct usb_cdc_country_functional_desc *)buffer;
 			break;
 		case USB_CDC_HEADER_TYPE: /* maybe check version */
 			break; /* for now we ignore it */
 		case USB_CDC_ACM_TYPE:
+			if (elength < 4)
+				goto next_desc;
 			ac_management_function = buffer[3];
 			break;
 		case USB_CDC_CALL_MANAGEMENT_TYPE:
+			if (elength < 5)
+				goto next_desc;
 			call_management_function = buffer[3];
 			call_interface_num = buffer[4];
-			if ((quirks & NOT_A_MODEM) == 0 && (call_management_function & 3) != 3)
+			if ( (quirks & NOT_A_MODEM) == 0 && (call_management_function & 3) != 3)
 				dev_err(&intf->dev, "This device cannot do calls on its own. It is not a modem.\n");
 			break;
 		default:
-			/* there are LOTS more CDC descriptors that
+			/*
+			 * there are LOTS more CDC descriptors that
 			 * could legitimately be found here.
 			 */
 			dev_dbg(&intf->dev, "Ignoring descriptor: "
-					"type %02x, length %d\n",
-					buffer[2], buffer[0]);
+					"type %02x, length %ud\n",
+					buffer[2], elength);
 			break;
 		}
 next_desc:
-		buflen -= buffer[0];
-		buffer += buffer[0];
+		buflen -= elength;
+		buffer += elength;
 	}
 
 	if (!union_header) {
@@ -1352,25 +1392,10 @@ skip_countries:
 	usb_set_intfdata(data_interface, acm);
 
 	usb_get_intf(control_interface);
-	tty_dev = tty_port_register_device(&acm->port, acm_tty_driver, minor,
-			&control_interface->dev);
-	if (IS_ERR(tty_dev)) {
-		rv = PTR_ERR(tty_dev);
-		goto alloc_fail8;
-	}
+	tty_register_device(acm_tty_driver, minor, &control_interface->dev);
 
 	return 0;
-alloc_fail8:
-	if (acm->country_codes) {
-		device_remove_file(&acm->control->dev,
-				&dev_attr_wCountryCodes);
-		device_remove_file(&acm->control->dev,
-				&dev_attr_iCountryCodeRelDate);
-		kfree(acm->country_codes);
-	}
-	device_remove_file(&acm->control->dev, &dev_attr_bmCapabilities);
 alloc_fail7:
-	usb_set_intfdata(intf, NULL);
 	for (i = 0; i < ACM_NW; i++)
 		usb_free_urb(acm->wb[i].urb);
 alloc_fail6:
@@ -1386,7 +1411,7 @@ alloc_fail2:
 	acm_release_minor(acm);
 	kfree(acm);
 alloc_fail:
-	return rv;
+	return -ENOMEM;
 }
 
 static void stop_data_traffic(struct acm *acm)
@@ -1424,6 +1449,7 @@ static void acm_disconnect(struct usb_interface *intf)
 				&dev_attr_wCountryCodes);
 		device_remove_file(&acm->control->dev,
 				&dev_attr_iCountryCodeRelDate);
+		kfree(acm->country_codes);
 	}
 	device_remove_file(&acm->control->dev, &dev_attr_bmCapabilities);
 	usb_set_intfdata(acm->control, NULL);
@@ -1525,9 +1551,15 @@ out:
 static int acm_reset_resume(struct usb_interface *intf)
 {
 	struct acm *acm = usb_get_intfdata(intf);
+	struct tty_struct *tty;
 
-	if (test_bit(ASYNCB_INITIALIZED, &acm->port.flags))
-		tty_port_tty_hangup(&acm->port, false);
+	if (test_bit(ASYNCB_INITIALIZED, &acm->port.flags)) {
+		tty = tty_port_tty_get(&acm->port);
+		if (tty) {
+			tty_hangup(tty);
+			tty_kref_put(tty);
+		}
+	}
 
 	return acm_resume(intf);
 }
@@ -1717,15 +1749,6 @@ static const struct usb_device_id acm_ids[] = {
 	.driver_info = NO_DATA_INTERFACE,
 	},
 
-#if IS_ENABLED(CONFIG_INPUT_IMS_PCU)
-	{ USB_DEVICE(0x04d8, 0x0082),	/* Application mode */
-	.driver_info = IGNORE_DEVICE,
-	},
-	{ USB_DEVICE(0x04d8, 0x0083),	/* Bootloader mode */
-	.driver_info = IGNORE_DEVICE,
-	},
-#endif
-
 	/* control interfaces without any protocol set */
 	{ USB_INTERFACE_INFO(USB_CLASS_COMM, USB_CDC_SUBCLASS_ACM,
 		USB_CDC_PROTO_NONE) },
@@ -1762,7 +1785,6 @@ static struct usb_driver acm_driver = {
 #ifdef CONFIG_PM
 	.supports_autosuspend = 1,
 #endif
-	.disable_hub_initiated_lpm = 1,
 };
 
 /*

@@ -147,7 +147,7 @@ static const struct address_space_operations romfs_aops = {
  */
 static int romfs_readdir(struct file *filp, void *dirent, filldir_t filldir)
 {
-	struct inode *i = file_inode(filp);
+	struct inode *i = filp->f_dentry->d_inode;
 	struct romfs_inode ri;
 	unsigned long offset, maxoff;
 	int j, ino, nextfh;
@@ -650,11 +650,6 @@ error_register:
 static void __exit exit_romfs_fs(void)
 {
 	unregister_filesystem(&romfs_fs_type);
-	/*
-	 * Make sure all delayed rcu free inodes are flushed before we
-	 * destroy cache.
-	 */
-	rcu_barrier();
 	kmem_cache_destroy(romfs_inode_cachep);
 }
 

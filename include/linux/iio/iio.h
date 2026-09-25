@@ -2,6 +2,7 @@
 /* The industrial I/O core
  *
  * Copyright (c) 2008 Jonathan Cameron
+ * Copyright (C) 2017 XiaoMi, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License version 2 as published by
@@ -288,35 +289,35 @@ struct iio_info {
 			long mask);
 
 	int (*write_raw)(struct iio_dev *indio_dev,
-			 struct iio_chan_spec const *chan,
-			 int val,
-			 int val2,
-			 long mask);
+			struct iio_chan_spec const *chan,
+			int val,
+			int val2,
+			long mask);
 
 	int (*write_raw_get_fmt)(struct iio_dev *indio_dev,
-			 struct iio_chan_spec const *chan,
-			 long mask);
+			struct iio_chan_spec const *chan,
+			long mask);
 
 	int (*read_event_config)(struct iio_dev *indio_dev,
-				 u64 event_code);
+			u64 event_code);
 
 	int (*write_event_config)(struct iio_dev *indio_dev,
-				  u64 event_code,
-				  int state);
+			u64 event_code,
+			int state);
 
 	int (*read_event_value)(struct iio_dev *indio_dev,
-				u64 event_code,
-				int *val);
+			u64 event_code,
+			int *val);
 	int (*write_event_value)(struct iio_dev *indio_dev,
-				 u64 event_code,
-				 int val);
+			u64 event_code,
+			int val);
 	int (*validate_trigger)(struct iio_dev *indio_dev,
-				struct iio_trigger *trig);
+			struct iio_trigger *trig);
 	int (*update_scan_mode)(struct iio_dev *indio_dev,
-				const unsigned long *scan_mask);
+			const unsigned long *scan_mask);
 	int (*debugfs_reg_access)(struct iio_dev *indio_dev,
-				  unsigned reg, unsigned writeval,
-				  unsigned *readval);
+			unsigned reg, unsigned writeval,
+			unsigned *readval);
 };
 
 /**

@@ -2,6 +2,7 @@
  *  max517.c - Support for Maxim MAX517, MAX518 and MAX519
  *
  *  Copyright (C) 2010, 2011 Roland Stigge <stigge@antcom.de>
+ *  Copyright (C) 2017 XiaoMi, Inc.
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -76,10 +77,10 @@ static int max517_set_value(struct iio_dev *indio_dev,
 }
 
 static int max517_read_raw(struct iio_dev *indio_dev,
-			   struct iio_chan_spec const *chan,
-			   int *val,
-			   int *val2,
-			   long m)
+		struct iio_chan_spec const *chan,
+		int *val,
+		int *val2,
+		long m)
 {
 	struct max517_data *data = iio_priv(indio_dev);
 	unsigned int scale_uv;
@@ -157,7 +158,7 @@ static const struct iio_chan_spec max517_channels[] = {
 };
 
 static int max517_probe(struct i2c_client *client,
-			const struct i2c_device_id *id)
+		const struct i2c_device_id *id)
 {
 	struct max517_data *data;
 	struct iio_dev *indio_dev;

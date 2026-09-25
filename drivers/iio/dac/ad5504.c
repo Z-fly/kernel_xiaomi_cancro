@@ -2,6 +2,7 @@
  * AD5504, AD5501 High Voltage Digital to Analog Converter
  *
  * Copyright 2011 Analog Devices Inc.
+ * Copyright (C) 2017 XiaoMi, Inc.
  *
  * Licensed under the GPL-2.
  */
@@ -94,10 +95,10 @@ static int ad5504_spi_read(struct spi_device *spi, u8 addr)
 }
 
 static int ad5504_read_raw(struct iio_dev *indio_dev,
-			   struct iio_chan_spec const *chan,
-			   int *val,
-			   int *val2,
-			   long m)
+		struct iio_chan_spec const *chan,
+		int *val,
+		int *val2,
+		long m)
 {
 	struct ad5504_state *st = iio_priv(indio_dev);
 	unsigned long scale_uv;
@@ -123,10 +124,10 @@ static int ad5504_read_raw(struct iio_dev *indio_dev,
 }
 
 static int ad5504_write_raw(struct iio_dev *indio_dev,
-			       struct iio_chan_spec const *chan,
-			       int val,
-			       int val2,
-			       long mask)
+		struct iio_chan_spec const *chan,
+		int val,
+		int val2,
+		long mask)
 {
 	struct ad5504_state *st = iio_priv(indio_dev);
 	int ret;
@@ -179,7 +180,7 @@ static ssize_t ad5504_read_dac_powerdown(struct iio_dev *indio_dev,
 {
 	struct ad5504_state *st = iio_priv(indio_dev);
 
-	return sprintf(buf, "%d\n",
+	return snprintf(buf, "%d\n",
 			!(st->pwr_down_mask & (1 << chan->channel)));
 }
 
@@ -201,8 +202,8 @@ static ssize_t ad5504_write_dac_powerdown(struct iio_dev *indio_dev,
 		st->pwr_down_mask &= ~(1 << chan->channel);
 
 	ret = ad5504_spi_write(st->spi, AD5504_ADDR_CTRL,
-				AD5504_DAC_PWRDWN_MODE(st->pwr_down_mode) |
-				AD5504_DAC_PWR(st->pwr_down_mask));
+			AD5504_DAC_PWRDWN_MODE(st->pwr_down_mode) |
+			AD5504_DAC_PWR(st->pwr_down_mask));
 
 	/* writes to the CTRL register must be followed by a NOOP */
 	ad5504_spi_write(st->spi, AD5504_ADDR_NOOP, 0);
@@ -227,10 +228,10 @@ static struct attribute_group ad5504_ev_attribute_group = {
 static irqreturn_t ad5504_event_handler(int irq, void *private)
 {
 	iio_push_event(private,
-		       IIO_UNMOD_EVENT_CODE(IIO_TEMP,
-					    0,
-					    IIO_EV_TYPE_THRESH,
-					    IIO_EV_DIR_RISING),
+		IIO_UNMOD_EVENT_CODE(IIO_TEMP,
+				0,
+				IIO_EV_TYPE_THRESH,
+				IIO_EV_DIR_RISING),
 		       iio_get_time_ns());
 
 	return IRQ_HANDLED;
@@ -322,11 +323,11 @@ static int ad5504_probe(struct spi_device *spi)
 
 	if (spi->irq) {
 		ret = request_threaded_irq(spi->irq,
-					   NULL,
-					   &ad5504_event_handler,
-					   IRQF_TRIGGER_FALLING | IRQF_ONESHOT,
-					   spi_get_device_id(st->spi)->name,
-					   indio_dev);
+				NULL,
+				&ad5504_event_handler,
+				IRQF_TRIGGER_FALLING | IRQF_ONESHOT,
+				spi_get_device_id(st->spi)->name,
+				indio_dev);
 		if (ret)
 			goto error_disable_reg;
 	}

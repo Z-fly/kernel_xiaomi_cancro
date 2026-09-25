@@ -2,8 +2,8 @@
  * STMicroelectronics accelerometers driver
  *
  * Copyright 2012-2013 STMicroelectronics Inc.
- *
  * Denis Ciocca <denis.ciocca@st.com>
+ * Copyright (C) 2017 XiaoMi, Inc.
  *
  * Licensed under the GPL-2.
  */
@@ -56,7 +56,7 @@ static int st_accel_buffer_postenable(struct iio_dev *indio_dev)
 	}
 
 	err = st_sensors_set_axis_enable(indio_dev,
-					(u8)indio_dev->active_scan_mask[0]);
+			(u8)indio_dev->active_scan_mask[0]);
 	if (err < 0)
 		goto st_accel_buffer_postenable_error;
 

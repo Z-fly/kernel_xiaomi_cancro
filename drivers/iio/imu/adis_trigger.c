@@ -2,8 +2,8 @@
  * Common library for ADIS16XXX devices
  *
  * Copyright 2012 Analog Devices Inc.
- *   Author: Lars-Peter Clausen <lars@metafoo.de>
- *
+ * Author: Lars-Peter Clausen <lars@metafoo.de>
+ * Copyright (C) 2017 XiaoMi, Inc.
  * Licensed under the GPL-2 or later.
  */
 
@@ -17,7 +17,7 @@
 #include <linux/iio/imu/adis.h>
 
 static int adis_data_rdy_trigger_set_state(struct iio_trigger *trig,
-						bool state)
+		bool state)
 {
 	struct adis *adis = iio_trigger_get_drvdata(trig);
 
@@ -43,15 +43,15 @@ int adis_probe_trigger(struct adis *adis, struct iio_dev *indio_dev)
 	int ret;
 
 	adis->trig = iio_trigger_alloc("%s-dev%d", indio_dev->name,
-					indio_dev->id);
+			indio_dev->id);
 	if (adis->trig == NULL)
 		return -ENOMEM;
 
 	ret = request_irq(adis->spi->irq,
-			  &iio_trigger_generic_data_rdy_poll,
-			  IRQF_TRIGGER_RISING,
-			  indio_dev->name,
-			  adis->trig);
+			&iio_trigger_generic_data_rdy_poll,
+			IRQF_TRIGGER_RISING,
+			indio_dev->name,
+			adis->trig);
 	if (ret)
 		goto error_free_trig;
 
@@ -60,7 +60,7 @@ int adis_probe_trigger(struct adis *adis, struct iio_dev *indio_dev)
 	iio_trigger_set_drvdata(adis->trig, adis);
 	ret = iio_trigger_register(adis->trig);
 
-	indio_dev->trig = iio_trigger_get(adis->trig);
+	indio_dev->trig = adis->trig;
 	if (ret)
 		goto error_free_irq;
 

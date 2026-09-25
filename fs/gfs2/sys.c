@@ -91,15 +91,19 @@ static ssize_t uuid_show(struct gfs2_sbd *sdp, char *buf)
 
 static ssize_t freeze_show(struct gfs2_sbd *sdp, char *buf)
 {
-	struct super_block *sb = sdp->sd_vfs;
-	int frozen = (sb->s_writers.frozen == SB_UNFROZEN) ? 0 : 1;
+	unsigned int count;
 
-	return snprintf(buf, PAGE_SIZE, "%u\n", frozen);
+	mutex_lock(&sdp->sd_freeze_lock);
+	count = sdp->sd_freeze_count;
+	mutex_unlock(&sdp->sd_freeze_lock);
+
+	return snprintf(buf, PAGE_SIZE, "%u\n", count);
 }
 
 static ssize_t freeze_store(struct gfs2_sbd *sdp, const char *buf, size_t len)
 {
-	int error;
+	ssize_t ret = len;
+	int error = 0;
 	int n = simple_strtol(buf, NULL, 0);
 
 	if (!capable(CAP_SYS_ADMIN))
@@ -107,21 +111,19 @@ static ssize_t freeze_store(struct gfs2_sbd *sdp, const char *buf, size_t len)
 
 	switch (n) {
 	case 0:
-		error = thaw_super(sdp->sd_vfs);
+		gfs2_unfreeze_fs(sdp);
 		break;
 	case 1:
-		error = freeze_super(sdp->sd_vfs);
+		error = gfs2_freeze_fs(sdp);
 		break;
 	default:
-		return -EINVAL;
+		ret = -EINVAL;
 	}
 
-	if (error) {
+	if (error)
 		fs_warn(sdp, "freeze %d error %d", n, error);
-		return error;
-	}
 
-	return len;
+	return ret;
 }
 
 static ssize_t withdraw_show(struct gfs2_sbd *sdp, char *buf)
@@ -166,14 +168,13 @@ static ssize_t quota_sync_store(struct gfs2_sbd *sdp, const char *buf,
 	if (simple_strtol(buf, NULL, 0) != 1)
 		return -EINVAL;
 
-	gfs2_quota_sync(sdp->sd_vfs, 0);
+	gfs2_quota_sync(sdp->sd_vfs, 0, 1);
 	return len;
 }
 
 static ssize_t quota_refresh_user_store(struct gfs2_sbd *sdp, const char *buf,
 					size_t len)
 {
-	struct kqid qid;
 	int error;
 	u32 id;
 
@@ -182,18 +183,13 @@ static ssize_t quota_refresh_user_store(struct gfs2_sbd *sdp, const char *buf,
 
 	id = simple_strtoul(buf, NULL, 0);
 
-	qid = make_kqid(current_user_ns(), USRQUOTA, id);
-	if (!qid_valid(qid))
-		return -EINVAL;
-
-	error = gfs2_quota_refresh(sdp, qid);
+	error = gfs2_quota_refresh(sdp, 1, id);
 	return error ? error : len;
 }
 
 static ssize_t quota_refresh_group_store(struct gfs2_sbd *sdp, const char *buf,
 					 size_t len)
 {
-	struct kqid qid;
 	int error;
 	u32 id;
 
@@ -202,11 +198,7 @@ static ssize_t quota_refresh_group_store(struct gfs2_sbd *sdp, const char *buf,
 
 	id = simple_strtoul(buf, NULL, 0);
 
-	qid = make_kqid(current_user_ns(), GRPQUOTA, id);
-	if (!qid_valid(qid))
-		return -EINVAL;
-
-	error = gfs2_quota_refresh(sdp, qid);
+	error = gfs2_quota_refresh(sdp, 0, id);
 	return error ? error : len;
 }
 
@@ -284,15 +276,7 @@ static struct attribute *gfs2_attrs[] = {
 	NULL,
 };
 
-static void gfs2_sbd_release(struct kobject *kobj)
-{
-	struct gfs2_sbd *sdp = container_of(kobj, struct gfs2_sbd, sd_kobj);
-
-	kfree(sdp);
-}
-
 static struct kobj_type gfs2_ktype = {
-	.release = gfs2_sbd_release,
 	.default_attrs = gfs2_attrs,
 	.sysfs_ops     = &gfs2_attr_ops,
 };
@@ -332,33 +316,11 @@ static ssize_t block_store(struct gfs2_sbd *sdp, const char *buf, size_t len)
 		set_bit(DFL_BLOCK_LOCKS, &ls->ls_recover_flags);
 	else if (val == 0) {
 		clear_bit(DFL_BLOCK_LOCKS, &ls->ls_recover_flags);
-		smp_mb__after_atomic();
+		smp_mb__after_clear_bit();
 		gfs2_glock_thaw(sdp);
 	} else {
 		ret = -EINVAL;
 	}
-	return ret;
-}
-
-static ssize_t wdack_show(struct gfs2_sbd *sdp, char *buf)
-{
-	int val = completion_done(&sdp->sd_wdack) ? 1 : 0;
-
-	return sprintf(buf, "%d\n", val);
-}
-
-static ssize_t wdack_store(struct gfs2_sbd *sdp, const char *buf, size_t len)
-{
-	ssize_t ret = len;
-	int val;
-
-	val = simple_strtol(buf, NULL, 0);
-
-	if ((val == 1) &&
-	    !strcmp(sdp->sd_lockstruct.ls_ops->lm_proto_name, "lock_dlm"))
-		complete(&sdp->sd_wdack);
-	else
-		ret = -EINVAL;
 	return ret;
 }
 
@@ -406,7 +368,10 @@ int gfs2_recover_set(struct gfs2_sbd *sdp, unsigned jid)
 	struct gfs2_jdesc *jd;
 	int rv;
 
+	rv = -ESHUTDOWN;
 	spin_lock(&sdp->sd_jindex_spin);
+	if (test_bit(SDF_NORECOVERY, &sdp->sd_flags))
+		goto out;
 	rv = -EBUSY;
 	if (sdp->sd_jdesc->jd_jid == jid)
 		goto out;
@@ -431,13 +396,8 @@ static ssize_t recover_store(struct gfs2_sbd *sdp, const char *buf, size_t len)
 	if (rv != 1)
 		return -EINVAL;
 
-	if (test_bit(SDF_NORECOVERY, &sdp->sd_flags)) {
-		rv = -ESHUTDOWN;
-		goto out;
-	}
-
 	rv = gfs2_recover_set(sdp, jid);
-out:
+
 	return rv ? rv : len;
 }
 
@@ -481,7 +441,7 @@ static ssize_t jid_store(struct gfs2_sbd *sdp, const char *buf, size_t len)
 		rv = jid = -EINVAL;
 	sdp->sd_lockstruct.ls_jid = jid;
 	clear_bit(SDF_NOJOURNALID, &sdp->sd_flags);
-	smp_mb__after_atomic();
+	smp_mb__after_clear_bit();
 	wake_up_bit(&sdp->sd_flags, SDF_NOJOURNALID);
 out:
 	spin_unlock(&sdp->sd_jindex_spin);
@@ -493,7 +453,7 @@ static struct gfs2_attr gdlm_attr_##_name = __ATTR(_name,_mode,_show,_store)
 
 GDLM_ATTR(proto_name,		0444, proto_name_show,		NULL);
 GDLM_ATTR(block,		0644, block_show,		block_store);
-GDLM_ATTR(withdraw,		0644, wdack_show,		wdack_store);
+GDLM_ATTR(withdraw,		0644, withdraw_show,		withdraw_store);
 GDLM_ATTR(jid,			0644, jid_show,			jid_store);
 GDLM_ATTR(first,		0644, lkfirst_show,		lkfirst_store);
 GDLM_ATTR(first_done,		0444, first_done_show,		NULL);
@@ -621,7 +581,6 @@ int gfs2_sys_fs_add(struct gfs2_sbd *sdp)
 	char ro[20];
 	char spectator[20];
 	char *envp[] = { ro, spectator, NULL };
-	int sysfs_frees_sdp = 0;
 
 	sprintf(ro, "RDONLY=%d", (sb->s_flags & MS_RDONLY) ? 1 : 0);
 	sprintf(spectator, "SPECTATOR=%d", sdp->sd_args.ar_spectator ? 1 : 0);
@@ -630,10 +589,8 @@ int gfs2_sys_fs_add(struct gfs2_sbd *sdp)
 	error = kobject_init_and_add(&sdp->sd_kobj, &gfs2_ktype, NULL,
 				     "%s", sdp->sd_table_name);
 	if (error)
-		goto fail_reg;
+		goto fail;
 
-	sysfs_frees_sdp = 1; /* Freeing sdp is now done by sysfs calling
-				function gfs2_sbd_release. */
 	error = sysfs_create_group(&sdp->sd_kobj, &tune_group);
 	if (error)
 		goto fail_reg;
@@ -656,13 +613,9 @@ fail_lock_module:
 fail_tune:
 	sysfs_remove_group(&sdp->sd_kobj, &tune_group);
 fail_reg:
-	free_percpu(sdp->sd_lkstats);
+	kobject_put(&sdp->sd_kobj);
+fail:
 	fs_err(sdp, "error %d adding sysfs files", error);
-	if (sysfs_frees_sdp)
-		kobject_put(&sdp->sd_kobj);
-	else
-		kfree(sdp);
-	sb->s_fs_info = NULL;
 	return error;
 }
 

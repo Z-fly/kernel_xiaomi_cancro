@@ -4,8 +4,9 @@
  *  Copyright (c) 2009 Jussi Kivilinna <jussi.kivilinna@mbnet.fi>
  *
  *  Based of hid-pl.c and hid-gaff.c
- *   Copyright (c) 2007, 2009 Anssi Hannula <anssi.hannula@gmail.com>
- *   Copyright (c) 2008 Lukasz Lubojanski <lukasz@lubojanski.info>
+ *  Copyright (c) 2007, 2009 Anssi Hannula <anssi.hannula@gmail.com>
+ *  Copyright (c) 2008 Lukasz Lubojanski <lukasz@lubojanski.info>
+ *  Copyright (C) 2017 XiaoMi, Inc.
  */
 
 /*

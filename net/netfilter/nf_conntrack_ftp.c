@@ -3,7 +3,6 @@
 /* (C) 1999-2001 Paul `Rusty' Russell
  * (C) 2002-2004 Netfilter Core Team <coreteam@netfilter.org>
  * (C) 2003,2004 USAGI/WIDE Project <http://www.linux-ipv6.org>
- * (C) 2006-2012 Patrick McHardy <kaber@trash.net>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -436,8 +435,8 @@ skip_nl_seq:
 		   connection tracking, not packet filtering.
 		   However, it is necessary for accurate tracking in
 		   this case. */
-		nf_ct_helper_log(skb, ct, "partial matching of `%s'",
-			         search[dir][i].pattern);
+		pr_debug("conntrack_ftp: partial %s %u+%u\n",
+			 search[dir][i].pattern,  ntohl(th->seq), datalen);
 		ret = NF_DROP;
 		goto out;
 	} else if (found == 0) { /* No match */
@@ -451,7 +450,6 @@ skip_nl_seq:
 
 	exp = nf_ct_expect_alloc(ct);
 	if (exp == NULL) {
-		nf_ct_helper_log(skb, ct, "cannot alloc expectation");
 		ret = NF_DROP;
 		goto out;
 	}
@@ -502,10 +500,9 @@ skip_nl_seq:
 				 protoff, matchoff, matchlen, exp);
 	else {
 		/* Can't expect this?  Best to drop packet now. */
-		if (nf_ct_expect_related(exp) != 0) {
-			nf_ct_helper_log(skb, ct, "cannot add expectation");
+		if (nf_ct_expect_related(exp) != 0)
 			ret = NF_DROP;
-		} else
+		else
 			ret = NF_ACCEPT;
 	}
 

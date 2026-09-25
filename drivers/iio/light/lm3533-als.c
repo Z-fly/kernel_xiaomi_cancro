@@ -2,6 +2,7 @@
  * lm3533-als.c -- LM3533 Ambient Light Sensor driver
  *
  * Copyright (C) 2011-2012 Texas Instruments
+ * Copyright (C) 2017 XiaoMi, Inc.
  *
  * Author: Johan Hovold <jhovold@gmail.com>
  *
@@ -64,7 +65,7 @@ struct lm3533_als {
 
 
 static int lm3533_als_get_adc(struct iio_dev *indio_dev, bool average,
-								int *adc)
+				int *adc)
 {
 	struct lm3533_als *als = iio_priv(indio_dev);
 	u8 reg;
@@ -131,7 +132,7 @@ static inline u8 lm3533_als_get_target_reg(unsigned channel, unsigned zone)
 }
 
 static int lm3533_als_get_target(struct iio_dev *indio_dev, unsigned channel,
-							unsigned zone, u8 *val)
+					unsigned zone, u8 *val)
 {
 	struct lm3533_als *als = iio_priv(indio_dev);
 	u8 reg;
@@ -152,7 +153,7 @@ static int lm3533_als_get_target(struct iio_dev *indio_dev, unsigned channel,
 }
 
 static int lm3533_als_set_target(struct iio_dev *indio_dev, unsigned channel,
-							unsigned zone, u8 val)
+					unsigned zone, u8 val)
 {
 	struct lm3533_als *als = iio_priv(indio_dev);
 	u8 reg;
@@ -173,7 +174,7 @@ static int lm3533_als_set_target(struct iio_dev *indio_dev, unsigned channel,
 }
 
 static int lm3533_als_get_current(struct iio_dev *indio_dev, unsigned channel,
-								int *val)
+					int *val)
 {
 	u8 zone;
 	u8 target;
@@ -206,7 +207,7 @@ static int lm3533_als_read_raw(struct iio_dev *indio_dev,
 			break;
 		case IIO_CURRENT:
 			ret = lm3533_als_get_current(indio_dev, chan->channel,
-									val);
+					val);
 			break;
 		default:
 			return -EINVAL;
@@ -320,7 +321,7 @@ static inline u8 lm3533_als_get_threshold_reg(unsigned nr, bool raising)
 }
 
 static int lm3533_als_get_threshold(struct iio_dev *indio_dev, unsigned nr,
-							bool raising, u8 *val)
+					bool raising, u8 *val)
 {
 	struct lm3533_als *als = iio_priv(indio_dev);
 	u8 reg;
@@ -338,7 +339,7 @@ static int lm3533_als_get_threshold(struct iio_dev *indio_dev, unsigned nr,
 }
 
 static int lm3533_als_set_threshold(struct iio_dev *indio_dev, unsigned nr,
-							bool raising, u8 val)
+					bool raising, u8 val)
 {
 	struct lm3533_als *als = iio_priv(indio_dev);
 	u8 val2;
@@ -379,7 +380,7 @@ out:
 }
 
 static int lm3533_als_get_hysteresis(struct iio_dev *indio_dev, unsigned nr,
-								u8 *val)
+					u8 *val)
 {
 	struct lm3533_als *als = iio_priv(indio_dev);
 	u8 falling;
@@ -468,7 +469,7 @@ static ssize_t store_thresh_either_en(struct device *dev,
 }
 
 static ssize_t show_zone(struct device *dev,
-				struct device_attribute *attr, char *buf)
+					struct device_attribute *attr, char *buf)
 {
 	struct iio_dev *indio_dev = dev_to_iio_dev(dev);
 	u8 zone;

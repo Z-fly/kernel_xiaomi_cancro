@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2013,2016 The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2013, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -173,7 +173,7 @@ void coresight_csr_set_byte_cntr(uint32_t count)
 }
 EXPORT_SYMBOL(coresight_csr_set_byte_cntr);
 
-static int csr_probe(struct platform_device *pdev)
+static int __devinit csr_probe(struct platform_device *pdev)
 {
 	int ret;
 	struct device *dev = &pdev->dev;
@@ -195,6 +195,8 @@ static int csr_probe(struct platform_device *pdev)
 	drvdata = devm_kzalloc(dev, sizeof(*drvdata), GFP_KERNEL);
 	if (!drvdata)
 		return -ENOMEM;
+	/* Store the driver data pointer for use in exported functions */
+	csrdrvdata = drvdata;
 	drvdata->dev = &pdev->dev;
 	platform_set_drvdata(pdev, drvdata);
 
@@ -225,14 +227,11 @@ static int csr_probe(struct platform_device *pdev)
 	if (IS_ERR(drvdata->csdev))
 		return PTR_ERR(drvdata->csdev);
 
-	/* Store the driver data pointer for use in exported functions */
-	csrdrvdata = drvdata;
-
 	dev_info(dev, "CSR initialized\n");
 	return 0;
 }
 
-static int csr_remove(struct platform_device *pdev)
+static int __devexit csr_remove(struct platform_device *pdev)
 {
 	struct csr_drvdata *drvdata = platform_get_drvdata(pdev);
 
@@ -247,7 +246,7 @@ static struct of_device_id csr_match[] = {
 
 static struct platform_driver csr_driver = {
 	.probe          = csr_probe,
-	.remove         = csr_remove,
+	.remove         = __devexit_p(csr_remove),
 	.driver         = {
 		.name   = "coresight-csr",
 		.owner	= THIS_MODULE,

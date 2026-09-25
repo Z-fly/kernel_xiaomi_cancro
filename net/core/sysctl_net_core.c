@@ -22,8 +22,8 @@
 
 static int zero = 0;
 static int ushort_max = USHRT_MAX;
-static int min_sndbuf = SOCK_MIN_SNDBUF;
-static int min_rcvbuf = SOCK_MIN_RCVBUF;
+
+static int one = 1;
 
 #ifdef CONFIG_RPS
 static int rps_sock_flow_sysctl(ctl_table *table, int write,
@@ -98,7 +98,7 @@ static struct ctl_table net_core_table[] = {
 		.maxlen		= sizeof(int),
 		.mode		= 0644,
 		.proc_handler	= proc_dointvec_minmax,
-		.extra1		= &min_sndbuf,
+		.extra1		= &one,
 	},
 	{
 		.procname	= "rmem_max",
@@ -106,7 +106,7 @@ static struct ctl_table net_core_table[] = {
 		.maxlen		= sizeof(int),
 		.mode		= 0644,
 		.proc_handler	= proc_dointvec_minmax,
-		.extra1		= &min_rcvbuf,
+		.extra1		= &one,
 	},
 	{
 		.procname	= "wmem_default",
@@ -114,7 +114,7 @@ static struct ctl_table net_core_table[] = {
 		.maxlen		= sizeof(int),
 		.mode		= 0644,
 		.proc_handler	= proc_dointvec_minmax,
-		.extra1		= &min_sndbuf,
+		.extra1		= &one,
 	},
 	{
 		.procname	= "rmem_default",
@@ -122,7 +122,7 @@ static struct ctl_table net_core_table[] = {
 		.maxlen		= sizeof(int),
 		.mode		= 0644,
 		.proc_handler	= proc_dointvec_minmax,
-		.extra1		= &min_rcvbuf,
+		.extra1		= &one,
 	},
 	{
 		.procname	= "dev_weight",
@@ -214,6 +214,12 @@ static struct ctl_table netns_core_table[] = {
 	{ }
 };
 
+__net_initdata struct ctl_path net_core_path[] = {
+	{ .procname = "net", },
+	{ .procname = "core", },
+	{ },
+};
+
 static __net_init int sysctl_core_net_init(struct net *net)
 {
 	struct ctl_table *tbl;
@@ -227,14 +233,10 @@ static __net_init int sysctl_core_net_init(struct net *net)
 			goto err_dup;
 
 		tbl[0].data = &net->core.sysctl_somaxconn;
-
-		/* Don't export any sysctls to unprivileged users */
-		if (net->user_ns != &init_user_ns) {
-			tbl[0].procname = NULL;
-		}
 	}
 
-	net->core.sysctl_hdr = register_net_sysctl(net, "net/core", tbl);
+	net->core.sysctl_hdr = register_net_sysctl_table(net,
+			net_core_path, tbl);
 	if (net->core.sysctl_hdr == NULL)
 		goto err_reg;
 
@@ -264,7 +266,10 @@ static __net_initdata struct pernet_operations sysctl_core_ops = {
 
 static __init int sysctl_core_init(void)
 {
-	register_net_sysctl(&init_net, "net/core", net_core_table);
+	static struct ctl_table empty[1];
+
+	kmemleak_not_leak(register_sysctl_paths(net_core_path, empty));
+	register_net_sysctl_rotable(net_core_path, net_core_table);
 	return register_pernet_subsys(&sysctl_core_ops);
 }
 

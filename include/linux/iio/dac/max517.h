@@ -2,6 +2,7 @@
  * MAX517 DAC driver
  *
  * Copyright 2011 Roland Stigge <stigge@antcom.de>
+ * Copyright (C) 2017 XiaoMi, Inc.
  *
  * Licensed under the GPL-2 or later.
  */

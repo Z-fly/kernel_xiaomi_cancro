@@ -37,6 +37,7 @@ struct xen_pcibk_device {
 	struct xen_pci_sharedinfo *sh_info;
 	unsigned long flags;
 	struct work_struct op_work;
+	struct xen_pci_op op;
 };
 
 struct xen_pcibk_dev_data {
@@ -124,7 +125,7 @@ static inline int xen_pcibk_add_pci_dev(struct xen_pcibk_device *pdev,
 static inline void xen_pcibk_release_pci_dev(struct xen_pcibk_device *pdev,
 					     struct pci_dev *dev)
 {
-	if (xen_pcibk_backend && xen_pcibk_backend->release)
+	if (xen_pcibk_backend && xen_pcibk_backend->free)
 		return xen_pcibk_backend->release(pdev, dev);
 }
 

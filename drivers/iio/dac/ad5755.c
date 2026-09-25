@@ -2,6 +2,7 @@
  * AD5755, AD5755-1, AD5757, AD5735, AD5737 Digital to analog converters driver
  *
  * Copyright 2012 Analog Devices Inc.
+ * Copyright (C) 2017 XiaoMi, Inc.
  *
  * Licensed under the GPL-2.
  */
@@ -123,7 +124,7 @@ static int ad5755_write_ctrl_unlocked(struct iio_dev *indio_dev,
 	unsigned int channel, unsigned int reg, unsigned int val)
 {
 	return ad5755_write_unlocked(indio_dev,
-		AD5755_WRITE_REG_CTRL(channel), (reg << 13) | val);
+			AD5755_WRITE_REG_CTRL(channel), (reg << 13) | val);
 }
 
 static int ad5755_write(struct iio_dev *indio_dev, unsigned int reg,
@@ -190,7 +191,7 @@ static int ad5755_update_dac_ctrl(struct iio_dev *indio_dev,
 	st->ctrl[channel] &= ~clr;
 
 	ret = ad5755_write_ctrl_unlocked(indio_dev, channel,
-		AD5755_CTRL_REG_DAC, st->ctrl[channel]);
+			AD5755_CTRL_REG_DAC, st->ctrl[channel]);
 
 	return ret;
 }
@@ -209,14 +210,14 @@ static int ad5755_set_channel_pwr_down(struct iio_dev *indio_dev,
 	if (!pwr_down) {
 		st->pwr_down &= ~mask;
 		ad5755_update_dac_ctrl(indio_dev, channel,
-			AD5755_DAC_INT_EN | AD5755_DAC_DC_DC_EN, 0);
+				AD5755_DAC_INT_EN | AD5755_DAC_DC_DC_EN, 0);
 		udelay(200);
 		ad5755_update_dac_ctrl(indio_dev, channel,
-			AD5755_DAC_OUT_EN, 0);
+				AD5755_DAC_OUT_EN, 0);
 	} else {
 		st->pwr_down |= mask;
 		ad5755_update_dac_ctrl(indio_dev, channel,
-			0, AD5755_DAC_INT_EN | AD5755_DAC_OUT_EN |
+				0, AD5755_DAC_INT_EN | AD5755_DAC_OUT_EN |
 				AD5755_DAC_DC_DC_EN);
 	}
 
@@ -315,7 +316,7 @@ static int ad5755_read_raw(struct iio_dev *indio_dev,
 		return IIO_VAL_INT;
 	default:
 		ret = ad5755_chan_reg_info(st, chan, info, false,
-						&reg, &shift, &offset);
+				&reg, &shift, &offset);
 		if (ret)
 			return ret;
 
@@ -339,7 +340,7 @@ static int ad5755_write_raw(struct iio_dev *indio_dev,
 	int ret;
 
 	ret = ad5755_chan_reg_info(st, chan, info, true,
-					&reg, &shift, &offset);
+			&reg, &shift, &offset);
 	if (ret)
 		return ret;
 
@@ -357,7 +358,7 @@ static ssize_t ad5755_read_powerdown(struct iio_dev *indio_dev, uintptr_t priv,
 {
 	struct ad5755_state *st = iio_priv(indio_dev);
 
-	return sprintf(buf, "%d\n",
+	return snprintf(buf, "%d\n",
 		       (bool)(st->pwr_down & (1 << chan->channel)));
 }
 
@@ -443,7 +444,7 @@ static bool ad5755_is_valid_mode(struct ad5755_state *st, enum ad5755_mode mode)
 }
 
 static int ad5755_setup_pdata(struct iio_dev *indio_dev,
-			      const struct ad5755_platform_data *pdata)
+		const struct ad5755_platform_data *pdata)
 {
 	struct ad5755_state *st = iio_priv(indio_dev);
 	unsigned int val;
@@ -474,7 +475,7 @@ static int ad5755_setup_pdata(struct iio_dev *indio_dev,
 			val |= AD5755_SLEW_ENABLE;
 
 		ret = ad5755_write_ctrl(indio_dev, i,
-					AD5755_CTRL_REG_SLEW, val);
+				AD5755_CTRL_REG_SLEW, val);
 		if (ret < 0)
 			return ret;
 	}
@@ -512,7 +513,7 @@ static bool ad5755_is_voltage_mode(enum ad5755_mode mode)
 }
 
 static int ad5755_init_channels(struct iio_dev *indio_dev,
-				const struct ad5755_platform_data *pdata)
+		const struct ad5755_platform_data *pdata)
 {
 	struct ad5755_state *st = iio_priv(indio_dev);
 	struct iio_chan_spec *channels = st->channels;

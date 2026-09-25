@@ -17,13 +17,13 @@ struct iio_kfifo {
 #define iio_to_kfifo(r) container_of(r, struct iio_kfifo, buffer)
 
 static inline int __iio_allocate_kfifo(struct iio_kfifo *buf,
-				int bytes_per_datum, int length)
+		int bytes_per_datum, int length)
 {
 	if ((length == 0) || (bytes_per_datum == 0))
 		return -EINVAL;
 
 	return __kfifo_alloc((struct __kfifo *)&buf->kf, length,
-			     bytes_per_datum, GFP_KERNEL);
+			bytes_per_datum, GFP_KERNEL);
 }
 
 static int iio_request_update_kfifo(struct iio_buffer *r)
@@ -35,7 +35,7 @@ static int iio_request_update_kfifo(struct iio_buffer *r)
 		goto error_ret;
 	kfifo_free(&buf->kf);
 	ret = __iio_allocate_kfifo(buf, buf->buffer.bytes_per_datum,
-				   buf->buffer.length);
+			buf->buffer.length);
 	r->stufftoread = false;
 error_ret:
 	return ret;
@@ -94,7 +94,7 @@ static int iio_set_length_kfifo(struct iio_buffer *r, int length)
 }
 
 static int iio_store_to_kfifo(struct iio_buffer *r,
-			      u8 *data)
+		u8 *data)
 {
 	int ret;
 	struct iio_kfifo *kf = iio_to_kfifo(r);
@@ -108,7 +108,7 @@ static int iio_store_to_kfifo(struct iio_buffer *r,
 }
 
 static int iio_read_first_n_kfifo(struct iio_buffer *r,
-			   size_t n, char __user *buf)
+		size_t n, char __user *buf)
 {
 	int ret, copied;
 	struct iio_kfifo *kf = iio_to_kfifo(r);

@@ -2,6 +2,7 @@
  * RTC subsystem, interface functions
  *
  * Copyright (C) 2005 Tower Technologies
+ * Copyright (C) 2017 XiaoMi, Inc.
  * Author: Alessandro Zummo <a.zummo@towertech.it>
  *
  * based on arch/arm/common/rtctime.c
@@ -356,6 +357,41 @@ static int __rtc_set_alarm(struct rtc_device *rtc, struct rtc_wkalrm *alarm)
 	return err;
 }
 
+int rtc_set_wakealarm(struct rtc_device *rtc, struct rtc_wkalrm *alarm)
+{
+	struct rtc_time tm;
+	long now, scheduled;
+	int err;
+
+	err = rtc_valid_tm(&alarm->time);
+	if (err)
+		return err;
+	rtc_tm_to_time(&alarm->time, &scheduled);
+
+	/* Make sure we're not setting alarms in the past */
+	err = __rtc_read_time(rtc, &tm);
+	rtc_tm_to_time(&tm, &now);
+	if (scheduled <= now)
+		return -ETIME;
+
+	/*
+	 * XXX - We just checked to make sure the alarm time is not
+	 * in the past, but there is still a race window where if
+	 * the is alarm set for the next second and the second ticks
+	 * over right here, before we set the alarm.
+	 */
+
+	if (!rtc->ops)
+		err = -ENODEV;
+	else if (!rtc->ops->set_alarm_foo)
+		err = -EINVAL;
+	else
+		err = rtc->ops->set_alarm_foo(rtc->dev.parent, alarm);
+
+	return err;
+}
+EXPORT_SYMBOL_GPL(rtc_set_wakealarm);
+
 int rtc_set_alarm(struct rtc_device *rtc, struct rtc_wkalrm *alarm)
 {
 	int err;
@@ -582,21 +618,20 @@ enum hrtimer_restart rtc_pie_update_irq(struct hrtimer *timer)
 void rtc_update_irq(struct rtc_device *rtc,
 		unsigned long num, unsigned long events)
 {
-	pm_stay_awake(rtc->dev.parent);
 	schedule_work(&rtc->irqwork);
 }
 EXPORT_SYMBOL_GPL(rtc_update_irq);
 
-static int __rtc_match(struct device *dev, const void *data)
+static int __rtc_match(struct device *dev, void *data)
 {
-	const char *name = data;
+	char *name = (char *)data;
 
 	if (strcmp(dev_name(dev), name) == 0)
 		return 1;
 	return 0;
 }
 
-struct rtc_device *rtc_class_open(const char *name)
+struct rtc_device *rtc_class_open(char *name)
 {
 	struct device *dev;
 	struct rtc_device *rtc = NULL;
@@ -782,14 +817,6 @@ static int rtc_timer_enqueue(struct rtc_device *rtc, struct rtc_timer *timer)
 	return 0;
 }
 
-static void rtc_alarm_disable(struct rtc_device *rtc)
-{
-	if (!rtc->ops || !rtc->ops->alarm_irq_enable)
-		return;
-
-	rtc->ops->alarm_irq_enable(rtc->dev.parent, false);
-}
-
 /**
  * rtc_timer_remove - Removes a rtc_timer from the rtc_device timerqueue
  * @rtc rtc device
@@ -811,10 +838,8 @@ static void rtc_timer_remove(struct rtc_device *rtc, struct rtc_timer *timer)
 		struct rtc_wkalrm alarm;
 		int err;
 		next = timerqueue_getnext(&rtc->timerqueue);
-		if (!next) {
-			rtc_alarm_disable(rtc);
+		if (!next)
 			return;
-		}
 		alarm.time = rtc_ktime_to_tm(next->expires);
 		alarm.enabled = 1;
 		err = __rtc_set_alarm(rtc, &alarm);
@@ -845,7 +870,6 @@ void rtc_timer_do_work(struct work_struct *work)
 
 	mutex_lock(&rtc->ops_lock);
 again:
-	pm_relax(rtc->dev.parent);
 	__rtc_read_time(rtc, &tm);
 	now = rtc_tm_to_ktime(tm);
 	while ((next = timerqueue_getnext(&rtc->timerqueue))) {
@@ -877,8 +901,7 @@ again:
 		err = __rtc_set_alarm(rtc, &alarm);
 		if (err == -ETIME)
 			goto again;
-	} else
-		rtc_alarm_disable(rtc);
+	}
 
 	mutex_unlock(&rtc->ops_lock);
 }

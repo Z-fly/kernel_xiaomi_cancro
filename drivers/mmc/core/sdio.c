@@ -222,54 +222,6 @@ out:
 	return ret;
 }
 
-static void sdio_enable_vendor_specific_settings(struct mmc_card *card)
-{
-	int ret;
-	u8 settings;
-
-	if (mmc_enable_qca6574_settings(card) ||
-		mmc_enable_qca9377_settings(card)) {
-		ret = mmc_io_rw_direct(card, 1, 0, 0xF2, 0x0F, NULL);
-		if (ret) {
-			pr_crit("%s: failed to write to fn 0xf2 %d\n",
-					mmc_hostname(card->host), ret);
-			goto out;
-		}
-
-		ret = mmc_io_rw_direct(card, 0, 0, 0xF1, 0, &settings);
-		if (ret) {
-			pr_crit("%s: failed to read fn 0xf1 %d\n",
-					mmc_hostname(card->host), ret);
-			goto out;
-		}
-
-		settings |= 0x80;
-		ret = mmc_io_rw_direct(card, 1, 0, 0xF1, settings, NULL);
-		if (ret) {
-			pr_crit("%s: failed to write to fn 0xf1 %d\n",
-					mmc_hostname(card->host), ret);
-			goto out;
-		}
-
-		ret = mmc_io_rw_direct(card, 0, 0, 0xF0, 0, &settings);
-		if (ret) {
-			pr_crit("%s: failed to read fn 0xf0 %d\n",
-					mmc_hostname(card->host), ret);
-			goto out;
-		}
-
-		settings |= 0x20;
-		ret = mmc_io_rw_direct(card, 1, 0, 0xF0, settings, NULL);
-		if (ret) {
-			pr_crit("%s: failed to write to fn 0xf0 %d\n",
-					mmc_hostname(card->host), ret);
-			goto out;
-		}
-	}
-out:
-	return;
-}
-
 static int sdio_enable_wide(struct mmc_card *card)
 {
 	int ret;
@@ -285,12 +237,6 @@ static int sdio_enable_wide(struct mmc_card *card)
 	if (ret)
 		return ret;
 
-	if ((ctrl & SDIO_BUS_WIDTH_MASK) == SDIO_BUS_WIDTH_RESERVED)
-		pr_warning("%s: SDIO_CCCR_IF is invalid: 0x%02x\n",
-			   mmc_hostname(card->host), ctrl);
-
-	/* set as 4-bit bus width */
-	ctrl &= ~SDIO_BUS_WIDTH_MASK;
 	if (card->host->caps & MMC_CAP_8_BIT_DATA)
 		ctrl |= SDIO_BUS_WIDTH_8BIT;
 	else if (card->host->caps & MMC_CAP_4_BIT_DATA)
@@ -593,9 +539,6 @@ static int sdio_set_bus_speed_mode(struct mmc_card *card)
 	if (err)
 		return err;
 
-	/* Vendor specific settings based on card quirks */
-	sdio_enable_vendor_specific_settings(card);
-
 	speed &= ~SDIO_SPEED_BSS_MASK;
 	speed |= bus_speed;
 	err = mmc_io_rw_direct(card, 1, 0, SDIO_CCCR_SPEED, speed, NULL);
@@ -660,23 +603,17 @@ static int mmc_sdio_init_card(struct mmc_host *host, u32 ocr,
 {
 	struct mmc_card *card;
 	int err;
-	int retries = 10;
 
 	BUG_ON(!host);
 	WARN_ON(!host->claimed);
-
-try_again:
-	if (!retries) {
-		pr_warning("%s: Skipping voltage switch\n",
-				mmc_hostname(host));
-		ocr &= ~R4_18V_PRESENT;
-		host->ocr &= ~R4_18V_PRESENT;
-	}
 
 	/*
 	 * Inform the card of the voltage
 	 */
 	if (!powered_resume) {
+		/* The initialization should be done at 3.3 V I/O voltage. */
+		mmc_set_signal_voltage(host, MMC_SIGNAL_VOLTAGE_330, 0);
+
 		err = mmc_send_io_op_cond(host, host->ocr, &ocr);
 		if (err)
 			goto err;
@@ -730,45 +667,16 @@ try_again:
 	/*
 	 * If the host and card support UHS-I mode request the card
 	 * to switch to 1.8V signaling level.  No 1.8v signalling if
-	 * UHS mode is not enabled to maintain compatibility and some
+	 * UHS mode is not enabled to maintain compatibilty and some
 	 * systems that claim 1.8v signalling in fact do not support
 	 * it.
 	 */
-	if (!powered_resume && (ocr & R4_18V_PRESENT) && mmc_host_uhs(host)) {
-		err = mmc_set_signal_voltage(host, MMC_SIGNAL_VOLTAGE_180);
-		if (err == -EAGAIN) {
-			sdio_reset(host);
-			mmc_go_idle(host);
-			mmc_send_if_cond(host, host->ocr_avail);
-			mmc_remove_card(card);
-			retries--;
-			goto try_again;
-		} else if (err) {
-			if (!oldcard || (oldcard && !mmc_card_uhs(oldcard))) {
-				ocr &= ~R4_18V_PRESENT;
-				host->ocr &= ~R4_18V_PRESENT;
-			} else if (oldcard && mmc_card_uhs(oldcard)) {
-				/*
-				 * if it's an old uhs card then CMD11 is
-				 * expected to fail with no response
-				 * according to spec. Thus in that case
-				 * switch only controller signal voltage
-				 * to 1.8V
-				 */
-				err = __mmc_set_signal_voltage(host,
-						MMC_SIGNAL_VOLTAGE_180);
-				if (err == -EAGAIN) {
-					pr_err("%s: Signal voltage switch failed power cycling card, err=%d\n",
-						mmc_hostname(host), err);
-					mmc_power_cycle(host);
-					sdio_reset(host);
-					mmc_go_idle(host);
-					mmc_send_if_cond(host, host->ocr_avail);
-					mmc_remove_card(card);
-					retries--;
-					goto try_again;
-				}
-			}
+	if ((ocr & R4_18V_PRESENT) && mmc_host_uhs(host)) {
+		err = mmc_set_signal_voltage(host, MMC_SIGNAL_VOLTAGE_180,
+				true);
+		if (err) {
+			ocr &= ~R4_18V_PRESENT;
+			host->ocr &= ~R4_18V_PRESENT;
 		}
 		err = 0;
 	} else {
@@ -982,10 +890,8 @@ static void mmc_sdio_detect(struct mmc_host *host)
 	/* Make sure card is powered before detecting it */
 	if (host->caps & MMC_CAP_POWER_OFF_CARD) {
 		err = pm_runtime_get_sync(&host->card->dev);
-		if (err < 0) {
-			pm_runtime_put_noidle(&host->card->dev);
+		if (err < 0)
 			goto out;
-		}
 	}
 
 	mmc_claim_host(host);
@@ -1073,14 +979,10 @@ static int mmc_sdio_resume(struct mmc_host *host)
 
 	/* No need to reinitialize powered-resumed nonremovable cards */
 	if (mmc_card_is_removable(host) || !mmc_card_keep_power(host)) {
-		if (mmc_host_broken_pwr_cycle(host)) {
-			err = mmc_power_restore_broken_host(host);
-		} else {
-			sdio_reset(host);
-			mmc_go_idle(host);
-			err = mmc_sdio_init_card(host, host->ocr, host->card,
-						mmc_card_keep_power(host));
-		}
+		sdio_reset(host);
+		mmc_go_idle(host);
+		err = mmc_sdio_init_card(host, host->ocr, host->card,
+					mmc_card_keep_power(host));
 	} else if (mmc_card_keep_power(host) && mmc_card_wake_sdio_irq(host)) {
 		/* We may have switched to 1-bit mode during suspend */
 		err = sdio_enable_4bit_bus(host->card);
@@ -1146,6 +1048,10 @@ static int mmc_sdio_power_restore(struct mmc_host *host)
 	 * With these steps taken, mmc_select_voltage() is also required to
 	 * restore the correct voltage setting of the card.
 	 */
+
+	/* The initialization should be done at 3.3 V I/O voltage. */
+	if (!mmc_card_keep_power(host))
+		mmc_set_signal_voltage(host, MMC_SIGNAL_VOLTAGE_330, 0);
 
 	sdio_reset(host);
 	mmc_go_idle(host);

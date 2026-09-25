@@ -301,7 +301,7 @@ pn_rx_submit(struct f_phonet *fp, struct usb_request *req, gfp_t gfp_flags)
 	struct page *page;
 	int err;
 
-	page = __skb_alloc_page(gfp_flags | __GFP_NOMEMALLOC, NULL);
+	page = alloc_page(gfp_flags);
 	if (!page)
 		return -ENOMEM;
 
@@ -551,6 +551,7 @@ err_req:
 	for (i = 0; i < phonet_rxq_size && fp->out_reqv[i]; i++)
 		usb_ep_free_request(fp->out_ep, fp->out_reqv[i]);
 err:
+
 	usb_free_all_descriptors(f);
 	if (fp->out_ep)
 		fp->out_ep->driver_data = NULL;

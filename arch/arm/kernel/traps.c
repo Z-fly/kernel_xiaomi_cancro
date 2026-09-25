@@ -28,7 +28,6 @@
 #include <linux/bug.h>
 
 #include <linux/atomic.h>
-#include <asm/arch_timer.h>
 #include <asm/cacheflush.h>
 #include <asm/exception.h>
 #include <asm/unistd.h>
@@ -212,6 +211,13 @@ static void dump_backtrace(struct pt_regs *regs, struct task_struct *tsk)
 }
 #endif
 
+void dump_stack(void)
+{
+	dump_backtrace(NULL, NULL);
+}
+
+EXPORT_SYMBOL(dump_stack);
+
 void show_stack(struct task_struct *tsk, unsigned long *sp)
 {
 	dump_backtrace(NULL, tsk);
@@ -234,9 +240,9 @@ void show_stack(struct task_struct *tsk, unsigned long *sp)
 #define S_ISA " ARM"
 #endif
 
-static int __die(const char *str, int err, struct pt_regs *regs)
+static int __die(const char *str, int err, struct thread_info *thread, struct pt_regs *regs)
 {
-	struct task_struct *tsk = current;
+	struct task_struct *tsk = thread->task;
 	static int die_counter;
 	int ret;
 
@@ -246,12 +252,12 @@ static int __die(const char *str, int err, struct pt_regs *regs)
 	/* trap and error numbers are mostly meaningless on ARM */
 	ret = notify_die(DIE_OOPS, str, regs, err, tsk->thread.trap_no, SIGSEGV);
 	if (ret == NOTIFY_STOP)
-		return 1;
+		return ret;
 
 	print_modules();
 	__show_regs(regs);
 	printk(KERN_EMERG "Process %.*s (pid: %d, stack limit = 0x%p)\n",
-		TASK_COMM_LEN, tsk->comm, task_pid_nr(tsk), end_of_stack(tsk));
+		TASK_COMM_LEN, tsk->comm, task_pid_nr(tsk), thread + 1);
 
 	if (!user_mode(regs) || in_interrupt()) {
 		dump_mem(KERN_EMERG, "Stack: ", regs->ARM_sp,
@@ -260,77 +266,45 @@ static int __die(const char *str, int err, struct pt_regs *regs)
 		dump_instr(KERN_EMERG, regs);
 	}
 
-	return 0;
+	return ret;
 }
 
-static arch_spinlock_t die_lock = __ARCH_SPIN_LOCK_UNLOCKED;
-static int die_owner = -1;
-static unsigned int die_nest_count;
-
-static unsigned long oops_begin(void)
-{
-	int cpu;
-	unsigned long flags;
-
-	oops_enter();
-
-	/* racy, but better than risking deadlock. */
-	raw_local_irq_save(flags);
-	cpu = smp_processor_id();
-	if (!arch_spin_trylock(&die_lock)) {
-		if (cpu == die_owner)
-			/* nested oops. should stop eventually */;
-		else
-			arch_spin_lock(&die_lock);
-	}
-	die_nest_count++;
-	die_owner = cpu;
-	console_verbose();
-	bust_spinlocks(1);
-	return flags;
-}
-
-static void oops_end(unsigned long flags, struct pt_regs *regs, int signr)
-{
-	if (regs && kexec_should_crash(current))
-		crash_kexec(regs);
-
-	bust_spinlocks(0);
-	die_owner = -1;
-	add_taint(TAINT_DIE, LOCKDEP_NOW_UNRELIABLE);
-	die_nest_count--;
-	if (!die_nest_count)
-		/* Nest count reaches zero, release the lock. */
-		arch_spin_unlock(&die_lock);
-	raw_local_irq_restore(flags);
-	oops_exit();
-
-	if (in_interrupt())
-		panic("Fatal exception in interrupt");
-	if (panic_on_oops)
-		panic("Fatal exception");
-	if (signr)
-		do_exit(signr);
-}
+static DEFINE_RAW_SPINLOCK(die_lock);
 
 /*
  * This function is protected against re-entrancy.
  */
 void die(const char *str, struct pt_regs *regs, int err)
 {
+	struct thread_info *thread = current_thread_info();
+	int ret;
 	enum bug_trap_type bug_type = BUG_TRAP_TYPE_NONE;
-	unsigned long flags = oops_begin();
-	int sig = SIGSEGV;
 
+	oops_enter();
+
+	raw_spin_lock_irq(&die_lock);
+	console_verbose();
+	bust_spinlocks(1);
 	if (!user_mode(regs))
 		bug_type = report_bug(regs->ARM_pc, regs);
 	if (bug_type != BUG_TRAP_TYPE_NONE)
 		str = "Oops - BUG";
+	ret = __die(str, err, thread, regs);
 
-	if (__die(str, err, regs))
-		sig = 0;
+	if (regs && kexec_should_crash(thread->task))
+		crash_kexec(regs);
 
-	oops_end(flags, regs, sig);
+	bust_spinlocks(0);
+	add_taint(TAINT_DIE);
+	raw_spin_unlock_irq(&die_lock);
+	oops_exit();
+
+	if (in_interrupt())
+		panic("Fatal exception in interrupt");
+	if (panic_on_oops)
+		panic("Fatal exception");
+	if (ret != NOTIFY_STOP)
+		do_exit(SIGSEGV);
 }
 
 void arm_notify_die(const char *str, struct pt_regs *regs,
@@ -351,17 +325,15 @@ void arm_notify_die(const char *str, struct pt_regs *regs,
 int is_valid_bugaddr(unsigned long pc)
 {
 #ifdef CONFIG_THUMB2_KERNEL
-	u16 bkpt;
-	u16 insn = __opcode_to_mem_thumb16(BUG_INSTR_VALUE);
+	unsigned short bkpt;
 #else
-	u32 bkpt;
-	u32 insn = __opcode_to_mem_arm(BUG_INSTR_VALUE);
+	unsigned long bkpt;
 #endif
 
 	if (probe_kernel_address((unsigned *)pc, bkpt))
 		return 0;
 
-	return bkpt == insn;
+	return bkpt == BUG_INSTR_VALUE;
 }
 
 #endif
@@ -511,14 +483,14 @@ static int bad_syscall(int n, struct pt_regs *regs)
 	return regs->ARM_r0;
 }
 
-static inline int
+static inline void
 do_cache_op(unsigned long start, unsigned long end, int flags)
 {
 	struct mm_struct *mm = current->active_mm;
 	struct vm_area_struct *vma;
 
 	if (end < start || flags)
-		return -EINVAL;
+		return;
 
 	down_read(&mm->mmap_sem);
 	vma = find_vma(mm, start);
@@ -529,10 +501,10 @@ do_cache_op(unsigned long start, unsigned long end, int flags)
 			end = vma->vm_end;
 
 		up_read(&mm->mmap_sem);
-		return flush_cache_user_range(start, end);
+		flush_cache_user_range(start, end);
+		return;
 	}
 	up_read(&mm->mmap_sem);
-	return -EINVAL;
 }
 
 /*
@@ -544,6 +516,10 @@ asmlinkage int arm_syscall(int no, struct pt_regs *regs)
 {
 	struct thread_info *thread = current_thread_info();
 	siginfo_t info;
+
+	/* Emulate/fallthrough. */
+	if (no == -1)
+		return regs->ARM_r0;
 
 	if ((no >> 16) != (__ARM_NR_BASE>> 16))
 		return bad_syscall(no, regs);
@@ -578,7 +554,8 @@ asmlinkage int arm_syscall(int no, struct pt_regs *regs)
 	 * the specified region).
 	 */
 	case NR(cacheflush):
-		return do_cache_op(regs->ARM_r0, regs->ARM_r1, regs->ARM_r2);
+		do_cache_op(regs->ARM_r0, regs->ARM_r1, regs->ARM_r2);
+		return 0;
 
 	case NR(usr26):
 		if (!(elf_hwcap & HWCAP_26BIT))
@@ -733,42 +710,6 @@ static int __init arm_mrc_hook_init(void)
 late_initcall(arm_mrc_hook_init);
 
 #endif
-
-static int get_pct_trap(struct pt_regs *regs, unsigned int instr)
-{
-	u64 cntpct;
-	unsigned int res;
-	int rd = (instr >> 12) & 0xF;
-	int rn =  (instr >> 16) & 0xF;
-
-	res = arm_check_condition(instr, regs->ARM_cpsr);
-	if (res == ARM_OPCODE_CONDTEST_FAIL) {
-		regs->ARM_pc += 4;
-		return 0;
-	}
-
-	if (rd == 15 || rn == 15)
-		return 1;
-	cntpct = arch_counter_get_cntpct();
-	regs->uregs[rd] = cntpct;
-	regs->uregs[rn] = cntpct >> 32;
-	regs->ARM_pc += 4;
-	return 0;
-}
-
-static struct undef_hook get_pct_hook = {
-	.instr_mask	= 0x0ff00fff,
-	.instr_val	= 0x0c500f0e,
-	.cpsr_mask	= MODE_MASK,
-	.cpsr_val	= USR_MODE,
-	.fn		= get_pct_trap,
-};
-
-void get_pct_hook_init(void)
-{
-	register_undef_hook(&get_pct_hook);
-}
-EXPORT_SYMBOL(get_pct_hook_init);
 
 void __bad_xchg(volatile void *ptr, int size)
 {

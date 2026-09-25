@@ -9,6 +9,7 @@
  *  Copyright (c) 2006 Andrew Zabolotny <zap@homelink.ru>
  *  Copyright (c) 2009 Bastien Nocera <hadess@hadess.net>
  *  Copyright (c) 2011 Przemysław Firszt <przemo@firszt.eu>
+ *  Copyright (C) 2017 XiaoMi, Inc.
  */
 
 /*
@@ -46,6 +47,7 @@ struct wacom_data {
 	__u8 battery_capacity;
 	__u8 power_raw;
 	__u8 ps_connected;
+	__u8 bat_charging;
 	struct power_supply battery;
 	struct power_supply ac;
 	__u8 led_selector;
@@ -62,6 +64,7 @@ static enum power_supply_property wacom_battery_props[] = {
 	POWER_SUPPLY_PROP_PRESENT,
 	POWER_SUPPLY_PROP_CAPACITY,
 	POWER_SUPPLY_PROP_SCOPE,
+	POWER_SUPPLY_PROP_STATUS,
 };
 
 static enum power_supply_property wacom_ac_props[] = {
@@ -115,7 +118,7 @@ static void wacom_scramble(__u8 *image)
 }
 
 static void wacom_set_image(struct hid_device *hdev, const char *image,
-						__u8 icon_no)
+		__u8 icon_no)
 {
 	__u8 rep_data[68];
 	__u8 p[256];
@@ -127,7 +130,7 @@ static void wacom_set_image(struct hid_device *hdev, const char *image,
 	rep_data[0] = WAC_CMD_ICON_START_STOP;
 	rep_data[1] = 0;
 	ret = hdev->hid_output_raw_report(hdev, rep_data, 2,
-				HID_FEATURE_REPORT);
+		HID_FEATURE_REPORT);
 	if (ret < 0)
 		goto err;
 
@@ -142,21 +145,21 @@ static void wacom_set_image(struct hid_device *hdev, const char *image,
 
 		rep_data[2] = i;
 		ret = hdev->hid_output_raw_report(hdev, rep_data, 67,
-					HID_FEATURE_REPORT);
+				HID_FEATURE_REPORT);
 	}
 
 	rep_data[0] = WAC_CMD_ICON_START_STOP;
 	rep_data[1] = 0;
 
 	ret = hdev->hid_output_raw_report(hdev, rep_data, 2,
-				HID_FEATURE_REPORT);
+			HID_FEATURE_REPORT);
 
 err:
 	return;
 }
 
 static void wacom_leds_set_brightness(struct led_classdev *led_dev,
-						enum led_brightness value)
+		enum led_brightness value)
 {
 	struct device *dev = led_dev->dev->parent;
 	struct hid_device *hdev;
@@ -287,6 +290,15 @@ static int wacom_battery_get_property(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_CAPACITY:
 		val->intval = wdata->battery_capacity;
 		break;
+	case POWER_SUPPLY_PROP_STATUS:
+		if (wdata->bat_charging)
+			val->intval = POWER_SUPPLY_STATUS_CHARGING;
+		else
+			if (wdata->battery_capacity == 100 && wdata->ps_connected)
+				val->intval = POWER_SUPPLY_STATUS_FULL;
+			else
+				val->intval = POWER_SUPPLY_STATUS_DISCHARGING;
+		break;
 	default:
 		ret = -EINVAL;
 		break;
@@ -368,7 +380,7 @@ static void wacom_set_features(struct hid_device *hdev, u8 speed)
 		rep_data[1] = wdata->features;
 
 		ret = hdev->hid_output_raw_report(hdev, rep_data, 2,
-					HID_FEATURE_REPORT);
+				HID_FEATURE_REPORT);
 		if (ret >= 0)
 			wdata->high_speed = speed;
 		break;
@@ -408,11 +420,11 @@ static DEVICE_ATTR(speed, S_IRUGO | S_IWUSR | S_IWGRP,
 
 #define WACOM_STORE(OLED_ID)						\
 static ssize_t wacom_oled##OLED_ID##_store(struct device *dev,		\
-				struct device_attribute *attr,		\
-				const char *buf, size_t count)		\
+		struct device_attribute *attr,		\
+		const char *buf, size_t count)		\
 {									\
 	struct hid_device *hdev = container_of(dev, struct hid_device,	\
-				dev);					\
+			dev);					\
 									\
 	if (count != 256)						\
 		return -EINVAL;						\
@@ -423,7 +435,7 @@ static ssize_t wacom_oled##OLED_ID##_store(struct device *dev,		\
 }									\
 									\
 static DEVICE_ATTR(oled##OLED_ID##_img, S_IWUSR | S_IWGRP, NULL,	\
-				wacom_oled##OLED_ID##_store)
+		wacom_oled##OLED_ID##_store)
 
 WACOM_STORE(0);
 WACOM_STORE(1);
@@ -727,7 +739,8 @@ static int wacom_raw_event(struct hid_device *hdev, struct hid_report *report,
 			if (power_raw != wdata->power_raw) {
 				wdata->power_raw = power_raw;
 				wdata->battery_capacity = batcap_i4[power_raw & 0x07];
-				wdata->ps_connected = power_raw & 0x08;
+				wdata->bat_charging = (power_raw & 0x08) ? 1 : 0;
+				wdata->ps_connected = (power_raw & 0x10) ? 1 : 0;
 			}
 
 			break;

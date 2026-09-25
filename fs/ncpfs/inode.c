@@ -89,11 +89,6 @@ static int init_inodecache(void)
 
 static void destroy_inodecache(void)
 {
-	/*
-	 * Make sure all delayed rcu free inodes are flushed before we
-	 * destroy cache.
-	 */
-	rcu_barrier();
 	kmem_cache_destroy(ncp_inode_cachep);
 }
 
@@ -298,7 +293,7 @@ static void
 ncp_evict_inode(struct inode *inode)
 {
 	truncate_inode_pages(&inode->i_data, 0);
-	clear_inode(inode);
+	end_writeback(inode);
 
 	if (S_ISDIR(inode->i_mode)) {
 		DDPRINTK("ncp_evict_inode: put directory %ld\n", inode->i_ino);
@@ -320,11 +315,11 @@ static void ncp_stop_tasks(struct ncp_server *server) {
 	release_sock(sk);
 	del_timer_sync(&server->timeout_tm);
 
-	flush_work(&server->rcv.tq);
+	flush_work_sync(&server->rcv.tq);
 	if (sk->sk_socket->type == SOCK_STREAM)
-		flush_work(&server->tx.tq);
+		flush_work_sync(&server->tx.tq);
 	else
-		flush_work(&server->timeout_tq);
+		flush_work_sync(&server->timeout_tq);
 }
 
 static int  ncp_show_options(struct seq_file *seq, struct dentry *root)
@@ -332,15 +327,12 @@ static int  ncp_show_options(struct seq_file *seq, struct dentry *root)
 	struct ncp_server *server = NCP_SBP(root->d_sb);
 	unsigned int tmp;
 
-	if (!uid_eq(server->m.uid, GLOBAL_ROOT_UID))
-		seq_printf(seq, ",uid=%u",
-			   from_kuid_munged(&init_user_ns, server->m.uid));
-	if (!gid_eq(server->m.gid, GLOBAL_ROOT_GID))
-		seq_printf(seq, ",gid=%u",
-			   from_kgid_munged(&init_user_ns, server->m.gid));
-	if (!uid_eq(server->m.mounted_uid, GLOBAL_ROOT_UID))
-		seq_printf(seq, ",owner=%u",
-			   from_kuid_munged(&init_user_ns, server->m.mounted_uid));
+	if (server->m.uid != 0)
+		seq_printf(seq, ",uid=%u", server->m.uid);
+	if (server->m.gid != 0)
+		seq_printf(seq, ",gid=%u", server->m.gid);
+	if (server->m.mounted_uid != 0)
+		seq_printf(seq, ",owner=%u", server->m.mounted_uid);
 	tmp = server->m.file_mode & S_IALLUGO;
 	if (tmp != NCP_DEFAULT_FILE_MODE)
 		seq_printf(seq, ",mode=0%o", tmp);
@@ -385,13 +377,13 @@ static int ncp_parse_options(struct ncp_mount_data_kernel *data, char *options) 
 
 	data->flags = 0;
 	data->int_flags = 0;
-	data->mounted_uid = GLOBAL_ROOT_UID;
+	data->mounted_uid = 0;
 	data->wdog_pid = NULL;
 	data->ncp_fd = ~0;
 	data->time_out = NCP_DEFAULT_TIME_OUT;
 	data->retry_count = NCP_DEFAULT_RETRY_COUNT;
-	data->uid = GLOBAL_ROOT_UID;
-	data->gid = GLOBAL_ROOT_GID;
+	data->uid = 0;
+	data->gid = 0;
 	data->file_mode = NCP_DEFAULT_FILE_MODE;
 	data->dir_mode = NCP_DEFAULT_DIR_MODE;
 	data->info_fd = -1;
@@ -403,19 +395,13 @@ static int ncp_parse_options(struct ncp_mount_data_kernel *data, char *options) 
 			goto err;
 		switch (optval) {
 			case 'u':
-				data->uid = make_kuid(current_user_ns(), optint);
-				if (!uid_valid(data->uid))
-					goto err;
+				data->uid = optint;
 				break;
 			case 'g':
-				data->gid = make_kgid(current_user_ns(), optint);
-				if (!gid_valid(data->gid))
-					goto err;
+				data->gid = optint;
 				break;
 			case 'o':
-				data->mounted_uid = make_kuid(current_user_ns(), optint);
-				if (!uid_valid(data->mounted_uid))
-					goto err;
+				data->mounted_uid = optint;
 				break;
 			case 'm':
 				data->file_mode = optint;
@@ -490,13 +476,13 @@ static int ncp_fill_super(struct super_block *sb, void *raw_data, int silent)
 
 				data.flags = md->flags;
 				data.int_flags = NCP_IMOUNT_LOGGEDIN_POSSIBLE;
-				data.mounted_uid = make_kuid(current_user_ns(), md->mounted_uid);
+				data.mounted_uid = md->mounted_uid;
 				data.wdog_pid = find_get_pid(md->wdog_pid);
 				data.ncp_fd = md->ncp_fd;
 				data.time_out = md->time_out;
 				data.retry_count = md->retry_count;
-				data.uid = make_kuid(current_user_ns(), md->uid);
-				data.gid = make_kgid(current_user_ns(), md->gid);
+				data.uid = md->uid;
+				data.gid = md->gid;
 				data.file_mode = md->file_mode;
 				data.dir_mode = md->dir_mode;
 				data.info_fd = -1;
@@ -509,13 +495,13 @@ static int ncp_fill_super(struct super_block *sb, void *raw_data, int silent)
 				struct ncp_mount_data_v4* md = (struct ncp_mount_data_v4*)raw_data;
 
 				data.flags = md->flags;
-				data.mounted_uid = make_kuid(current_user_ns(), md->mounted_uid);
+				data.mounted_uid = md->mounted_uid;
 				data.wdog_pid = find_get_pid(md->wdog_pid);
 				data.ncp_fd = md->ncp_fd;
 				data.time_out = md->time_out;
 				data.retry_count = md->retry_count;
-				data.uid = make_kuid(current_user_ns(), md->uid);
-				data.gid = make_kgid(current_user_ns(), md->gid);
+				data.uid = md->uid;
+				data.gid = md->gid;
 				data.file_mode = md->file_mode;
 				data.dir_mode = md->dir_mode;
 				data.info_fd = -1;
@@ -530,16 +516,12 @@ static int ncp_fill_super(struct super_block *sb, void *raw_data, int silent)
 				goto out;
 			break;
 	}
-	error = -EINVAL;
-	if (!uid_valid(data.mounted_uid) || !uid_valid(data.uid) ||
-	    !gid_valid(data.gid))
-		goto out;
 	error = -EBADF;
 	ncp_filp = fget(data.ncp_fd);
 	if (!ncp_filp)
 		goto out;
 	error = -ENOTSOCK;
-	sock_inode = file_inode(ncp_filp);
+	sock_inode = ncp_filp->f_path.dentry->d_inode;
 	if (!S_ISSOCK(sock_inode->i_mode))
 		goto out_fput;
 	sock = SOCKET_I(sock_inode);
@@ -578,7 +560,7 @@ static int ncp_fill_super(struct super_block *sb, void *raw_data, int silent)
 		if (!server->info_filp)
 			goto out_bdi;
 		error = -ENOTSOCK;
-		sock_inode = file_inode(server->info_filp);
+		sock_inode = server->info_filp->f_path.dentry->d_inode;
 		if (!S_ISSOCK(sock_inode->i_mode))
 			goto out_fput2;
 		info_sock = SOCKET_I(sock_inode);
@@ -900,10 +882,12 @@ int ncp_notify_change(struct dentry *dentry, struct iattr *attr)
 		goto out;
 
 	result = -EPERM;
-	if ((attr->ia_valid & ATTR_UID) && !uid_eq(attr->ia_uid, server->m.uid))
+	if (((attr->ia_valid & ATTR_UID) &&
+	     (attr->ia_uid != server->m.uid)))
 		goto out;
 
-	if ((attr->ia_valid & ATTR_GID) && !gid_eq(attr->ia_gid, server->m.gid))
+	if (((attr->ia_valid & ATTR_GID) &&
+	     (attr->ia_gid != server->m.gid)))
 		goto out;
 
 	if (((attr->ia_valid & ATTR_MODE) &&
@@ -988,7 +972,9 @@ int ncp_notify_change(struct dentry *dentry, struct iattr *attr)
 			goto out;
 
 		if (attr->ia_size != i_size_read(inode)) {
-			truncate_setsize(inode, attr->ia_size);
+			result = vmtruncate(inode, attr->ia_size);
+			if (result)
+				goto out;
 			mark_inode_dirty(inode);
 		}
 	}

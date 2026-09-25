@@ -7,6 +7,7 @@
  *  Copyright (c) 2006-2007 Jiri Kosina
  *  Copyright (c) 2008 Jiri Slaby
  *  Copyright (c) 2010 Don Prince <dhprince.devel@yahoo.co.uk>
+ *  Copyright (C) 2017 XiaoMi, Inc.
  *
  *
  *  This driver supports several HID devices:

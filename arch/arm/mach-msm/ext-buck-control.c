@@ -16,7 +16,7 @@
 #include <linux/init.h>
 #include <linux/platform_device.h>
 #include <linux/of_platform.h>
-#include <soc/qcom/rpm-smd.h>
+#include <mach/rpm-smd.h>
 
 #define RPM_REQUEST_TYPE_GPIO  0x6f697067 /* gpio */
 #define RPM_GPIO_NUMB_KEY      0x626d756e /* numb */
@@ -100,7 +100,7 @@ static int msm_ext_buck_probe(struct platform_device *pdev)
 	return ret;
 }
 
-static struct of_device_id msm_ext_buck_table[] = {
+static struct of_device_id msm_ext_buck_table[] __initdata = {
 	{.compatible = "qcom,ext-buck-control"},
 	{},
 };

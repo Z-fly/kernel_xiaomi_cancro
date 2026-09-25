@@ -692,7 +692,7 @@ static void dw_spi_cleanup(struct spi_device *spi)
 	kfree(chip);
 }
 
-static int init_queue(struct dw_spi *dws)
+static int __devinit init_queue(struct dw_spi *dws)
 {
 	INIT_LIST_HEAD(&dws->queue);
 	spin_lock_init(&dws->lock);
@@ -780,18 +780,18 @@ static void spi_hw_init(struct dw_spi *dws)
 	 */
 	if (!dws->fifo_len) {
 		u32 fifo;
-		for (fifo = 2; fifo <= 257; fifo++) {
+		for (fifo = 1; fifo < 256; fifo++) {
 			dw_writew(dws, DW_SPI_TXFLTR, fifo);
 			if (fifo != dw_readw(dws, DW_SPI_TXFLTR))
 				break;
 		}
 
-		dws->fifo_len = (fifo == 257) ? 0 : fifo;
+		dws->fifo_len = (fifo == 1) ? 0 : fifo;
 		dw_writew(dws, DW_SPI_TXFLTR, 0);
 	}
 }
 
-int dw_spi_add_host(struct dw_spi *dws)
+int __devinit dw_spi_add_host(struct dw_spi *dws)
 {
 	struct spi_master *master;
 	int ret;
@@ -873,7 +873,7 @@ exit:
 }
 EXPORT_SYMBOL_GPL(dw_spi_add_host);
 
-void dw_spi_remove_host(struct dw_spi *dws)
+void __devexit dw_spi_remove_host(struct dw_spi *dws)
 {
 	int status = 0;
 

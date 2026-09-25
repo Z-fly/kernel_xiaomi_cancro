@@ -1,11 +1,27 @@
 #ifndef __INCLUDE_LINUX_OOM_H
 #define __INCLUDE_LINUX_OOM_H
 
+/*
+ * /proc/<pid>/oom_score_adj set to OOM_SCORE_ADJ_MIN disables oom killing for
+ * pid.
+ */
+#define OOM_SCORE_ADJ_MIN	(-1000)
+#define OOM_SCORE_ADJ_MAX	1000
+
+/*
+ * /proc/<pid>/oom_adj set to -17 protects from the oom killer for legacy
+ * purposes.
+ */
+#define OOM_DISABLE (-17)
+/* inclusive */
+#define OOM_ADJUST_MIN (-16)
+#define OOM_ADJUST_MAX 15
+
+#ifdef __KERNEL__
 
 #include <linux/sched.h>
 #include <linux/types.h>
 #include <linux/nodemask.h>
-#include <uapi/linux/oom.h>
 
 struct zonelist;
 struct notifier_block;
@@ -50,13 +66,13 @@ static inline bool oom_task_origin(const struct task_struct *p)
 extern unsigned long oom_badness(struct task_struct *p,
 		struct mem_cgroup *memcg, const nodemask_t *nodemask,
 		unsigned long totalpages);
-
-extern int oom_kills_count(void);
-extern void note_oom_kill(void);
 extern void oom_kill_process(struct task_struct *p, gfp_t gfp_mask, int order,
 			     unsigned int points, unsigned long totalpages,
 			     struct mem_cgroup *memcg, nodemask_t *nodemask,
 			     const char *message);
+
+extern int oom_kills_count(void);
+extern void note_oom_kill(void);
 
 extern int try_set_zonelist_oom(struct zonelist *zonelist, gfp_t gfp_flags);
 extern void clear_zonelist_oom(struct zonelist *zonelist, gfp_t gfp_flags);
@@ -94,4 +110,5 @@ extern void dump_tasks(const struct mem_cgroup *memcg,
 extern int sysctl_oom_dump_tasks;
 extern int sysctl_oom_kill_allocating_task;
 extern int sysctl_panic_on_oom;
+#endif /* __KERNEL__*/
 #endif /* _INCLUDE_LINUX_OOM_H */

@@ -2,6 +2,7 @@
  * Roccat Kone driver for Linux
  *
  * Copyright (c) 2010 Stefan Achatz <erazor_de@users.sourceforge.net>
+ * Copyright (C) 2017 XiaoMi, Inc.
  */
 
 /*

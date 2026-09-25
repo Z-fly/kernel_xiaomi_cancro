@@ -174,6 +174,8 @@ struct snd_usb_midi_in_endpoint {
 		u8 running_status_length;
 	} ports[0x10];
 	u8 seen_f5;
+	bool in_sysex;
+	u8 last_cin;
 	u8 error_resubmit;
 	int current_port;
 };
@@ -465,6 +467,39 @@ static void snd_usbmidi_maudio_broken_running_status_input(
 }
 
 /*
+ * QinHeng CH345 is buggy: every second packet inside a SysEx has not CIN 4
+ * but the previously seen CIN, but still with three data bytes.
+ */
+static void ch345_broken_sysex_input(struct snd_usb_midi_in_endpoint *ep,
+				     uint8_t *buffer, int buffer_length)
+{
+	unsigned int i, cin, length;
+
+	for (i = 0; i + 3 < buffer_length; i += 4) {
+		if (buffer[i] == 0 && i > 0)
+			break;
+		cin = buffer[i] & 0x0f;
+		if (ep->in_sysex &&
+		    cin == ep->last_cin &&
+		    (buffer[i + 1 + (cin == 0x6)] & 0x80) == 0)
+			cin = 0x4;
+#if 0
+		if (buffer[i + 1] == 0x90) {
+			/*
+			 * Either a corrupted running status or a real note-on
+			 * message; impossible to detect reliably.
+			 */
+		}
+#endif
+		length = snd_usbmidi_cin_length[cin];
+		snd_usbmidi_input_data(ep, 0, &buffer[i + 1], length);
+		ep->in_sysex = cin == 0x4;
+		if (!ep->in_sysex)
+			ep->last_cin = cin;
+	}
+}
+
+/*
  * CME protocol: like the standard protocol, but SysEx commands are sent as a
  * single USB packet preceded by a 0x0F byte.
  */
@@ -646,6 +681,12 @@ static struct usb_protocol_ops snd_usbmidi_maudio_broken_running_status_ops = {
 
 static struct usb_protocol_ops snd_usbmidi_cme_ops = {
 	.input = snd_usbmidi_cme_input,
+	.output = snd_usbmidi_standard_output,
+	.output_packet = snd_usbmidi_output_standard_packet,
+};
+
+static struct usb_protocol_ops snd_usbmidi_ch345_broken_sysex_ops = {
+	.input = ch345_broken_sysex_input,
 	.output = snd_usbmidi_standard_output,
 	.output_packet = snd_usbmidi_output_standard_packet,
 };
@@ -1326,6 +1367,7 @@ static int snd_usbmidi_out_endpoint_create(struct snd_usb_midi* umidi,
 		 * Various chips declare a packet size larger than 4 bytes, but
 		 * do not actually work with larger packets:
 		 */
+	case USB_ID(0x0a67, 0x5011): /* Medeli DD305 */
 	case USB_ID(0x0a92, 0x1020): /* ESI M4U */
 	case USB_ID(0x1430, 0x474b): /* RedOctane GH MIDI INTERFACE */
 	case USB_ID(0x15ca, 0x0101): /* Textech USB Midi Cable */
@@ -1446,7 +1488,6 @@ void snd_usbmidi_disconnect(struct list_head* p)
 	}
 	del_timer_sync(&umidi->error_timer);
 }
-EXPORT_SYMBOL(snd_usbmidi_disconnect);
 
 static void snd_usbmidi_rawmidi_free(struct snd_rawmidi *rmidi)
 {
@@ -1457,9 +1498,10 @@ static void snd_usbmidi_rawmidi_free(struct snd_rawmidi *rmidi)
 static struct snd_rawmidi_substream *snd_usbmidi_find_substream(struct snd_usb_midi* umidi,
 								int stream, int number)
 {
-	struct snd_rawmidi_substream *substream;
+	struct list_head* list;
 
-	list_for_each_entry(substream, &umidi->rmidi->streams[stream].substreams, list) {
+	list_for_each(list, &umidi->rmidi->streams[stream].substreams) {
+		struct snd_rawmidi_substream *substream = list_entry(list, struct snd_rawmidi_substream, list);
 		if (substream->number == number)
 			return substream;
 	}
@@ -2082,7 +2124,6 @@ void snd_usbmidi_input_stop(struct list_head* p)
 	}
 	umidi->input_running = 0;
 }
-EXPORT_SYMBOL(snd_usbmidi_input_stop);
 
 static void snd_usbmidi_input_start_ep(struct snd_usb_midi_in_endpoint* ep)
 {
@@ -2112,7 +2153,6 @@ void snd_usbmidi_input_start(struct list_head* p)
 		snd_usbmidi_input_start_ep(umidi->endpoints[i].in);
 	umidi->input_running = 1;
 }
-EXPORT_SYMBOL(snd_usbmidi_input_start);
 
 /*
  * Creates and registers everything needed for a MIDI streaming interface.
@@ -2216,6 +2256,10 @@ int snd_usbmidi_create(struct snd_card *card,
 
 		err = snd_usbmidi_detect_per_port_endpoints(umidi, endpoints);
 		break;
+	case QUIRK_MIDI_CH345:
+		umidi->usb_protocol_ops = &snd_usbmidi_ch345_broken_sysex_ops;
+		err = snd_usbmidi_detect_per_port_endpoints(umidi, endpoints);
+		break;
 	default:
 		snd_printd(KERN_ERR "invalid quirk type %d\n", quirk->type);
 		err = -ENXIO;
@@ -2254,4 +2298,8 @@ int snd_usbmidi_create(struct snd_card *card,
 	list_add_tail(&umidi->list, midi_list);
 	return 0;
 }
+
 EXPORT_SYMBOL(snd_usbmidi_create);
+EXPORT_SYMBOL(snd_usbmidi_input_stop);
+EXPORT_SYMBOL(snd_usbmidi_input_start);
+EXPORT_SYMBOL(snd_usbmidi_disconnect);

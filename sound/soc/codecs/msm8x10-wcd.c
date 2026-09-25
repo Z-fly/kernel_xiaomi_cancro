@@ -1,4 +1,4 @@
-/* Copyright (c) 2013,2015, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2013-2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -27,14 +27,15 @@
 #include <linux/i2c.h>
 #include <linux/of_gpio.h>
 #include <linux/regulator/consumer.h>
-#include <soc/qcom/subsystem_notif.h>
+#include <linux/mfd/wcd9xxx/pdata.h>
 #include <sound/pcm.h>
 #include <sound/pcm_params.h>
 #include <sound/soc.h>
 #include <sound/soc-dapm.h>
 #include <sound/tlv.h>
+#include <mach/qdsp6v2/apr.h>
+#include <mach/subsystem_notif.h>
 #include <sound/q6core.h>
-#include <linux/qdsp6v2/apr.h>
 #include "msm8x10-wcd.h"
 #include "wcd9xxx-resmgr.h"
 #include "msm8x10_wcd_registers.h"
@@ -84,7 +85,6 @@ enum {
 enum {
 	AIF1_PB = 0,
 	AIF1_CAP,
-	AIF2_PB,
 	NUM_CODEC_DAIS,
 };
 
@@ -1183,22 +1183,22 @@ static const struct snd_kcontrol_new msm8x10_wcd_snd_controls[] = {
 	SOC_SINGLE_TLV("HPHR Volume", MSM8X10_WCD_A_RX_HPH_R_GAIN,
 		       0, 12, 1, line_gain),
 
-	SOC_SINGLE_SX_TLV("RX1 Digital Volume",
+	SOC_SINGLE_S8_TLV("RX1 Digital Volume",
 			  MSM8X10_WCD_A_CDC_RX1_VOL_CTL_B2_CTL,
-			0,  -84, 40, digital_gain),
-	SOC_SINGLE_SX_TLV("RX2 Digital Volume",
+			  -84, 40, digital_gain),
+	SOC_SINGLE_S8_TLV("RX2 Digital Volume",
 			  MSM8X10_WCD_A_CDC_RX2_VOL_CTL_B2_CTL,
-			0,  -84, 40, digital_gain),
-	SOC_SINGLE_SX_TLV("RX3 Digital Volume",
+			  -84, 40, digital_gain),
+	SOC_SINGLE_S8_TLV("RX3 Digital Volume",
 			  MSM8X10_WCD_A_CDC_RX3_VOL_CTL_B2_CTL,
-			0, -84, 40, digital_gain),
+			  -84, 40, digital_gain),
 
-	SOC_SINGLE_SX_TLV("DEC1 Volume",
+	SOC_SINGLE_S8_TLV("DEC1 Volume",
 			  MSM8X10_WCD_A_CDC_TX1_VOL_CTL_GAIN,
-			0, -84, 40, digital_gain),
-	SOC_SINGLE_SX_TLV("DEC2 Volume",
+			  -84, 40, digital_gain),
+	SOC_SINGLE_S8_TLV("DEC2 Volume",
 			  MSM8X10_WCD_A_CDC_TX2_VOL_CTL_GAIN,
-			0, -84, 40, digital_gain),
+			  -84, 40, digital_gain),
 
 	SOC_SINGLE_TLV("ADC1 Volume", MSM8X10_WCD_A_TX_1_EN, 2,
 					19, 0, analog_gain),
@@ -1207,18 +1207,18 @@ static const struct snd_kcontrol_new msm8x10_wcd_snd_controls[] = {
 	SOC_SINGLE_TLV("ADC3 Volume", MSM8X10_WCD_A_TX_3_EN, 2,
 					19, 0, analog_gain),
 
-	SOC_SINGLE_SX_TLV("IIR1 INP1 Volume",
+	SOC_SINGLE_S8_TLV("IIR1 INP1 Volume",
 			  MSM8X10_WCD_A_CDC_IIR1_GAIN_B1_CTL,
-			 0, -84, 40, digital_gain),
-	SOC_SINGLE_SX_TLV("IIR1 INP2 Volume",
+			  -84, 40, digital_gain),
+	SOC_SINGLE_S8_TLV("IIR1 INP2 Volume",
 			  MSM8X10_WCD_A_CDC_IIR1_GAIN_B2_CTL,
-			0, -84, 40, digital_gain),
-	SOC_SINGLE_SX_TLV("IIR1 INP3 Volume",
+			  -84, 40, digital_gain),
+	SOC_SINGLE_S8_TLV("IIR1 INP3 Volume",
 			  MSM8X10_WCD_A_CDC_IIR1_GAIN_B3_CTL,
-			0, -84, 40, digital_gain),
-	SOC_SINGLE_SX_TLV("IIR1 INP4 Volume",
+			  -84, 40, digital_gain),
+	SOC_SINGLE_S8_TLV("IIR1 INP4 Volume",
 			  MSM8X10_WCD_A_CDC_IIR1_GAIN_B4_CTL,
-			0, -84,	40, digital_gain),
+			  -84,	40, digital_gain),
 
 	SOC_ENUM("TX1 HPF cut off", cf_dec1_enum),
 	SOC_ENUM("TX2 HPF cut off", cf_dec2_enum),
@@ -1464,7 +1464,10 @@ static int msm8x10_wcd_put_dec_enum(struct snd_kcontrol *kcontrol,
 	switch (decimator) {
 	case 1:
 	case 2:
-			adc_dmic_sel = 0x0;
+			if ((dec_mux == 3) || (dec_mux == 4))
+				adc_dmic_sel = 0x1;
+			else
+				adc_dmic_sel = 0x0;
 		break;
 	default:
 		dev_err(codec->dev, "%s: Invalid Decimator = %u\n",
@@ -2353,20 +2356,6 @@ static struct snd_soc_dai_driver msm8x10_wcd_i2s_dai[] = {
 		},
 		.ops = &msm8x10_wcd_dai_ops,
 	},
-	{
-		.name = "msm8x10_wcd_i2s_rx2",
-		.id = AIF2_PB,
-		.playback = {
-			.stream_name = "AIF2 Playback",
-			.rates = MSM8X10_WCD_RATES,
-			.formats = MSM8X10_WCD_FORMATS,
-			.rate_max = 192000,
-			.rate_min = 8000,
-			.channels_min = 1,
-			.channels_max = 3,
-		},
-		.ops = &msm8x10_wcd_dai_ops,
-	},
 };
 
 static int msm8x10_wcd_codec_enable_ear_pa(struct snd_soc_dapm_widget *w,
@@ -2410,7 +2399,7 @@ static const struct snd_soc_dapm_widget msm8x10_wcd_dapm_widgets[] = {
 
 	SND_SOC_DAPM_AIF_IN("I2S RX2", "AIF1 Playback", 0, SND_SOC_NOPM, 0, 0),
 
-	SND_SOC_DAPM_AIF_IN("I2S RX3", "AIF2 Playback", 0, SND_SOC_NOPM, 0, 0),
+	SND_SOC_DAPM_AIF_IN("I2S RX3", "AIF1 Playback", 0, SND_SOC_NOPM, 0, 0),
 
 	SND_SOC_DAPM_SUPPLY("INT_LDO_H", SND_SOC_NOPM, 1, 0, NULL, 0),
 
@@ -2959,8 +2948,8 @@ static int msm8x10_wcd_setup_zdet(struct wcd9xxx_mbhc *mbhc,
 	 } while (0)
 
 	switch (stage) {
-	case MBHC_ZDET_PRE_MEASURE:
-		dev_dbg(codec->dev, "%s: MBHC_ZDET_PRE_MEASURE\n", __func__);
+	case PRE_MEAS:
+		dev_dbg(codec->dev, "%s: PRE_MEAS\n", __func__);
 		INIT_LIST_HEAD(&wcd_priv->reg_save_restore);
 		/* Configure PA */
 		msm8x10_wcd_prepare_hph_pa(mbhc->codec,
@@ -3013,8 +3002,8 @@ static int msm8x10_wcd_setup_zdet(struct wcd9xxx_mbhc *mbhc,
 		msm8x10_wcd_enable_static_pa(mbhc->codec, true);
 		break;
 
-	case MBHC_ZDET_POST_MEASURE:
-		dev_dbg(codec->dev, "%s: MBHC_ZDET_POST_MEASURE\n", __func__);
+	case POST_MEAS:
+		dev_dbg(codec->dev, "%s: POST_MEAS\n", __func__);
 		/* Turn off ICAL */
 		snd_soc_write(codec, WCD9XXX_A_MBHC_SCALING_MUX_2, 0xF0);
 
@@ -3060,14 +3049,10 @@ static int msm8x10_wcd_setup_zdet(struct wcd9xxx_mbhc *mbhc,
 		usleep_range(mux_wait_us,
 				mux_wait_us + WCD9XXX_USLEEP_RANGE_MARGIN_US);
 		break;
-	case MBHC_ZDET_PA_DISABLE:
-		dev_dbg(codec->dev, "%s: MBHC_ZDET_PA_DISABLE\n", __func__);
+	case PA_DISABLE:
+		dev_dbg(codec->dev, "%s: PA_DISABLE\n", __func__);
 		msm8x10_wcd_enable_static_pa(mbhc->codec, false);
 		wcd9xxx_restore_registers(codec, &wcd_priv->reg_save_restore);
-		break;
-	default:
-		dev_dbg(codec->dev, "%s: Case %d not supported\n",
-			__func__, stage);
 		break;
 	}
 #undef __wr
@@ -3075,17 +3060,12 @@ static int msm8x10_wcd_setup_zdet(struct wcd9xxx_mbhc *mbhc,
 	return ret;
 }
 
-static void msm8x10_wcd_compute_impedance(struct wcd9xxx_mbhc *mbhc, s16 *l,
-					  s16 *r, uint32_t *zl, uint32_t *zr)
+static void msm8x10_wcd_compute_impedance(s16 *l, s16 *r, uint32_t *zl,
+					  uint32_t *zr)
 {
 	int zln, zld;
 	int zrn, zrd;
 	int rl = 0, rr = 0;
-
-	if (!mbhc) {
-		pr_err("%s: NULL pointer for MBHC", __func__);
-		return;
-	}
 
 	zln = (l[1] - l[0]) * MSM8X10_WCD_ZDET_MUL_FACTOR;
 	zld = (l[2] - l[0]);
@@ -3223,16 +3203,10 @@ static int adsp_state_callback(struct notifier_block *nb, unsigned long value,
 {
 	bool timedout;
 	unsigned long timeout;
-	static bool booted_once;
 
 	if (value == SUBSYS_BEFORE_SHUTDOWN)
 		msm8x10_wcd_device_down(registered_codec);
 	else if (value == SUBSYS_AFTER_POWERUP) {
-
-		if (!booted_once) {
-			booted_once = true;
-			return NOTIFY_OK;
-		}
 		pr_debug("%s: ADSP is about to power up. bring up codec\n",
 			 __func__);
 
@@ -3337,7 +3311,7 @@ static int msm8x10_wcd_codec_probe(struct snd_soc_codec *codec)
 	core_res = &msm8x10_wcd->wcd9xxx_res;
 	ret = wcd9xxx_resmgr_init(&msm8x10_wcd_priv->resmgr,
 				codec, core_res, NULL, &pdata->micbias,
-				NULL, NULL, WCD9XXX_CDC_TYPE_HELICON);
+				NULL, WCD9XXX_CDC_TYPE_HELICON);
 	if (ret) {
 		dev_err(codec->dev,
 				"%s: wcd9xxx init failed %d\n",
@@ -3629,7 +3603,7 @@ static struct intr_data interrupt_table[] = {
 	{MSM8X10_WCD_IRQ_RESERVED_6, false},
 };
 
-static int msm8x10_wcd_i2c_probe(struct i2c_client *client,
+static int __devinit msm8x10_wcd_i2c_probe(struct i2c_client *client,
 			const struct i2c_device_id *id)
 {
 	int ret = 0;
@@ -3776,7 +3750,7 @@ static void msm8x10_wcd_device_exit(struct msm8x10_wcd *msm8x10)
 	kfree(msm8x10);
 }
 
-static int msm8x10_wcd_i2c_remove(struct i2c_client *client)
+static int __devexit msm8x10_wcd_i2c_remove(struct i2c_client *client)
 {
 	struct msm8x10_wcd *msm8x10 = dev_get_drvdata(&client->dev);
 
@@ -3855,7 +3829,7 @@ static struct i2c_driver msm8x10_wcd_i2c_driver = {
 	},
 	.id_table               = msm8x10_wcd_id_table,
 	.probe                  = msm8x10_wcd_i2c_probe,
-	.remove                 = msm8x10_wcd_i2c_remove,
+	.remove                 = __devexit_p(msm8x10_wcd_i2c_remove),
 };
 
 static int __init msm8x10_wcd_codec_init(void)
